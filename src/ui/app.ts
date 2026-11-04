@@ -6,6 +6,7 @@ import {
   type Issue,
   type PluginToUiMessage,
   type PreviewFrame,
+  type PreviewRoot,
   type ScanProgress,
   type ScanResult,
   type ScanScope,
@@ -146,6 +147,8 @@ const state = {
   settings: { ...DEFAULT_SETTINGS, locale: detectLocale() } as Settings,
   i18n: new I18n(detectLocale()),
   selectionCount: 0,
+  /** Identifiants des calques sélectionnés sur le canvas (50 premiers). */
+  selectionIds: [] as string[],
   fileName: '',
   pageName: '',
   pageCount: 1,
@@ -183,7 +186,10 @@ const state = {
     pan: { x: 0, y: 0 },
     fit: true,
     rootId: null as string | null,
+    /** Racine choisie dans le sélecteur ; null = comportement par défaut (sélection, sinon cadres concernés). */
+    explicitRootId: null as string | null,
     frames: [] as PreviewView[],
+    roots: [] as PreviewRoot[],
     skipped: 0,
     loading: false,
     requestId: 0,
@@ -1149,6 +1155,7 @@ function renderSettings(): HTMLElement {
       { class: 'pop-section stack' },
       checkbox(t('setRowCounts'), s.showRowCounts, (v) => update(() => (s.showRowCounts = v), false)),
       checkbox(t('optIncludeLibraries'), o.includeLibraries, (v) => update(() => (o.includeLibraries = v))),
+      checkbox(t('setCompareFollow'), s.compareFollowsSelection, (v) => update(() => ((s.compareFollowsSelection = v), (state.compare.explicitRootId = null)), false)),
     ),
     el(
       'details',
@@ -1453,7 +1460,9 @@ function schedulePreview() {
   const c = state.compare;
   if (!c.open || state.collapsed || state.phase !== 'results') return;
   const items = previewItems();
-  const sig = items.map((i) => `${i.issueId}#${i.alternativeId ?? ''}`).join('|');
+  const follow = state.settings.compareFollowsSelection;
+  const target = c.explicitRootId ? `root:${c.explicitRootId}` : follow ? `sel:${state.selectionIds.join(',')}` : 'frames';
+  const sig = `${target}//${items.map((i) => `${i.issueId}#${i.alternativeId ?? ''}`).join('|')}`;
   if (sig === lastPreviewSig) return;
   lastPreviewSig = sig;
   clearTimeout(c.timer);
@@ -1471,7 +1480,7 @@ function schedulePreview() {
   cmpStage?.classList.add('is-loading');
   c.timer = window.setTimeout(() => {
     const requestId = ++c.requestId;
-    send({ type: 'preview', requestId, items, maxRoots: 4 });
+    send({ type: 'preview', requestId, items, maxRoots: 4, rootId: c.explicitRootId, followSelection: follow });
   }, 250);
 }
 
@@ -1479,10 +1488,11 @@ function releaseFrames() {
   for (const f of state.compare.frames) for (const u of f.urls) URL.revokeObjectURL(u);
 }
 
-function receivePreview(frames: PreviewFrame[], skipped: number) {
+function receivePreview(frames: PreviewFrame[], skipped: number, roots: PreviewRoot[]) {
   const c = state.compare;
   releaseFrames();
-  const previousRoot = c.rootId;
+  const previousRoot = c.explicitRootId ?? c.rootId;
+  c.roots = roots;
   c.frames = frames.map((f) => {
     const beforeUrl = URL.createObjectURL(new Blob([f.before as BlobPart], { type: 'image/png' }));
     const afterUrl = URL.createObjectURL(new Blob([f.after as BlobPart], { type: 'image/png' }));
@@ -1596,7 +1606,7 @@ function renderCompare(): HTMLElement {
   const tools = el(
     'div',
     { class: 'cmp-tools' },
-    c.frames.length > 1
+    c.roots.length > 1
       ? el(
           'div',
           { class: 'select cmp-frame', title: t('cmpFrame') },
@@ -1604,16 +1614,12 @@ function renderCompare(): HTMLElement {
             'select',
             {
               'aria-label': t('cmpFrame'),
-              onchange: (e) => {
-                c.rootId = (e.target as HTMLSelectElement).value;
-                c.fit = true;
-                render();
-              },
+              onchange: (e) => chooseRoot((e.target as HTMLSelectElement).value),
             },
-            ...c.frames.map((f) => el('option', { value: f.rootId, selected: f.rootId === frame?.rootId }, `${f.name} (${f.issueIds.length})`)),
+            ...c.roots.map((r) => el('option', { value: r.id, selected: r.id === frame?.rootId }, `${r.kind === 'selection' ? `${t('cmpSelection')} · ` : ''}${r.name} (${r.count})`)),
           ),
         )
-      : el('span', { class: 'cmp-frame-name ellipsis', title: frame?.name ?? '' }, frame?.name ?? ''),
+      : el('span', { class: 'cmp-frame-name ellipsis', title: frame?.name ?? '' }, frame ? `${c.roots[0]?.kind === 'selection' ? `${t('cmpSelection')} · ` : ''}${frame.name}` : ''),
     el('span', { class: 'grow' }),
     c.mode === 'overlay'
       ? el(
@@ -1663,13 +1669,30 @@ function renderCompare(): HTMLElement {
   return aside;
 }
 
+/** Changement de racine : si elle est déjà rendue on bascule, sinon on la demande au sandbox. */
+function chooseRoot(id: string) {
+  const c = state.compare;
+  const root = c.roots.find((r) => r.id === id);
+  // Revenir à la sélection = retour au comportement par défaut (toutes les racines sélectionnées sont rendues).
+  c.explicitRootId = root?.kind === 'selection' && state.settings.compareFollowsSelection ? null : id;
+  c.fit = true;
+  if (c.frames.some((f) => f.rootId === id)) {
+    c.rootId = id;
+    render();
+    return;
+  }
+  c.rootId = id;
+  schedulePreview();
+  render();
+}
+
 function compareFootText(): { main: string; diff: string } {
   const c = state.compare;
   const frame = currentFrame();
   if (!frame) return { main: c.loading ? t('cmpLoading') : '', diff: '' };
   const n = frame.issueIds.length;
-  let main = n === 1 ? t('cmpFootOne', { frame: frame.name }) : t('cmpFoot', { n, frame: frame.name });
-  const outside = c.skipped + c.frames.filter((f) => f !== frame).reduce((s, f) => s + f.issueIds.length, 0);
+  let main = n === 0 ? t('cmpNoneIn', { frame: frame.name }) : n === 1 ? t('cmpFootOne', { frame: frame.name }) : t('cmpFoot', { n, frame: frame.name });
+  const outside = Math.max(0, previewItems().length - n);
   if (outside) main += ` · ${t('cmpSkipped', { n: outside })}`;
   if (frame.failed) main += ` · ${t('cmpFailed', { n: frame.failed })}`;
   if (c.loading) main = t('cmpLoading');
@@ -1978,14 +2001,20 @@ window.onmessage = (event: MessageEvent) => {
       startScan(); // comme Check designs : l'analyse démarre immédiatement
       break;
     }
-    case 'selection':
+    case 'selection': {
       state.selectionCount = msg.count;
-      if (state.phase === 'results' && (state.scannedSelection || (state.settings.scope === 'auto' && msg.count > 0))) {
+      const changed = msg.ids.join('|') !== state.selectionIds.join('|');
+      state.selectionIds = msg.ids;
+      // Une nouvelle sélection sur le canvas redevient la racine par défaut du volet Comparer.
+      if (changed && msg.count > 0) state.compare.explicitRootId = null;
+      if (!msg.programmatic && state.phase === 'results' && (state.scannedSelection || (state.settings.scope === 'auto' && msg.count > 0))) {
         state.selectionChangedSinceScan = true;
         const existing = app.querySelector('.notice');
         if (!existing) render();
       }
+      if (changed) schedulePreview();
       break;
+    }
     case 'page-changed':
       state.pageName = msg.pageName;
       break;
@@ -2022,7 +2051,7 @@ window.onmessage = (event: MessageEvent) => {
       onUndoDone(msg.issueIds);
       break;
     case 'preview-done':
-      if (msg.requestId === state.compare.requestId) receivePreview(msg.frames, msg.skipped);
+      if (msg.requestId === state.compare.requestId) receivePreview(msg.frames, msg.skipped, msg.roots);
       break;
     case 'preview-error':
       if (msg.requestId === state.compare.requestId) {

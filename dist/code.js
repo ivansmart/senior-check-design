@@ -105,6 +105,7 @@
     disabledRules: [],
     enabledRules: [],
     autoApply: "exact",
+    compareFollowsSelection: true,
     window: { width: 680, height: 640 }
   };
 
@@ -300,15 +301,39 @@
   var MAX_EDGE = 1400;
   var PREVIEW_TAG = "scd:preview-clone";
   var FAR = 2e5;
-  function previewRootOf(node) {
+  var isScene = (n) => Boolean(n) && n.type !== "PAGE" && n.type !== "DOCUMENT";
+  function pageOf(node) {
+    let p = node;
+    while (p && p.type !== "PAGE") p = p.parent;
+    return p != null ? p : null;
+  }
+  function topLevelRootOf(node) {
     let n = node;
     while (n.parent && n.parent.type !== "PAGE" && n.parent.type !== "DOCUMENT" && n.parent.type !== "SECTION") n = n.parent;
     return n;
   }
+  function cloneableRoot(node) {
+    let root = node;
+    let p = node.parent;
+    while (p && isScene(p)) {
+      if (p.type === "INSTANCE" || p.type === "COMPONENT") root = p;
+      p = p.parent;
+    }
+    if (root.parent && root.parent.type === "COMPONENT_SET") root = root.parent;
+    return root;
+  }
+  function isWithin(node, root) {
+    let n = node;
+    while (n && isScene(n)) {
+      if (n.id === root.id) return true;
+      n = n.parent;
+    }
+    return false;
+  }
   function indexPath(root, node) {
     const path = [];
     let n = node;
-    while (n !== root) {
+    while (n.id !== root.id) {
       const parent = n.parent;
       if (!parent || !("children" in parent)) return null;
       const idx = parent.children.indexOf(n);
@@ -331,71 +356,121 @@
   function exportPng(node, scale) {
     return node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: scale } });
   }
-  async function renderPreview(items, maxRoots) {
-    var _a;
-    const groups = /* @__PURE__ */ new Map();
-    let located = 0;
-    for (const item of items) {
-      const node = await figma.getNodeByIdAsync(item.nodeId);
-      if (!node || node.type === "DOCUMENT" || node.type === "PAGE" || node.removed) continue;
-      const root = previewRootOf(node);
-      const path = indexPath(root, node);
-      if (!path) continue;
-      const group = (_a = groups.get(root.id)) != null ? _a : { root, items: [] };
-      group.items.push({ item, path });
-      groups.set(root.id, group);
-      located++;
-    }
-    const ordered = [...groups.values()].sort((a, b) => b.items.length - a.items.length).slice(0, maxRoots);
-    const frames = [];
-    let rendered = 0;
-    for (const group of ordered) {
-      const { root } = group;
-      if (!("width" in root) || root.width <= 0 || root.height <= 0) continue;
-      const scale = Math.min(2, MAX_EDGE / Math.max(root.width, root.height));
-      const before = await exportPng(root, scale);
-      let clone2 = null;
-      let applied = 0;
-      let failed = 0;
-      try {
-        clone2 = root.clone();
-        clone2.setPluginData(PREVIEW_TAG, "1");
-        clone2.name = root.name;
-        clone2.x = root.x + FAR;
-        clone2.y = root.y + FAR;
-        clone2.locked = true;
-        for (const { item, path } of group.items) {
-          const target = follow(clone2, path);
-          if (!target) {
-            failed++;
-            continue;
-          }
-          try {
-            await applyPlan(item.issueId, { ...item.plan, nodeId: target.id });
-            applied++;
-          } catch {
-            failed++;
-          }
-        }
-        const after = await exportPng(clone2, scale);
-        frames.push({
-          rootId: root.id,
-          name: root.name,
-          width: root.width,
-          height: root.height,
-          scale,
-          before,
-          after,
-          applied,
-          failed,
-          issueIds: group.items.map((g) => g.item.issueId)
-        });
-        rendered += group.items.length;
-      } finally {
-        if (clone2 && !clone2.removed) clone2.remove();
+  async function copyResolvedModes(from, to) {
+    try {
+      for (const [collectionId, modeId] of Object.entries(from.resolvedVariableModes)) {
+        const collection = await figma.variables.getVariableCollectionByIdAsync(collectionId);
+        if (collection) to.setExplicitVariableModeForCollection(collection, modeId);
       }
+    } catch {
     }
-    return { frames, skipped: located - rendered };
+  }
+  function selectionRoots() {
+    const selection = figma.currentPage.selection;
+    const ids = new Set(selection.map((n) => n.id));
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const node of selection) {
+      let nested = false;
+      let p = node.parent;
+      while (p && isScene(p)) {
+        if (ids.has(p.id)) {
+          nested = true;
+          break;
+        }
+        p = p.parent;
+      }
+      if (nested) continue;
+      const root = cloneableRoot(node);
+      if (seen.has(root.id)) continue;
+      seen.add(root.id);
+      out.push(root);
+    }
+    return out;
+  }
+  async function renderRoot(root, located) {
+    if (!("width" in root) || root.width <= 0 || root.height <= 0) return null;
+    const page = pageOf(root);
+    if (!page) return null;
+    const inside = located.filter(({ node }) => isWithin(node, root));
+    const scale = Math.min(4, MAX_EDGE / Math.max(root.width, root.height));
+    const before = await exportPng(root, scale);
+    let clone2 = null;
+    let applied = 0;
+    let failed = 0;
+    try {
+      const paths = inside.map(({ item, node }) => ({ item, path: indexPath(root, node) }));
+      clone2 = root.clone();
+      clone2.setPluginData(PREVIEW_TAG, "1");
+      clone2.name = root.name;
+      page.appendChild(clone2);
+      clone2.x = FAR;
+      clone2.y = FAR;
+      clone2.locked = true;
+      await copyResolvedModes(root, clone2);
+      for (const { item, path } of paths) {
+        const target = path ? follow(clone2, path) : null;
+        if (!target) {
+          failed++;
+          continue;
+        }
+        try {
+          await applyPlan(item.issueId, { ...item.plan, nodeId: target.id });
+          applied++;
+        } catch {
+          failed++;
+        }
+      }
+      const after = await exportPng(clone2, scale);
+      return { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) };
+    } finally {
+      if (clone2 && !clone2.removed) clone2.remove();
+    }
+  }
+  async function renderPreview(req) {
+    var _a, _b;
+    const located = [];
+    for (const item of req.items) {
+      const node = await figma.getNodeByIdAsync(item.nodeId);
+      if (!isScene(node) || node.removed) continue;
+      located.push({ item, node });
+    }
+    const countIn = (root) => located.filter(({ node }) => isWithin(node, root)).length;
+    const byCount = (a, b) => countIn(b) - countIn(a);
+    const selected = req.followSelection || req.rootId ? selectionRoots() : [];
+    const selectedIds = new Set(selected.map((r) => r.id));
+    const frameRoots = /* @__PURE__ */ new Map();
+    for (const { node } of located) {
+      const root = cloneableRoot(topLevelRootOf(node));
+      if (!selectedIds.has(root.id)) frameRoots.set(root.id, root);
+    }
+    const frames = [...frameRoots.values()].sort(byCount);
+    const roots = [
+      ...selected.map((r) => ({ id: r.id, name: r.name, count: countIn(r), kind: "selection" })),
+      ...frames.map((r) => ({ id: r.id, name: r.name, count: countIn(r), kind: "frame" }))
+    ];
+    let toRender;
+    if (req.rootId) {
+      let root = (_b = (_a = selected.find((r) => r.id === req.rootId)) != null ? _a : frameRoots.get(req.rootId)) != null ? _b : null;
+      if (!root) {
+        const node = await figma.getNodeByIdAsync(req.rootId);
+        if (isScene(node) && !node.removed) root = cloneableRoot(node);
+      }
+      toRender = root ? [root] : [];
+    } else if (req.followSelection && selected.length) {
+      toRender = [...selected].sort(byCount).slice(0, req.maxRoots);
+    } else {
+      toRender = frames.slice(0, req.maxRoots);
+    }
+    const out = [];
+    let rendered = 0;
+    for (const root of toRender) {
+      const frame = await renderRoot(root, located);
+      if (!frame) continue;
+      out.push(frame);
+      rendered += frame.issueIds.length;
+    }
+    return { frames: out, skipped: Math.max(0, located.length - rendered), roots };
   }
   function sweepPreviewClones() {
     let removed = 0;
@@ -684,14 +759,14 @@
     ctx.ancestorsCache.set(node.id, out);
     return out;
   }
-  function pageOf(node) {
+  function pageOf2(node) {
     let p = node;
     while (p && p.type !== "PAGE") p = p.parent;
     return p != null ? p : null;
   }
   function pathOf(node, ctx) {
     const anc = ancestors(node, ctx);
-    const page = pageOf(node);
+    const page = pageOf2(node);
     const names = anc.map((a) => a.name).reverse();
     return page ? [page.name, ...names] : names;
   }
@@ -758,7 +833,7 @@
         layers.push({ rgb, alpha });
       }
     }
-    const page = pageOf(node);
+    const page = pageOf2(node);
     if (page) {
       const bg = page.backgrounds.find((p) => p.visible !== false && p.type === "SOLID");
       if (bg) return { kind: "solid", rgb: flatten(layers, { r: bg.color.r, g: bg.color.g, b: bg.color.b }) };
@@ -2202,7 +2277,7 @@
     var _a, _b, _c, _d, _e;
     const meta = RULE_BY_ID[raw.ruleId];
     const id = `${raw.ruleId}::${raw.node.id}::${(_a = raw.slot) != null ? _a : ""}`;
-    const page = pageOf(raw.node);
+    const page = pageOf2(raw.node);
     const severity = (_b = raw.severity) != null ? _b : meta.severity;
     return {
       id,
@@ -2352,6 +2427,7 @@
   var batchCounter = 0;
   var previewRunning = false;
   var previewPending = null;
+  var programmaticSelectionKey = "";
   var post = (msg) => figma.ui.postMessage(msg);
   var clamp = (v, min, max) => Math.round(Math.min(max, Math.max(min, v)));
   function clampWindow(w, h) {
@@ -2455,8 +2531,15 @@
       figma.notify("Ce calque n\u2019existe plus.", { timeout: 2e3 });
       return;
     }
+    programmaticSelectionKey = selectionKey(nodes);
     figma.currentPage.selection = nodes;
     revealNodes(nodes, uiSize);
+  }
+  var selectionKey = (nodes) => nodes.map((n) => n.id).sort().join("|");
+  function postSelection() {
+    const sel = figma.currentPage.selection;
+    const key = selectionKey(sel);
+    post({ type: "selection", count: sel.length, ids: sel.slice(0, 50).map((n) => n.id), programmatic: key !== "" && key === programmaticSelectionKey });
   }
   function planFor(issueId, alternativeId) {
     var _a;
@@ -2511,6 +2594,7 @@
     post({ type: "undo-done", batchId, issueIds: restored });
   }
   async function handlePreview(msg) {
+    var _a;
     if (previewRunning) {
       previewPending = msg;
       return;
@@ -2523,8 +2607,8 @@
         const plan = planFor(issueId, alternativeId);
         if (issue && plan && issue.status === "open") items.push({ issueId, nodeId: issue.nodeId, plan });
       }
-      const out = await renderPreview(items, clamp(msg.maxRoots, 1, 6));
-      post({ type: "preview-done", requestId: msg.requestId, frames: out.frames, skipped: out.skipped });
+      const out = await renderPreview({ items, maxRoots: clamp(msg.maxRoots, 1, 6), rootId: (_a = msg.rootId) != null ? _a : null, followSelection: msg.followSelection });
+      post({ type: "preview-done", requestId: msg.requestId, frames: out.frames, skipped: out.skipped, roots: out.roots });
     } catch (e) {
       post({ type: "preview-error", requestId: msg.requestId, message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -2596,7 +2680,7 @@
         break;
     }
   };
-  figma.on("selectionchange", () => post({ type: "selection", count: figma.currentPage.selection.length }));
+  figma.on("selectionchange", postSelection);
   figma.on("currentpagechange", () => post({ type: "page-changed", pageName: figma.currentPage.name }));
   (async () => {
     settings = await loadSettings();

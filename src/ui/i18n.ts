@@ -299,6 +299,9 @@ const fr: Dictionary = {
     cmpNoDiff: 'Aucune différence visible',
     cmpError: 'Aperçu impossible : {message}',
     cmpHint: 'Molette : déplacer · Ctrl/⌘ + molette : zoomer · Double-clic : ajuster',
+    cmpSelection: 'Sélection',
+    cmpNoneIn: 'Aucune correction dans « {frame} »',
+    setCompareFollow: 'Comparer : suivre l’élément sélectionné sur le canvas',
   },
   categories: {
     colors: 'Couleurs',
@@ -852,6 +855,9 @@ const en: Dictionary = {
     cmpNoDiff: 'No visible difference',
     cmpError: 'Preview failed: {message}',
     cmpHint: 'Wheel: pan · Ctrl/⌘ + wheel: zoom · Double-click: fit',
+    cmpSelection: 'Selection',
+    cmpNoneIn: 'No fix in “{frame}”',
+    setCompareFollow: 'Compare: follow the layer selected on the canvas',
   },
   categories: {
     colors: 'Colors',

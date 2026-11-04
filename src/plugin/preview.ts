@@ -1,10 +1,15 @@
 /// <reference types="@figma/plugin-typings" />
 /**
- * Aperçu avant / après : on clone le cadre racine hors écran, on applique les
- * plans de correction sur le clone, on exporte les deux en PNG, puis on
- * supprime le clone. Le document revient exactement à son état initial.
+ * Aperçu avant / après : on clone la racine d'aperçu, on la déplace hors écran
+ * sur sa page, on applique les plans de correction sur le clone, on exporte
+ * l'original et le clone en PNG, puis on supprime le clone. Le document
+ * revient exactement à son état initial.
+ *
+ * Racines d'aperçu, par ordre de priorité : la racine demandée explicitement,
+ * les éléments sélectionnés sur le canvas (si demandé), sinon les cadres
+ * racines (sous la page) des calques concernés.
  */
-import type { PreviewFrame } from '../shared/types';
+import type { PreviewFrame, PreviewRoot } from '../shared/types';
 import { applyPlan } from './fix/apply';
 import type { FixPlan } from './fix/plans';
 
@@ -14,10 +19,21 @@ export interface PreviewItem {
   plan: FixPlan;
 }
 
+export interface PreviewRequest {
+  items: PreviewItem[];
+  maxRoots: number;
+  /** Racine choisie explicitement par l'utilisateur (sélecteur du volet). */
+  rootId: string | null;
+  /** Rendre les éléments sélectionnés sur le canvas plutôt que les cadres concernés. */
+  followSelection: boolean;
+}
+
 export interface PreviewOutput {
   frames: PreviewFrame[];
-  /** Corrections non rendues (cadre au-delà de `maxRoots`, calque disparu). */
+  /** Corrections non rendues (hors des racines rendues, calque disparu). */
   skipped: number;
+  /** Racines disponibles pour le sélecteur : sélection d'abord, puis cadres concernés. */
+  roots: PreviewRoot[];
 }
 
 /** Côté maximal (px image) d'un export, pour borner mémoire et temps de rendu. */
@@ -27,19 +43,54 @@ const PREVIEW_TAG = 'scd:preview-clone';
 const FAR = 200000;
 
 type Parent = BaseNode & ChildrenMixin;
+type Located = { item: PreviewItem; node: SceneNode };
 
-/** Cadre racine d'aperçu : l'ancêtre direct sous la page (ou sous une section). */
-function previewRootOf(node: SceneNode): SceneNode {
+const isScene = (n: BaseNode | null | undefined): n is SceneNode => Boolean(n) && n!.type !== 'PAGE' && n!.type !== 'DOCUMENT';
+
+function pageOf(node: SceneNode): PageNode | null {
+  let p: BaseNode | null = node;
+  while (p && p.type !== 'PAGE') p = p.parent;
+  return (p as PageNode | null) ?? null;
+}
+
+/** Cadre racine par défaut : l'ancêtre direct sous la page (ou sous une section). */
+function topLevelRootOf(node: SceneNode): SceneNode {
   let n: SceneNode = node;
   while (n.parent && n.parent.type !== 'PAGE' && n.parent.type !== 'DOCUMENT' && n.parent.type !== 'SECTION') n = n.parent as SceneNode;
   return n;
+}
+
+/**
+ * Racine clonable : un clone ne peut pas vivre dans une instance, et cloner
+ * l'enfant d'un composant principal ou une variante seule perturbe le
+ * composant. On remonte donc à l'instance ou au composant le plus extérieur,
+ * puis au jeu de variantes s'il y a lieu.
+ */
+function cloneableRoot(node: SceneNode): SceneNode {
+  let root: SceneNode = node;
+  let p: BaseNode | null = node.parent;
+  while (p && isScene(p)) {
+    if (p.type === 'INSTANCE' || p.type === 'COMPONENT') root = p;
+    p = p.parent;
+  }
+  if (root.parent && root.parent.type === 'COMPONENT_SET') root = root.parent as SceneNode;
+  return root;
+}
+
+function isWithin(node: SceneNode, root: SceneNode): boolean {
+  let n: BaseNode | null = node;
+  while (n && isScene(n)) {
+    if (n.id === root.id) return true;
+    n = n.parent;
+  }
+  return false;
 }
 
 /** Chemin d'indices de `root` vers `node`, pour retrouver le calque homologue dans le clone. */
 function indexPath(root: SceneNode, node: SceneNode): number[] | null {
   const path: number[] = [];
   let n: SceneNode = node;
-  while (n !== root) {
+  while (n.id !== root.id) {
     const parent = n.parent as Parent | null;
     if (!parent || !('children' in parent)) return null;
     const idx = parent.children.indexOf(n);
@@ -65,75 +116,131 @@ function exportPng(node: SceneNode, scale: number): Promise<Uint8Array> {
   return node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
 }
 
-interface Group {
-  root: SceneNode;
-  items: { item: PreviewItem; path: number[] }[];
+/** Le clone, déplacé sur la page, doit résoudre les mêmes modes de variables que l'original dans son contexte. */
+async function copyResolvedModes(from: SceneNode, to: SceneNode) {
+  try {
+    for (const [collectionId, modeId] of Object.entries(from.resolvedVariableModes)) {
+      const collection = await figma.variables.getVariableCollectionByIdAsync(collectionId);
+      if (collection) to.setExplicitVariableModeForCollection(collection, modeId);
+    }
+  } catch {
+    /* collection inaccessible : on garde la résolution par défaut */
+  }
 }
 
-export async function renderPreview(items: PreviewItem[], maxRoots: number): Promise<PreviewOutput> {
-  const groups = new Map<string, Group>();
-  let located = 0;
-  for (const item of items) {
-    const node = await figma.getNodeByIdAsync(item.nodeId);
-    if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE' || (node as SceneNode).removed) continue;
-    const root = previewRootOf(node as SceneNode);
-    const path = indexPath(root, node as SceneNode);
-    if (!path) continue;
-    const group = groups.get(root.id) ?? { root, items: [] };
-    group.items.push({ item, path });
-    groups.set(root.id, group);
-    located++;
-  }
-  const ordered = [...groups.values()].sort((a, b) => b.items.length - a.items.length).slice(0, maxRoots);
-  const frames: PreviewFrame[] = [];
-  let rendered = 0;
-  for (const group of ordered) {
-    const { root } = group;
-    if (!('width' in root) || root.width <= 0 || root.height <= 0) continue;
-    const scale = Math.min(2, MAX_EDGE / Math.max(root.width, root.height));
-    const before = await exportPng(root, scale);
-    let clone: SceneNode | null = null;
-    let applied = 0;
-    let failed = 0;
-    try {
-      clone = root.clone();
-      clone.setPluginData(PREVIEW_TAG, '1');
-      clone.name = root.name;
-      clone.x = root.x + FAR;
-      clone.y = root.y + FAR;
-      clone.locked = true;
-      for (const { item, path } of group.items) {
-        const target = follow(clone, path);
-        if (!target) {
-          failed++;
-          continue;
-        }
-        try {
-          await applyPlan(item.issueId, { ...item.plan, nodeId: target.id } as FixPlan);
-          applied++;
-        } catch {
-          failed++;
-        }
+/** Éléments sélectionnés, sans ceux imbriqués dans un autre élément sélectionné, ramenés à une racine clonable. */
+function selectionRoots(): SceneNode[] {
+  const selection = figma.currentPage.selection;
+  const ids = new Set(selection.map((n) => n.id));
+  const out: SceneNode[] = [];
+  const seen = new Set<string>();
+  for (const node of selection) {
+    let nested = false;
+    let p: BaseNode | null = node.parent;
+    while (p && isScene(p)) {
+      if (ids.has(p.id)) {
+        nested = true;
+        break;
       }
-      const after = await exportPng(clone, scale);
-      frames.push({
-        rootId: root.id,
-        name: root.name,
-        width: root.width,
-        height: root.height,
-        scale,
-        before,
-        after,
-        applied,
-        failed,
-        issueIds: group.items.map((g) => g.item.issueId),
-      });
-      rendered += group.items.length;
-    } finally {
-      if (clone && !clone.removed) clone.remove();
+      p = p.parent;
     }
+    if (nested) continue;
+    const root = cloneableRoot(node);
+    if (seen.has(root.id)) continue;
+    seen.add(root.id);
+    out.push(root);
   }
-  return { frames, skipped: located - rendered };
+  return out;
+}
+
+async function renderRoot(root: SceneNode, located: Located[]): Promise<PreviewFrame | null> {
+  if (!('width' in root) || root.width <= 0 || root.height <= 0) return null;
+  const page = pageOf(root);
+  if (!page) return null;
+  const inside = located.filter(({ node }) => isWithin(node, root));
+  const scale = Math.min(4, MAX_EDGE / Math.max(root.width, root.height));
+  const before = await exportPng(root, scale);
+  let clone: SceneNode | null = null;
+  let applied = 0;
+  let failed = 0;
+  try {
+    const paths = inside.map(({ item, node }) => ({ item, path: indexPath(root, node) }));
+    clone = root.clone();
+    clone.setPluginData(PREVIEW_TAG, '1');
+    clone.name = root.name;
+    page.appendChild(clone);
+    clone.x = FAR;
+    clone.y = FAR;
+    clone.locked = true;
+    await copyResolvedModes(root, clone);
+    for (const { item, path } of paths) {
+      const target = path ? follow(clone, path) : null;
+      if (!target) {
+        failed++;
+        continue;
+      }
+      try {
+        await applyPlan(item.issueId, { ...item.plan, nodeId: target.id } as FixPlan);
+        applied++;
+      } catch {
+        failed++;
+      }
+    }
+    const after = await exportPng(clone, scale);
+    return { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) };
+  } finally {
+    if (clone && !clone.removed) clone.remove();
+  }
+}
+
+export async function renderPreview(req: PreviewRequest): Promise<PreviewOutput> {
+  const located: Located[] = [];
+  for (const item of req.items) {
+    const node = await figma.getNodeByIdAsync(item.nodeId);
+    if (!isScene(node) || node.removed) continue;
+    located.push({ item, node });
+  }
+  const countIn = (root: SceneNode) => located.filter(({ node }) => isWithin(node, root)).length;
+  const byCount = (a: SceneNode, b: SceneNode) => countIn(b) - countIn(a);
+
+  // Racines candidates : sélection (si suivie ou si une racine explicite est demandée), puis cadres concernés.
+  const selected = req.followSelection || req.rootId ? selectionRoots() : [];
+  const selectedIds = new Set(selected.map((r) => r.id));
+  const frameRoots = new Map<string, SceneNode>();
+  for (const { node } of located) {
+    const root = cloneableRoot(topLevelRootOf(node));
+    if (!selectedIds.has(root.id)) frameRoots.set(root.id, root);
+  }
+  const frames = [...frameRoots.values()].sort(byCount);
+  const roots: PreviewRoot[] = [
+    ...selected.map((r) => ({ id: r.id, name: r.name, count: countIn(r), kind: 'selection' as const })),
+    ...frames.map((r) => ({ id: r.id, name: r.name, count: countIn(r), kind: 'frame' as const })),
+  ];
+
+  // Racines à rendre.
+  let toRender: SceneNode[];
+  if (req.rootId) {
+    let root = selected.find((r) => r.id === req.rootId) ?? frameRoots.get(req.rootId) ?? null;
+    if (!root) {
+      const node = await figma.getNodeByIdAsync(req.rootId);
+      if (isScene(node) && !node.removed) root = cloneableRoot(node);
+    }
+    toRender = root ? [root] : [];
+  } else if (req.followSelection && selected.length) {
+    toRender = [...selected].sort(byCount).slice(0, req.maxRoots);
+  } else {
+    toRender = frames.slice(0, req.maxRoots);
+  }
+
+  const out: PreviewFrame[] = [];
+  let rendered = 0;
+  for (const root of toRender) {
+    const frame = await renderRoot(root, located);
+    if (!frame) continue;
+    out.push(frame);
+    rendered += frame.issueIds.length;
+  }
+  return { frames: out, skipped: Math.max(0, located.length - rendered), roots };
 }
 
 /** Sécurité : supprime d'éventuels clones d'aperçu orphelins (plugin interrompu) sur la page courante. */

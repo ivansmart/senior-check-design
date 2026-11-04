@@ -126,6 +126,8 @@ export interface Settings {
   enabledRules: string[];
   /** Niveau de correspondance appliqué sans sélection explicite. */
   autoApply: AutoApplyLevel;
+  /** Volet Comparer : rendre l'élément sélectionné sur le canvas (sinon les cadres concernés). */
+  compareFollowsSelection: boolean;
   /** Taille de la colonne principale (hors volet Comparer). */
   window: { width: number; height: number };
 }
@@ -152,6 +154,7 @@ export const DEFAULT_SETTINGS: Settings = {
   disabledRules: [],
   enabledRules: [],
   autoApply: 'exact',
+  compareFollowsSelection: true,
   window: { width: 680, height: 640 },
 };
 
@@ -219,8 +222,11 @@ export type UiToPluginMessage =
   | { type: 'save-settings'; settings: Partial<Settings> }
   /** `persist: false` pour une taille transitoire (fenêtre repliée). `baseWidth` : largeur de la colonne principale à mémoriser quand le volet Comparer est ouvert. */
   | { type: 'resize'; width: number; height: number; persist?: boolean; baseWidth?: number }
-  /** Rendu avant/après des corrections listées, regroupées par cadre racine (au plus `maxRoots`). */
-  | { type: 'preview'; requestId: number; items: { issueId: string; alternativeId?: string }[]; maxRoots: number }
+  /**
+   * Rendu avant/après des corrections listées. Racines rendues : `rootId` si fourni, sinon la sélection du canvas
+   * (si `followSelection`), sinon les cadres racines des calques concernés (au plus `maxRoots`).
+   */
+  | { type: 'preview'; requestId: number; items: { issueId: string; alternativeId?: string }[]; maxRoots: number; rootId?: string | null; followSelection: boolean }
   | { type: 'notify'; message: string; error?: boolean }
   | { type: 'open-url'; url: string };
 
@@ -233,6 +239,14 @@ export interface FixOutcome {
   ok: boolean;
   /** Explication en cas d'échec (clé i18n ou texte brut). */
   reason?: string;
+}
+
+/** Racine d'aperçu disponible : élément sélectionné ou cadre concerné, avec le nombre de corrections qu'il contient. */
+export interface PreviewRoot {
+  id: string;
+  name: string;
+  count: number;
+  kind: 'selection' | 'frame';
 }
 
 /** Un cadre racine rendu avant et après application des corrections (PNG). */
@@ -263,7 +277,8 @@ export type PluginToUiMessage =
       ignoredIssueIds: string[];
       editorType: string;
     }
-  | { type: 'selection'; count: number }
+  /** `programmatic` : sélection posée par le plugin lui-même (« Voir dans le canvas »). */
+  | { type: 'selection'; count: number; ids: string[]; programmatic: boolean }
   | { type: 'page-changed'; pageName: string }
   | { type: 'scan-progress'; progress: ScanProgress }
   | { type: 'scan-done'; result: ScanResult }
@@ -274,5 +289,5 @@ export type PluginToUiMessage =
   | { type: 'undo-done'; batchId: string; issueIds: string[] }
   | { type: 'ignored-updated'; ignoredIssueIds: string[] }
   | { type: 'settings-saved'; settings: Settings }
-  | { type: 'preview-done'; requestId: number; frames: PreviewFrame[]; skipped: number }
+  | { type: 'preview-done'; requestId: number; frames: PreviewFrame[]; skipped: number; roots: PreviewRoot[] }
   | { type: 'preview-error'; requestId: number; message: string };

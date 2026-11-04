@@ -30,6 +30,8 @@ const journals = new Map<string, UndoEntry[]>();
 let batchCounter = 0;
 let previewRunning = false;
 let previewPending: Extract<UiToPluginMessage, { type: 'preview' }> | null = null;
+/** Dernière sélection posée par le plugin (clé triée), pour distinguer ses propres changements de sélection. */
+let programmaticSelectionKey = '';
 
 const post = (msg: PluginToUiMessage) => figma.ui.postMessage(msg);
 const clamp = (v: number, min: number, max: number) => Math.round(Math.min(max, Math.max(min, v)));
@@ -143,8 +145,17 @@ async function selectNodes(nodeIds: string[], pageId: string) {
     figma.notify('Ce calque n’existe plus.', { timeout: 2000 });
     return;
   }
+  programmaticSelectionKey = selectionKey(nodes);
   figma.currentPage.selection = nodes;
   revealNodes(nodes, uiSize);
+}
+
+const selectionKey = (nodes: readonly SceneNode[]) => nodes.map((n) => n.id).sort().join('|');
+
+function postSelection() {
+  const sel = figma.currentPage.selection;
+  const key = selectionKey(sel);
+  post({ type: 'selection', count: sel.length, ids: sel.slice(0, 50).map((n) => n.id), programmatic: key !== '' && key === programmaticSelectionKey });
 }
 
 function planFor(issueId: string, alternativeId?: string): FixPlan | undefined {
@@ -216,8 +227,8 @@ async function handlePreview(msg: Extract<UiToPluginMessage, { type: 'preview' }
       const plan = planFor(issueId, alternativeId);
       if (issue && plan && issue.status === 'open') items.push({ issueId, nodeId: issue.nodeId, plan });
     }
-    const out = await renderPreview(items, clamp(msg.maxRoots, 1, 6));
-    post({ type: 'preview-done', requestId: msg.requestId, frames: out.frames, skipped: out.skipped });
+    const out = await renderPreview({ items, maxRoots: clamp(msg.maxRoots, 1, 6), rootId: msg.rootId ?? null, followSelection: msg.followSelection });
+    post({ type: 'preview-done', requestId: msg.requestId, frames: out.frames, skipped: out.skipped, roots: out.roots });
   } catch (e) {
     post({ type: 'preview-error', requestId: msg.requestId, message: e instanceof Error ? e.message : String(e) });
   } finally {
@@ -290,7 +301,7 @@ figma.ui.onmessage = async (msg: UiToPluginMessage) => {
   }
 };
 
-figma.on('selectionchange', () => post({ type: 'selection', count: figma.currentPage.selection.length }));
+figma.on('selectionchange', postSelection);
 figma.on('currentpagechange', () => post({ type: 'page-changed', pageName: figma.currentPage.name }));
 
 (async () => {
