@@ -5,6 +5,7 @@ import {
   DEFAULT_SETTINGS,
   type Issue,
   type PluginToUiMessage,
+  type PreviewFrame,
   type ScanProgress,
   type ScanResult,
   type ScanScope,
@@ -171,7 +172,46 @@ const state = {
   selectionChangedSinceScan: false,
   scannedSelection: false,
   rescanTimer: 0,
+  /** Fenêtre repliée sur son en-tête (le canvas redevient visible). */
+  collapsed: false,
+  /** Volet « Comparer » : aperçu avant / après des corrections à appliquer. Fermé par défaut à chaque ouverture. */
+  compare: {
+    open: false,
+    mode: 'side' as CompareMode,
+    opacity: 50,
+    zoom: 1,
+    pan: { x: 0, y: 0 },
+    fit: true,
+    rootId: null as string | null,
+    frames: [] as PreviewView[],
+    skipped: 0,
+    loading: false,
+    requestId: 0,
+    error: null as string | null,
+    width: 440,
+    timer: 0,
+  },
 };
+
+type CompareMode = 'side' | 'overlay' | 'diff';
+
+/** Cadre d'aperçu décodé côté UI (images + diff calculée). */
+interface PreviewView {
+  rootId: string;
+  name: string;
+  width: number;
+  height: number;
+  scale: number;
+  before: HTMLImageElement;
+  after: HTMLImageElement;
+  urls: string[];
+  applied: number;
+  failed: number;
+  issueIds: string[];
+  ready: boolean;
+  diff: HTMLCanvasElement | null;
+  diffPct: number | null;
+}
 
 const app = document.getElementById('app')!;
 const send = (msg: UiToPluginMessage) => parent.postMessage({ pluginMessage: msg }, '*');
@@ -244,7 +284,17 @@ function suggestionLabel(sug: { label: string; kind?: string }): (Node | string)
   }
   return [sug.label];
 }
-const rowIsSafe = (row: Row) => row.first.fixSafety === 'safe' && !state.chosen.has(row.key);
+/** Ligne « proche » : corrigeable, non exacte, suggestion à distance tolérée. */
+const rowIsClose = (row: Row) => rowHasPlan(row) && row.first.fixSafety !== 'safe' && row.first.suggestion?.confidence === 'close' && !state.chosen.has(row.key);
+/** Ligne incluse dans « Appliquer » sans sélection, selon le réglage `autoApply`. */
+function rowAutoIncluded(row: Row): boolean {
+  if (!rowHasPlan(row) || state.chosen.has(row.key)) return false;
+  if (row.first.fixSafety === 'safe') return true;
+  const level = state.settings.autoApply;
+  if (level === 'exact') return false;
+  if (row.first.suggestion?.confidence === 'close') return true;
+  return level === 'all';
+}
 const rowLayerCount = (row: Row) => row.issues.filter((i) => i.status === 'open').length;
 
 /** « #FF6633 » → « FF6633 », « #CCCBFF99 » → « CCCBFF · 60% » (format de Check designs). */
@@ -268,21 +318,31 @@ function render() {
   const scrollTop = bodyEl?.scrollTop ?? 0;
   const focusedKey = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.row')?.dataset.key;
   clear(app);
-  app.append(renderHeader(), renderTabs());
-  if (state.selectionChangedSinceScan && state.phase === 'results') app.appendChild(renderSelectionNotice());
+  const compareOpen = state.compare.open && !state.collapsed;
+  app.classList.toggle('has-compare', compareOpen);
+  app.classList.toggle('is-collapsed', state.collapsed);
+  const main = el('div', { class: 'main' });
+  main.appendChild(renderHeader());
   bodyEl = el('div', { class: 'body' });
-  app.appendChild(bodyEl);
-  if (state.phase === 'scanning' || state.phase === 'boot') bodyEl.appendChild(renderScanning());
-  else bodyEl.appendChild(renderTabBody());
-  app.appendChild(renderFooter());
-  if (state.menu === 'settings') app.appendChild(renderSettings());
-  if (state.menu === 'export') app.appendChild(renderExportMenu());
-  if (state.confirm) app.appendChild(renderConfirm(state.confirm));
+  if (!state.collapsed) {
+    main.appendChild(renderTabs());
+    if (state.selectionChangedSinceScan && state.phase === 'results') main.appendChild(renderSelectionNotice());
+    main.appendChild(bodyEl);
+    if (state.phase === 'scanning' || state.phase === 'boot') bodyEl.appendChild(renderScanning());
+    else bodyEl.appendChild(renderTabBody());
+    main.appendChild(renderFooter());
+    if (state.menu === 'settings') main.appendChild(renderSettings());
+    if (state.menu === 'export') main.appendChild(renderExportMenu());
+  }
   toastsEl = el('div', { class: 'toasts', 'aria-live': 'polite' });
-  app.appendChild(toastsEl);
+  main.appendChild(toastsEl);
   for (const toast of state.toasts) toastsEl.appendChild(renderToast(toast));
-  app.appendChild(renderResizeHandle());
+  app.appendChild(main);
+  if (compareOpen) app.appendChild(renderCompare());
+  if (state.confirm) app.appendChild(renderConfirm(state.confirm));
+  if (!state.collapsed) app.append(...renderResizeHandles());
   bodyEl.scrollTop = scrollTop;
+  schedulePreview();
   if (focusedKey) bodyEl.querySelector<HTMLElement>(`.row[data-key="${CSS.escape(focusedKey)}"]`)?.focus({ preventScroll: true });
   const tabs = app.querySelector<HTMLElement>('.tabs');
   if (tabs) {
@@ -311,12 +371,26 @@ function renderHeader(): HTMLElement {
     ? `${t('health')} ${score ?? ''} · ${t('counts', { e: sev.error, w: sev.warning, i: sev.info })} · ${t('scanLayers', { n: state.result.stats.nodesScanned })}`
     : t('health');
   scoreEl.title = scoreTitle;
+  if (state.collapsed) {
+    return el(
+      'header',
+      { class: 'header' },
+      el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null),
+      el('button', { class: 'icon-btn', 'data-act': 'expand', title: t('expand'), 'aria-label': t('expand'), onclick: () => toggleCollapsed(false) }, svgIcon('expand')),
+    );
+  }
   return el(
     'header',
     { class: 'header' },
     el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null),
+    el(
+      'button',
+      { class: 'icon-btn toggle', 'data-act': 'compare', 'aria-pressed': String(state.compare.open), title: t('compareOpen'), 'aria-label': t('compareOpen'), disabled: state.phase !== 'results', onclick: () => toggleCompare(!state.compare.open) },
+      svgIcon('compare'),
+    ),
     el('button', { class: 'icon-btn', title: t('export'), 'aria-label': t('export'), disabled: state.phase !== 'results', onclick: () => toggleMenu('export') }, svgIcon('export')),
     el('button', { class: 'icon-btn', title: t('reload'), 'aria-label': t('reload'), disabled: state.phase === 'scanning', onclick: () => startScan() }, svgIcon('refresh')),
+    el('button', { class: 'icon-btn', 'data-act': 'collapse', title: t('collapse'), 'aria-label': t('collapse'), onclick: () => toggleCollapsed(true) }, svgIcon('collapse')),
   );
 }
 
@@ -437,6 +511,7 @@ function renderTabBody(): HTMLElement {
     let text = '';
     if (w === 'library-cap') text = t('warnLibraryCap');
     else if (w === 'libraries-unavailable') text = t('warnLibrariesUnavailable');
+    else if (w === 'libraries-no-permission') text = t('warnLibrariesNoPermission');
     else if (w.startsWith('library:')) text = t('warnLibrary', { name: w.slice(8) });
     else if (w.startsWith('rule:')) text = t('warnRule', { rule: state.i18n.ruleTitle(w.slice(5)) });
     if (text) wrap.appendChild(el('div', { class: 'notice warn' }, svgIcon('alert'), el('span', {}, text)));
@@ -694,7 +769,7 @@ function applicableRows(): { rows: Row[]; mode: 'selected' | 'safe' } {
   const tabRows = openRowsOf(state.tab);
   const selected = tabRows.filter((r) => state.selected.has(r.key) && rowHasPlan(r));
   if (selected.length) return { rows: selected, mode: 'selected' };
-  return { rows: tabRows.filter((r) => rowIsSafe(r)), mode: 'safe' };
+  return { rows: tabRows.filter(rowAutoIncluded), mode: 'safe' };
 }
 
 function renderFooter(): HTMLElement {
@@ -710,6 +785,7 @@ function renderFooter(): HTMLElement {
     return footer;
   }
   const { rows, mode } = applicableRows();
+  const closeRows = openRowsOf(state.tab).filter(rowIsClose);
   const layers = rows.reduce((n, r) => n + rowLayerCount(r), 0);
   let text: string;
   const layersLabel = layers === 1 ? t('rowItemOne') : t('rowItems', { n: layers });
@@ -722,11 +798,18 @@ function renderFooter(): HTMLElement {
     const unitKey = state.tab === 'colors' ? 'unitColor' : state.tab === 'dimensions' ? 'unitDimension' : state.tab === 'typography' ? 'unitText' : 'unitSuggestion';
     const unit = rows.length === 1 ? t(`${unitKey}One`) : t(`${unitKey}Many`);
     text = t('footerUpdateTpl', { n: rows.length, unit, layers: layersLabel });
+    if (state.settings.autoApply !== 'exact' && closeRows.length) text += ` · ${closeRows.length === 1 ? t('inclCloseOne') : t('inclClose', { n: closeRows.length })}`;
   }
-  footer.append(
+  // Proches exclues du mode automatique : un lien les inclut en un clic (réglage mémorisé).
+  const includeLink =
+    mode === 'safe' && state.settings.autoApply === 'exact' && closeRows.length
+      ? el('button', { class: 'link-btn inline', 'data-act': 'include-close', onclick: () => setAutoApply('close') }, closeRows.length === 1 ? t('includeCloseOne') : t('includeClose', { n: closeRows.length }))
+      : null;
+  append(footer, [
     el('span', { class: 'foot-text num' }, text),
+    includeLink,
     el('button', { class: 'btn btn-primary', disabled: !rows.length, onclick: () => applyRows(rows) }, t('applyBtn'), el('span', { class: 'count-pill num' }, String(rows.length))),
-  );
+  ]);
   return footer;
 }
 
@@ -1038,6 +1121,21 @@ function renderSettings(): HTMLElement {
         ),
       ),
     ),
+    el(
+      'div',
+      { class: 'pop-section' },
+      el('div', { class: 'k' }, t('setAutoApply')),
+      segmented(
+        [
+          { value: 'exact', label: t('autoExact') },
+          { value: 'close', label: t('autoClose') },
+          { value: 'all', label: t('autoAll') },
+        ],
+        s.autoApply,
+        (v) => setAutoApply(v),
+      ),
+      el('div', { class: 'hint mt' }, t('autoApplyHint')),
+    ),
     el('div', { class: 'pop-section' }, el('div', { class: 'k' }, t('setContrast')), segmented(
       [
         { value: 'AA', label: 'AA' },
@@ -1229,28 +1327,601 @@ function renderToast(item: Toast): HTMLElement {
   );
 }
 
-function renderResizeHandle(): HTMLElement {
-  const handle = el('div', { class: 'resize-handle', title: t('resizeHandle'), 'aria-hidden': 'true' });
-  handle.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    handle.setPointerCapture(e.pointerId);
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startW = window.innerWidth;
-    const startH = window.innerHeight;
-    let raf = 0;
+// ---------------------------------------------------------------------------
+// Fenêtre : taille, poignées (bord droit, bord bas, coin), repli
+// ---------------------------------------------------------------------------
+
+const MIN_BASE_W = 560;
+const MIN_BASE_H = 400;
+const MIN_PANE_W = 360;
+const COLLAPSED_H = 40;
+
+/** Largeur réelle de la fenêtre : colonne principale + volet Comparer s'il est ouvert. */
+function totalWidth(): number {
+  return state.settings.window.width + (state.compare.open && !state.collapsed ? state.compare.width : 0);
+}
+
+function sendWindowSize() {
+  const base = state.settings.window;
+  if (state.collapsed) send({ type: 'resize', width: base.width, height: COLLAPSED_H, persist: false, baseWidth: base.width });
+  else send({ type: 'resize', width: totalWidth(), height: base.height, baseWidth: base.width });
+}
+
+function toggleCollapsed(collapsed: boolean) {
+  state.collapsed = collapsed;
+  state.menu = null;
+  state.dropdown = null;
+  render();
+  sendWindowSize();
+}
+
+function renderResizeHandles(): HTMLElement[] {
+  const make = (cls: string, mode: 'x' | 'y' | 'xy') => {
+    const handle = el('div', { class: cls, title: t('resizeHandle'), 'aria-hidden': 'true' });
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      document.body.classList.add('is-resizing');
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startTotalW = window.innerWidth;
+      const startH = window.innerHeight;
+      const paneOpen = state.compare.open;
+      const startBaseW = state.settings.window.width;
+      let raf = 0;
+      const move = (ev: PointerEvent) => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          if (mode !== 'y') {
+            const total = Math.round(startTotalW + (ev.clientX - startX));
+            // Avec le volet ouvert, c'est lui qui absorbe la variation : la liste garde sa largeur.
+            if (paneOpen) state.compare.width = Math.max(MIN_PANE_W, total - startBaseW);
+            else state.settings.window.width = Math.max(MIN_BASE_W, total);
+          }
+          if (mode !== 'x') state.settings.window.height = Math.max(MIN_BASE_H, Math.round(startH + (ev.clientY - startY)));
+          sendWindowSize();
+          if (paneOpen) drawCompare();
+        });
+      };
+      const up = () => {
+        document.body.classList.remove('is-resizing');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    });
+    return handle;
+  };
+  return [make('resize-edge r', 'x'), make('resize-edge b', 'y'), make('resize-handle', 'xy')];
+}
+
+// ---------------------------------------------------------------------------
+// Volet Comparer : aperçu avant / après des corrections à appliquer
+// ---------------------------------------------------------------------------
+
+const CMP_GAP = 24;
+const CMP_LABEL = 20;
+const CMP_PAD = 16;
+const CMP_MIN_ZOOM = 0.02;
+const CMP_MAX_ZOOM = 8;
+
+let cmpCanvas: HTMLCanvasElement | null = null;
+let cmpStage: HTMLElement | null = null;
+let cmpZoomLabel: HTMLElement | null = null;
+let cmpFitBtn: HTMLElement | null = null;
+let cmpObserver: ResizeObserver | null = null;
+let lastPreviewSig: string | null = null;
+
+function setAutoApply(level: Settings['autoApply']) {
+  state.settings.autoApply = level;
+  persistSettings();
+  render();
+}
+
+function toggleCompare(open: boolean) {
+  state.compare.open = open;
+  state.menu = null;
+  state.dropdown = null;
+  if (open) {
+    state.compare.fit = true;
+    lastPreviewSig = null; // force une nouvelle demande d'aperçu
+  }
+  render();
+  sendWindowSize();
+}
+
+function currentFrame(): PreviewView | null {
+  const c = state.compare;
+  return c.frames.find((f) => f.rootId === c.rootId) ?? c.frames[0] ?? null;
+}
+
+/** Corrections que « Appliquer » exécuterait (lignes sélectionnées, sinon mode automatique). */
+function previewItems(): { issueId: string; alternativeId?: string }[] {
+  const items: { issueId: string; alternativeId?: string }[] = [];
+  for (const row of applicableRows().rows) {
+    const altId = state.chosen.get(row.key);
+    for (const issue of row.issues) if (issue.status === 'open') items.push({ issueId: issue.id, alternativeId: altId });
+  }
+  return items;
+}
+
+/** Demande un aperçu si la liste des corrections a changé (debounce 250 ms). Appelé à chaque rendu. */
+function schedulePreview() {
+  const c = state.compare;
+  if (!c.open || state.collapsed || state.phase !== 'results') return;
+  const items = previewItems();
+  const sig = items.map((i) => `${i.issueId}#${i.alternativeId ?? ''}`).join('|');
+  if (sig === lastPreviewSig) return;
+  lastPreviewSig = sig;
+  clearTimeout(c.timer);
+  c.error = null;
+  if (!items.length) {
+    releaseFrames();
+    c.frames = [];
+    c.skipped = 0;
+    c.loading = false;
+    c.requestId++;
+    render();
+    return;
+  }
+  c.loading = true;
+  cmpStage?.classList.add('is-loading');
+  c.timer = window.setTimeout(() => {
+    const requestId = ++c.requestId;
+    send({ type: 'preview', requestId, items, maxRoots: 4 });
+  }, 250);
+}
+
+function releaseFrames() {
+  for (const f of state.compare.frames) for (const u of f.urls) URL.revokeObjectURL(u);
+}
+
+function receivePreview(frames: PreviewFrame[], skipped: number) {
+  const c = state.compare;
+  releaseFrames();
+  const previousRoot = c.rootId;
+  c.frames = frames.map((f) => {
+    const beforeUrl = URL.createObjectURL(new Blob([f.before as BlobPart], { type: 'image/png' }));
+    const afterUrl = URL.createObjectURL(new Blob([f.after as BlobPart], { type: 'image/png' }));
+    const view: PreviewView = {
+      rootId: f.rootId,
+      name: f.name,
+      width: f.width,
+      height: f.height,
+      scale: f.scale,
+      before: new Image(),
+      after: new Image(),
+      urls: [beforeUrl, afterUrl],
+      applied: f.applied,
+      failed: f.failed,
+      issueIds: f.issueIds,
+      ready: false,
+      diff: null,
+      diffPct: null,
+    };
+    let pending = 2;
+    const loaded = () => {
+      if (--pending) return;
+      view.ready = true;
+      drawCompare();
+      // La diff est calculée hors du chemin critique, puis le pied du volet est rafraîchi.
+      setTimeout(() => {
+        if (!state.compare.frames.includes(view)) return;
+        computeDiff(view);
+        if (c.mode === 'diff') drawCompare();
+        updateCompareFoot();
+      }, 0);
+    };
+    view.before.onload = loaded;
+    view.after.onload = loaded;
+    view.before.onerror = loaded;
+    view.after.onerror = loaded;
+    view.before.src = beforeUrl;
+    view.after.src = afterUrl;
+    return view;
+  });
+  c.skipped = skipped;
+  c.loading = false;
+  c.error = null;
+  if (!c.frames.some((f) => f.rootId === previousRoot)) {
+    c.rootId = c.frames[0]?.rootId ?? null;
+    c.fit = true;
+  }
+  render();
+}
+
+/** Masque des pixels modifiés (magenta), calculé à la résolution de l'export. */
+function computeDiff(view: PreviewView) {
+  const w = Math.min(view.before.naturalWidth, view.after.naturalWidth);
+  const h = Math.min(view.before.naturalHeight, view.after.naturalHeight);
+  if (!w || !h) return;
+  const read = (img: HTMLImageElement) => {
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    return ctx.getImageData(0, 0, w, h).data;
+  };
+  const a = read(view.before);
+  const b = read(view.after);
+  const out = new ImageData(w, h);
+  const px = out.data;
+  let changed = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) + Math.abs(a[i + 3] - b[i + 3]);
+    if (d > 24) {
+      px[i] = 255;
+      px[i + 1] = 36;
+      px[i + 2] = 189;
+      px[i + 3] = 235;
+      changed++;
+    }
+  }
+  const diff = document.createElement('canvas');
+  diff.width = w;
+  diff.height = h;
+  diff.getContext('2d')!.putImageData(out, 0, 0);
+  view.diff = diff;
+  view.diffPct = Math.round((changed / (w * h)) * 1000) / 10;
+}
+
+function renderCompare(): HTMLElement {
+  const c = state.compare;
+  const frame = currentFrame();
+  const head = el(
+    'div',
+    { class: 'cmp-head' },
+    el('span', { class: 'cmp-title' }, t('compare')),
+    segmented<CompareMode>(
+      [
+        { value: 'side', label: t('cmpSide') },
+        { value: 'overlay', label: t('cmpOverlay') },
+        { value: 'diff', label: t('cmpDiff') },
+      ],
+      c.mode,
+      (v) => {
+        c.mode = v;
+        c.fit = true;
+        render();
+      },
+    ),
+    el('button', { class: 'icon-btn', 'data-act': 'compare-close', title: t('compareClose'), 'aria-label': t('compareClose'), onclick: () => toggleCompare(false) }, svgIcon('close')),
+  );
+  cmpZoomLabel = el('button', { class: 'cmp-zoom-val num', title: t('cmpZoom100'), onclick: () => setZoom(1) }, `${Math.round(c.zoom * 100)} %`);
+  cmpFitBtn = el('button', { class: 'icon-btn sm toggle', 'aria-pressed': String(c.fit), title: t('cmpFit'), 'aria-label': t('cmpFit'), onclick: () => fitCompare() }, svgIcon('fit', 12));
+  const tools = el(
+    'div',
+    { class: 'cmp-tools' },
+    c.frames.length > 1
+      ? el(
+          'div',
+          { class: 'select cmp-frame', title: t('cmpFrame') },
+          el(
+            'select',
+            {
+              'aria-label': t('cmpFrame'),
+              onchange: (e) => {
+                c.rootId = (e.target as HTMLSelectElement).value;
+                c.fit = true;
+                render();
+              },
+            },
+            ...c.frames.map((f) => el('option', { value: f.rootId, selected: f.rootId === frame?.rootId }, `${f.name} (${f.issueIds.length})`)),
+          ),
+        )
+      : el('span', { class: 'cmp-frame-name ellipsis', title: frame?.name ?? '' }, frame?.name ?? ''),
+    el('span', { class: 'grow' }),
+    c.mode === 'overlay'
+      ? el(
+          'label',
+          { class: 'cmp-opacity', title: t('cmpOpacity') },
+          el('input', {
+            type: 'range',
+            min: 0,
+            max: 100,
+            value: c.opacity,
+            'aria-label': t('cmpOpacity'),
+            oninput: (e) => {
+              c.opacity = Number((e.target as HTMLInputElement).value);
+              drawCompare();
+            },
+          }),
+        )
+      : null,
+    el(
+      'div',
+      { class: 'cmp-zoom' },
+      el('button', { class: 'icon-btn sm', title: t('cmpZoomOut'), 'aria-label': t('cmpZoomOut'), onclick: () => zoomBy(1 / 1.25) }, svgIcon('zoom-out', 12)),
+      cmpZoomLabel,
+      el('button', { class: 'icon-btn sm', title: t('cmpZoomIn'), 'aria-label': t('cmpZoomIn'), onclick: () => zoomBy(1.25) }, svgIcon('zoom-in', 12)),
+      cmpFitBtn,
+    ),
+  );
+
+  cmpCanvas = el('canvas', { class: 'cmp-canvas', tabindex: '0', 'aria-label': t('compareOpen') });
+  attachCompareInteractions(cmpCanvas);
+  cmpStage = el(
+    'div',
+    { class: `cmp-stage${c.loading ? ' is-loading' : ''}` },
+    cmpCanvas,
+    el('div', { class: 'cmp-loading', 'aria-hidden': 'true' }, el('i')),
+    !c.frames.length && !c.loading && !c.error
+      ? el('div', { class: 'cmp-empty' }, svgIcon('compare', 18), el('p', {}, t('cmpEmpty')), el('p', { class: 'muted' }, t('cmpEmptyHint')))
+      : null,
+    c.error ? el('div', { class: 'notice warn cmp-error' }, svgIcon('alert'), el('span', {}, t('cmpError', { message: c.error }))) : null,
+  );
+  cmpObserver?.disconnect();
+  cmpObserver = new ResizeObserver(() => drawCompare());
+  cmpObserver.observe(cmpStage);
+  requestAnimationFrame(() => drawCompare());
+
+  const aside = el('aside', { class: 'compare', style: `--cmp-w:${c.width}px`, 'aria-label': t('compareOpen') }, head, tools, cmpStage, renderCompareFoot());
+  return aside;
+}
+
+function compareFootText(): { main: string; diff: string } {
+  const c = state.compare;
+  const frame = currentFrame();
+  if (!frame) return { main: c.loading ? t('cmpLoading') : '', diff: '' };
+  const n = frame.issueIds.length;
+  let main = n === 1 ? t('cmpFootOne', { frame: frame.name }) : t('cmpFoot', { n, frame: frame.name });
+  const outside = c.skipped + c.frames.filter((f) => f !== frame).reduce((s, f) => s + f.issueIds.length, 0);
+  if (outside) main += ` · ${t('cmpSkipped', { n: outside })}`;
+  if (frame.failed) main += ` · ${t('cmpFailed', { n: frame.failed })}`;
+  if (c.loading) main = t('cmpLoading');
+  const diff = frame.diffPct === null ? '' : frame.diffPct > 0 ? t('cmpDiffPct', { pct: frame.diffPct }) : t('cmpNoDiff');
+  return { main, diff };
+}
+
+function renderCompareFoot(): HTMLElement {
+  const { main, diff } = compareFootText();
+  return el('div', { class: 'cmp-foot' }, el('span', { class: 'ellipsis grow num cmp-foot-main', title: t('cmpHint') }, main), el('span', { class: 'num cmp-foot-diff' }, diff));
+}
+
+function updateCompareFoot() {
+  const { main, diff } = compareFootText();
+  const mainEl = app.querySelector<HTMLElement>('.cmp-foot-main');
+  const diffEl = app.querySelector<HTMLElement>('.cmp-foot-diff');
+  if (mainEl) mainEl.textContent = main;
+  if (diffEl) diffEl.textContent = diff;
+}
+
+/** Taille du contenu (px écran) pour un zoom donné, selon le mode. */
+function compareContentSize(frame: PreviewView, zoom: number): { w: number; h: number; vertical: boolean } {
+  const fw = frame.width * zoom;
+  const fh = frame.height * zoom;
+  if (state.compare.mode !== 'side') return { w: fw, h: fh + CMP_LABEL, vertical: false };
+  // Cadres larges : empilés ; cadres hauts ou carrés : côte à côte.
+  const vertical = frame.width > frame.height * 1.1;
+  return vertical ? { w: fw, h: 2 * (fh + CMP_LABEL) + CMP_GAP, vertical } : { w: 2 * fw + CMP_GAP, h: fh + CMP_LABEL, vertical };
+}
+
+function fitZoom(frame: PreviewView, cw: number, ch: number): number {
+  const avW = Math.max(40, cw - 2 * CMP_PAD);
+  const avH = Math.max(40, ch - 2 * CMP_PAD);
+  let z: number;
+  if (state.compare.mode !== 'side') z = Math.min(avW / frame.width, (avH - CMP_LABEL) / frame.height);
+  else if (frame.width > frame.height * 1.1) z = Math.min(avW / frame.width, (avH - CMP_GAP - 2 * CMP_LABEL) / (2 * frame.height));
+  else z = Math.min((avW - CMP_GAP) / (2 * frame.width), (avH - CMP_LABEL) / frame.height);
+  return Math.min(4, Math.max(CMP_MIN_ZOOM, z));
+}
+
+function drawCompare() {
+  const c = state.compare;
+  const canvas = cmpCanvas;
+  const stage = cmpStage;
+  if (!canvas || !stage || !canvas.isConnected) return;
+  const cw = stage.clientWidth;
+  const ch = stage.clientHeight;
+  if (!cw || !ch) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+    canvas.width = Math.round(cw * dpr);
+    canvas.height = Math.round(ch * dpr);
+    canvas.style.width = `${cw}px`;
+    canvas.style.height = `${ch}px`;
+  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, ch);
+  const frame = currentFrame();
+  if (!frame || !frame.ready) {
+    updateZoomUi();
+    return;
+  }
+  if (c.fit) {
+    c.zoom = fitZoom(frame, cw, ch);
+    c.pan = { x: 0, y: 0 };
+  }
+  const z = c.zoom;
+  const size = compareContentSize(frame, z);
+  const ox = Math.round((cw - size.w) / 2 + c.pan.x);
+  const oy = Math.round((ch - size.h) / 2 + c.pan.y);
+  const fw = frame.width * z;
+  const fh = frame.height * z;
+  const style = getComputedStyle(document.documentElement);
+  const labelBg = style.getPropertyValue('--bg-inverse').trim() || '#2c2c2c';
+  const labelFg = style.getPropertyValue('--text-oninverse').trim() || '#ffffff';
+  const frameBorder = 'rgba(0, 0, 0, 0.12)';
+  // Pixels nets quand on dépasse la résolution de l'export, lissage sinon.
+  ctx.imageSmoothingEnabled = z * dpr <= frame.scale;
+  ctx.imageSmoothingQuality = 'high';
+
+  const label = (text: string, x: number, y: number) => {
+    ctx.font = `500 11px ${style.getPropertyValue('--font').trim() || 'Inter, sans-serif'}`;
+    const w = Math.ceil(ctx.measureText(text).width) + 12;
+    ctx.fillStyle = labelBg;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = labelFg;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + 6, y + 8.5);
+  };
+  const image = (img: CanvasImageSource, x: number, y: number, alpha = 1) => {
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(img, x, y, fw, fh);
+    ctx.globalAlpha = 1;
+  };
+  const border = (x: number, y: number) => {
+    ctx.strokeStyle = frameBorder;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 0.5, y - 0.5, fw + 1, fh + 1);
+  };
+
+  if (c.mode === 'side') {
+    const second = size.vertical ? { x: ox, y: oy + fh + CMP_LABEL + CMP_GAP } : { x: ox + fw + CMP_GAP, y: oy };
+    label(t('cmpBefore'), ox, oy);
+    image(frame.before, ox, oy + CMP_LABEL);
+    border(ox, oy + CMP_LABEL);
+    label(t('cmpAfter'), second.x, second.y);
+    image(frame.after, second.x, second.y + CMP_LABEL);
+    border(second.x, second.y + CMP_LABEL);
+  } else if (c.mode === 'overlay') {
+    label(`${t('cmpBefore')} ↔ ${t('cmpAfter')} · ${c.opacity} %`, ox, oy);
+    image(frame.before, ox, oy + CMP_LABEL);
+    image(frame.after, ox, oy + CMP_LABEL, c.opacity / 100);
+    border(ox, oy + CMP_LABEL);
+  } else {
+    label(t('cmpDiff'), ox, oy);
+    image(frame.after, ox, oy + CMP_LABEL, 0.35);
+    if (frame.diff) image(frame.diff, ox, oy + CMP_LABEL);
+    border(ox, oy + CMP_LABEL);
+  }
+  updateZoomUi();
+}
+
+function updateZoomUi() {
+  if (cmpZoomLabel) cmpZoomLabel.textContent = `${Math.round(state.compare.zoom * 100)} %`;
+  cmpFitBtn?.setAttribute('aria-pressed', String(state.compare.fit));
+}
+
+function fitCompare() {
+  state.compare.fit = true;
+  drawCompare();
+}
+
+/** Zoom autour d'un point écran (par défaut le centre), en gardant ce point fixe. */
+function zoomAt(factor: number, px?: number, py?: number) {
+  const c = state.compare;
+  const frame = currentFrame();
+  if (!frame || !cmpStage) return;
+  const cw = cmpStage.clientWidth;
+  const ch = cmpStage.clientHeight;
+  const mx = px ?? cw / 2;
+  const my = py ?? ch / 2;
+  const z1 = c.zoom;
+  const z2 = Math.min(CMP_MAX_ZOOM, Math.max(CMP_MIN_ZOOM, z1 * factor));
+  if (z2 === z1) return;
+  const s1 = compareContentSize(frame, z1);
+  const ox1 = (cw - s1.w) / 2 + c.pan.x;
+  const oy1 = (ch - s1.h) / 2 + c.pan.y;
+  // Point du contenu sous le curseur, en unités de design (le libellé n'est pas zoomé : on l'ignore).
+  const ux = (mx - ox1) / z1;
+  const uy = (my - oy1) / z1;
+  const s2 = compareContentSize(frame, z2);
+  const ox2 = mx - ux * z2;
+  const oy2 = my - uy * z2;
+  c.zoom = z2;
+  c.pan = { x: ox2 - (cw - s2.w) / 2, y: oy2 - (ch - s2.h) / 2 };
+  c.fit = false;
+  drawCompare();
+}
+
+const zoomBy = (factor: number) => zoomAt(factor);
+
+function setZoom(zoom: number) {
+  const c = state.compare;
+  c.zoom = zoom;
+  c.pan = { x: 0, y: 0 };
+  c.fit = false;
+  drawCompare();
+}
+
+function attachCompareInteractions(canvas: HTMLCanvasElement) {
+  const c = state.compare;
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX - rect.left, e.clientY - rect.top);
+      else {
+        c.pan.x -= e.deltaX;
+        c.pan.y -= e.deltaY;
+        c.fit = false;
+        drawCompare();
+      }
+    },
+    { passive: false },
+  );
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.classList.add('is-panning');
+    let lastX = e.clientX;
+    let lastY = e.clientY;
     const move = (ev: PointerEvent) => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => send({ type: 'resize', width: Math.round(startW + (ev.clientX - startX)), height: Math.round(startH + (ev.clientY - startY)) }));
+      c.pan.x += ev.clientX - lastX;
+      c.pan.y += ev.clientY - lastY;
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      c.fit = false;
+      drawCompare();
     };
     const up = () => {
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', up);
+      canvas.classList.remove('is-panning');
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', up);
+      canvas.removeEventListener('pointercancel', up);
     };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', up);
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
   });
-  return handle;
+  canvas.addEventListener('dblclick', () => fitCompare());
+  canvas.addEventListener('keydown', (e) => {
+    const step = 24;
+    switch (e.key) {
+      case '+':
+      case '=':
+        zoomBy(1.25);
+        break;
+      case '-':
+        zoomBy(1 / 1.25);
+        break;
+      case '0':
+        fitCompare();
+        break;
+      case '1':
+        setZoom(1);
+        break;
+      case 'ArrowLeft':
+        c.pan.x += step;
+        break;
+      case 'ArrowRight':
+        c.pan.x -= step;
+        break;
+      case 'ArrowUp':
+        c.pan.y += step;
+        break;
+      case 'ArrowDown':
+        c.pan.y -= step;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    if (e.key.startsWith('Arrow')) {
+      c.fit = false;
+      drawCompare();
+    }
+  });
 }
 
 document.addEventListener('keydown', (e) => {
@@ -1261,11 +1932,14 @@ document.addEventListener('keydown', (e) => {
     else if (state.menu) state.menu = null;
     else if (state.confirm) state.confirm = null;
     else if (state.expanded) state.expanded = null;
-    else state.selected.clear();
+    else if (state.selected.size) state.selected.clear();
+    else if (state.compare.open) state.compare.open = false;
     render();
+    sendWindowSize();
     return;
   }
   if (inInput) return;
+  if (e.key === 'c' && !e.metaKey && !e.ctrlKey && state.phase === 'results' && !target.closest('.compare')) toggleCompare(!state.compare.open);
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && state.phase === 'results') {
     e.preventDefault();
     for (const r of openRowsOf(state.tab)) if (rowHasPlan(r)) state.selected.add(r.key);
@@ -1346,6 +2020,16 @@ window.onmessage = (event: MessageEvent) => {
       break;
     case 'undo-done':
       onUndoDone(msg.issueIds);
+      break;
+    case 'preview-done':
+      if (msg.requestId === state.compare.requestId) receivePreview(msg.frames, msg.skipped);
+      break;
+    case 'preview-error':
+      if (msg.requestId === state.compare.requestId) {
+        state.compare.loading = false;
+        state.compare.error = msg.message;
+        render();
+      }
       break;
     case 'ignored-updated':
     case 'settings-saved':

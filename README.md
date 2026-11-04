@@ -13,6 +13,8 @@ npm run build
 
 Puis dans Figma Desktop : **Plugins → Development → Import plugin from manifest…** et choisir `manifest.json`.
 
+Le manifeste déclare la permission `teamlibrary` : elle est nécessaire pour lire les variables des librairies activées dans le fichier. Sans elle (c'est le cas du chargeur « plugin génératif », dont le manifeste est figé), seules les variables locales sont utilisées et un avertissement l'explique.
+
 Pour développer avec rebuild automatique :
 
 ```bash
@@ -35,7 +37,9 @@ L'interface reprend la modale **Check designs** de Figma, puis l'étend :
 - **Onglets** : *Couleurs · Dimensions · Typo · Composants* (les quatre onglets de Check designs), puis après un séparateur l'extension senior *Craft · A11y · Handoff*. Chaque onglet porte son compteur ; l'onglet ouvert est le premier qui contient des suggestions.
 - **Lignes groupées par contexte** (« Frame › Fill », « Texte › Contraste », « Frame › Padding »…) : à gauche la valeur actuelle (pastille + valeur, nombre de calques concernés), à droite la suggestion avec badge **Match** (correspondance exacte), **Proche**, **Ambigu** ou **Manuel**, et un menu déroulant pour choisir une autre correspondance.
 - **Sélection** : clic (recentre aussi le canvas sur les calques), Cmd/Ctrl-clic, Shift-clic, clic sur l'en-tête de section, `Cmd/Ctrl+A`.
-- **Pied de page** : « Mettre à jour N couleurs sur M calques » et **Appliquer**. Sans sélection, seules les correspondances exactes sont appliquées ; une sélection explicite permet d'appliquer des correspondances proches ou choisies.
+- **Pied de page** : « Mettre à jour N couleurs sur M calques » et **Appliquer**. Sans sélection, le réglage **Appliquer sans sélection** décide de ce qui est inclus : *Exactes* (défaut), *+ proches* ou *Toutes* (ambiguës comprises, première proposition). Quand des correspondances proches sont exclues, un lien « Inclure N proches » les ajoute en un clic ; une sélection explicite reste toujours possible.
+- **Comparer avant / après** (icône dans l'en-tête, raccourci `C`, fermé par défaut) : un volet s'ouvre à droite de la liste avec un canvas zoomable (molette pour déplacer, Ctrl/⌘ + molette ou pincement pour zoomer, double-clic pour ajuster, `0`/`1`/`+`/`-` au clavier). Trois modes, comme la comparaison du Dev Mode : **Côte à côte**, **Superposition** avec curseur d'opacité, **Différences** (pixels modifiés en magenta, pourcentage dans le pied du volet). L'aperçu reflète exactement ce que « Appliquer » ferait (lignes sélectionnées, sinon mode automatique) et se met à jour quand la sélection, l'onglet ou l'alternative choisie change. Techniquement, le cadre racine est cloné hors écran, les corrections sont appliquées sur le clone, les deux états sont exportés en PNG puis le clone est supprimé : le fichier n'est jamais modifié par l'aperçu. Plusieurs cadres concernés : un sélecteur permet de passer de l'un à l'autre.
+- **Fenêtre** : « Voir dans le canvas » recadre la vue en tenant compte de la position de la fenêtre du plugin (`figma.ui.getPosition`) pour que le calque reste visible à côté d'elle, en dézoomant si besoin. La fenêtre se redimensionne par le bord droit, le bord bas ou le coin (la taille est mémorisée ; avec le volet ouvert, c'est lui qui s'élargit) et se replie sur son en-tête d'un clic (chevron) pour libérer le canvas.
 - **Bouton contraste** (dans la barre d'onglets, comme Check designs) : affiche ou masque les suggestions de contraste dans l'onglet Couleurs ; le niveau AA/AAA se règle dans les réglages.
 - **Réglages** (icône curseurs) : périmètre, preset, niveau de contraste, nombre de calques par ligne, librairies, options d'analyse, règles, langue. Les changements relancent l'analyse.
 - **Détails** (ⓘ) : explication pédagogique de chaque ligne (message, pourquoi, que faire, calques concernés), avec « Voir dans le canvas » et « Ignorer ».

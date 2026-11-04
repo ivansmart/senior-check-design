@@ -14,5 +14,7 @@
     ],
     "reasoning": "Senior Check Design runs entirely locally: no AI, no backend, no telemetry."
   },
-  "permissions": []
+  "permissions": [
+    "teamlibrary"
+  ]
 }

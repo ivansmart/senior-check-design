@@ -4,27 +4,38 @@ import type { FixOutcome, Issue, PluginToUiMessage, Settings, UiToPluginMessage 
 import { DEFAULT_SETTINGS } from '../shared/types';
 import { applyPlan, FixError, type UndoEntry } from './fix/apply';
 import type { FixPlan } from './fix/plans';
+import { renderPreview, sweepPreviewClones, type PreviewItem } from './preview';
+import { revealNodes } from './reveal';
 import { runScan, type IssuePlans } from './scan/engine';
 
 const SETTINGS_KEY = 'scd:settings:v1';
 const IGNORED_KEY = 'scd:ignored';
+/** Bornes de la taille mémorisée (colonne principale). */
 const MIN_W = 560;
-const MIN_H = 480;
-const MAX_W = 900;
-const MAX_H = 1200;
+const MIN_H = 400;
+const MAX_W = 1200;
+const MAX_H = 1400;
+/** Bornes de la fenêtre réelle : plus large avec le volet Comparer, plus basse une fois repliée. */
+const MIN_TOTAL_W = 200;
+const MIN_TOTAL_H = 40;
+const MAX_TOTAL_W = 2200;
 
 let settings: Settings = { ...DEFAULT_SETTINGS };
+let uiSize = { ...DEFAULT_SETTINGS.window };
 let scanning = false;
 let cancelRequested = false;
 const issues = new Map<string, Issue>();
 const plans = new Map<string, IssuePlans>();
 const journals = new Map<string, UndoEntry[]>();
 let batchCounter = 0;
+let previewRunning = false;
+let previewPending: Extract<UiToPluginMessage, { type: 'preview' }> | null = null;
 
 const post = (msg: PluginToUiMessage) => figma.ui.postMessage(msg);
+const clamp = (v: number, min: number, max: number) => Math.round(Math.min(max, Math.max(min, v)));
 
 function clampWindow(w: number, h: number) {
-  return { width: Math.round(Math.min(MAX_W, Math.max(MIN_W, w))), height: Math.round(Math.min(MAX_H, Math.max(MIN_H, h))) };
+  return { width: clamp(w, MIN_W, MAX_W), height: clamp(h, MIN_H, MAX_H) };
 }
 
 async function loadSettings(): Promise<Settings> {
@@ -133,7 +144,7 @@ async function selectNodes(nodeIds: string[], pageId: string) {
     return;
   }
   figma.currentPage.selection = nodes;
-  figma.viewport.scrollAndZoomIntoView(nodes);
+  revealNodes(nodes, uiSize);
 }
 
 function planFor(issueId: string, alternativeId?: string): FixPlan | undefined {
@@ -191,6 +202,34 @@ async function undoBatch(batchId: string) {
   post({ type: 'undo-done', batchId, issueIds: restored });
 }
 
+/** Aperçus sérialisés : une demande à la fois, seule la plus récente en attente est conservée. */
+async function handlePreview(msg: Extract<UiToPluginMessage, { type: 'preview' }>) {
+  if (previewRunning) {
+    previewPending = msg;
+    return;
+  }
+  previewRunning = true;
+  try {
+    const items: PreviewItem[] = [];
+    for (const { issueId, alternativeId } of msg.items) {
+      const issue = issues.get(issueId);
+      const plan = planFor(issueId, alternativeId);
+      if (issue && plan && issue.status === 'open') items.push({ issueId, nodeId: issue.nodeId, plan });
+    }
+    const out = await renderPreview(items, clamp(msg.maxRoots, 1, 6));
+    post({ type: 'preview-done', requestId: msg.requestId, frames: out.frames, skipped: out.skipped });
+  } catch (e) {
+    post({ type: 'preview-error', requestId: msg.requestId, message: e instanceof Error ? e.message : String(e) });
+  } finally {
+    previewRunning = false;
+    if (previewPending) {
+      const next = previewPending;
+      previewPending = null;
+      void handlePreview(next);
+    }
+  }
+}
+
 figma.ui.onmessage = async (msg: UiToPluginMessage) => {
   switch (msg.type) {
     case 'ui-ready':
@@ -218,6 +257,9 @@ figma.ui.onmessage = async (msg: UiToPluginMessage) => {
     case 'undo':
       await undoBatch(msg.batchId);
       break;
+    case 'preview':
+      await handlePreview(msg);
+      break;
     case 'ignore-issue': {
       const set = new Set(readIgnored());
       if (msg.ignored) set.add(msg.issueId);
@@ -233,9 +275,10 @@ figma.ui.onmessage = async (msg: UiToPluginMessage) => {
       post({ type: 'settings-saved', settings });
       break;
     case 'resize': {
-      const size = clampWindow(msg.width, msg.height);
-      figma.ui.resize(size.width, size.height);
-      await saveSettings({ window: size });
+      const total = { width: clamp(msg.width, MIN_TOTAL_W, MAX_TOTAL_W), height: clamp(msg.height, MIN_TOTAL_H, MAX_H) };
+      figma.ui.resize(total.width, total.height);
+      uiSize = total;
+      if (msg.persist !== false) await saveSettings({ window: clampWindow(msg.baseWidth ?? total.width, total.height) });
       break;
     }
     case 'notify':
@@ -252,5 +295,11 @@ figma.on('currentpagechange', () => post({ type: 'page-changed', pageName: figma
 
 (async () => {
   settings = await loadSettings();
+  uiSize = { ...settings.window };
+  try {
+    sweepPreviewClones();
+  } catch {
+    /* page non modifiable : rien à nettoyer */
+  }
   figma.showUI(__html__, { width: settings.window.width, height: settings.window.height, themeColors: true });
 })();

@@ -77,7 +77,13 @@ export type IconName =
   | 'layers'
   | 'arrow-right'
   | 'chevron-right'
-  | 'star';
+  | 'star'
+  | 'compare'
+  | 'collapse'
+  | 'expand'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'fit';
 
 const ICONS: Record<IconName, string> = {
   back: '<path d="M10 3 5 8l5 5"/>',
@@ -113,6 +119,12 @@ const ICONS: Record<IconName, string> = {
   'chevron-right': '<path d="m5 3.5 4 4.5-4 4.5"/>',
   star: '<path d="M8 1.5c.6 3.4 3.1 5.9 6.5 6.5-3.4.6-5.9 3.1-6.5 6.5-.6-3.4-3.1-5.9-6.5-6.5 3.4-.6 5.9-3.1 6.5-6.5Z"/>',
   layers: '<path d="M8 2.5 14 6 8 9.5 2 6l6-3.5Z"/><path d="m2.5 9 5.5 3.3L13.5 9"/>',
+  compare: '<rect x="1.5" y="3.5" width="5.5" height="9" rx="1"/><rect x="9" y="3.5" width="5.5" height="9" rx="1"/><path d="M8 1.5v13" stroke-dasharray="1.5 1.5"/>',
+  collapse: '<path d="m4 10 4-4 4 4"/>',
+  expand: '<path d="m4 6 4 4 4-4"/>',
+  'zoom-in': '<circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3M7 5v4M5 7h4"/>',
+  'zoom-out': '<circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3M5 7h4"/>',
+  fit: '<path d="M2.5 6V3.5a1 1 0 0 1 1-1H6M10 2.5h2.5a1 1 0 0 1 1 1V6M13.5 10v2.5a1 1 0 0 1-1 1H10M6 13.5H3.5a1 1 0 0 1-1-1V10"/><rect x="5.5" y="5.5" width="5" height="5" rx="0.5"/>',
 };
 
 export function clear(node: Node) {

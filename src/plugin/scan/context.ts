@@ -346,8 +346,10 @@ export async function indexTokens(ctx: ScanContext): Promise<void> {
           ctx.warnings.push(`library:${col.libraryName}`);
         }
       }
-    } catch {
-      ctx.warnings.push('libraries-unavailable');
+    } catch (e) {
+      // Sans la permission « teamlibrary » dans le manifeste, l'API teamLibrary est inaccessible.
+      const message = e instanceof Error ? e.message : String(e);
+      ctx.warnings.push(/permission|manifest/i.test(message) ? 'libraries-no-permission' : 'libraries-unavailable');
     }
   }
   buildFloatScales(ctx);

@@ -137,8 +137,25 @@ button {
 #app {
   height: 100%;
   display: flex;
+  flex-direction: row;
+  position: relative;
+}
+/* Colonne principale (liste) ; le volet Comparer se place à sa droite. */
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
   flex-direction: column;
   position: relative;
+}
+#app.is-collapsed .header {
+  border-bottom: 0;
+}
+body.is-resizing,
+body.is-resizing * {
+  cursor: inherit !important;
+  user-select: none;
 }
 .header {
   display: flex;
@@ -1273,7 +1290,25 @@ details.accordion .body {
   }
 }
 
-/* ---- Poignée de redimensionnement ------------------------------------- */
+/* ---- Poignées de redimensionnement (bord droit, bord bas, coin) --------- */
+.resize-edge {
+  position: absolute;
+  z-index: 40;
+}
+.resize-edge.r {
+  top: 0;
+  right: 0;
+  bottom: 14px;
+  width: 5px;
+  cursor: ew-resize;
+}
+.resize-edge.b {
+  left: 0;
+  right: 14px;
+  bottom: 0;
+  height: 5px;
+  cursor: ns-resize;
+}
 .resize-handle {
   position: absolute;
   right: 0;
@@ -1296,4 +1331,208 @@ details.accordion .body {
 }
 .resize-handle:hover {
   opacity: 1;
+}
+
+/* ---- Lien inline (pied de page) --------------------------------------- */
+.link-btn.inline {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 6px;
+  margin: 0;
+  border-radius: 4px;
+  color: var(--text-brand);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.link-btn.inline:hover {
+  background: var(--bg-hover);
+}
+.hint.mt {
+  margin-top: 6px;
+}
+
+/* ---- Volet Comparer ---------------------------------------------------- */
+.compare {
+  width: var(--cmp-w, 440px);
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  animation: fade-in var(--d-panel) var(--ease-out);
+}
+.cmp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px 0 var(--pad);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.cmp-title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cmp-head .segmented {
+  flex: 1;
+  min-width: 0;
+  max-width: 300px;
+  margin-left: auto;
+}
+.cmp-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px 0 var(--pad);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+.cmp-frame {
+  max-width: 50%;
+}
+.cmp-frame select {
+  height: 24px;
+}
+.cmp-frame-name {
+  color: var(--text);
+  max-width: 50%;
+}
+.cmp-opacity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cmp-opacity input[type='range'] {
+  width: 96px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--bg-brand);
+}
+.cmp-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cmp-zoom-val {
+  min-width: 44px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text);
+  text-align: center;
+}
+.cmp-zoom-val:hover {
+  background: var(--bg-hover);
+}
+.icon-btn.sm {
+  width: 20px;
+  height: 20px;
+}
+.cmp-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.cmp-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.cmp-canvas.is-panning {
+  cursor: grabbing;
+}
+.cmp-canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--border-brand);
+}
+.cmp-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--ease-out);
+}
+.cmp-stage.is-loading .cmp-loading {
+  opacity: 1;
+}
+.cmp-loading i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: var(--bg-brand);
+  animation: cmp-slide 1.1s var(--ease-out) infinite;
+}
+@keyframes cmp-slide {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}
+.cmp-stage.is-loading .cmp-canvas {
+  opacity: 0.7;
+  transition: opacity var(--d-panel) var(--ease-out);
+}
+.cmp-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-2);
+  pointer-events: none;
+}
+.cmp-empty .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--icon-3);
+  margin-bottom: 4px;
+}
+.cmp-empty p {
+  margin: 0;
+  max-width: 260px;
+  line-height: 16px;
+  color: var(--text);
+}
+.cmp-empty p.muted {
+  color: var(--text-2);
+}
+.cmp-error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  margin: 0;
+}
+.cmp-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 var(--pad);
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.cmp-foot-diff {
+  white-space: nowrap;
+  color: var(--text);
 }

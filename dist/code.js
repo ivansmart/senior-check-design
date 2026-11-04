@@ -104,6 +104,7 @@
     showContrast: true,
     disabledRules: [],
     enabledRules: [],
+    autoApply: "exact",
     window: { width: 680, height: 640 }
   };
 
@@ -292,6 +293,188 @@
           }
         };
       }
+    }
+  }
+
+  // src/plugin/preview.ts
+  var MAX_EDGE = 1400;
+  var PREVIEW_TAG = "scd:preview-clone";
+  var FAR = 2e5;
+  function previewRootOf(node) {
+    let n = node;
+    while (n.parent && n.parent.type !== "PAGE" && n.parent.type !== "DOCUMENT" && n.parent.type !== "SECTION") n = n.parent;
+    return n;
+  }
+  function indexPath(root, node) {
+    const path = [];
+    let n = node;
+    while (n !== root) {
+      const parent = n.parent;
+      if (!parent || !("children" in parent)) return null;
+      const idx = parent.children.indexOf(n);
+      if (idx < 0) return null;
+      path.unshift(idx);
+      n = parent;
+    }
+    return path;
+  }
+  function follow(root, path) {
+    let n = root;
+    for (const i of path) {
+      if (!("children" in n)) return null;
+      const child = n.children[i];
+      if (!child) return null;
+      n = child;
+    }
+    return n;
+  }
+  function exportPng(node, scale) {
+    return node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: scale } });
+  }
+  async function renderPreview(items, maxRoots) {
+    var _a;
+    const groups = /* @__PURE__ */ new Map();
+    let located = 0;
+    for (const item of items) {
+      const node = await figma.getNodeByIdAsync(item.nodeId);
+      if (!node || node.type === "DOCUMENT" || node.type === "PAGE" || node.removed) continue;
+      const root = previewRootOf(node);
+      const path = indexPath(root, node);
+      if (!path) continue;
+      const group = (_a = groups.get(root.id)) != null ? _a : { root, items: [] };
+      group.items.push({ item, path });
+      groups.set(root.id, group);
+      located++;
+    }
+    const ordered = [...groups.values()].sort((a, b) => b.items.length - a.items.length).slice(0, maxRoots);
+    const frames = [];
+    let rendered = 0;
+    for (const group of ordered) {
+      const { root } = group;
+      if (!("width" in root) || root.width <= 0 || root.height <= 0) continue;
+      const scale = Math.min(2, MAX_EDGE / Math.max(root.width, root.height));
+      const before = await exportPng(root, scale);
+      let clone2 = null;
+      let applied = 0;
+      let failed = 0;
+      try {
+        clone2 = root.clone();
+        clone2.setPluginData(PREVIEW_TAG, "1");
+        clone2.name = root.name;
+        clone2.x = root.x + FAR;
+        clone2.y = root.y + FAR;
+        clone2.locked = true;
+        for (const { item, path } of group.items) {
+          const target = follow(clone2, path);
+          if (!target) {
+            failed++;
+            continue;
+          }
+          try {
+            await applyPlan(item.issueId, { ...item.plan, nodeId: target.id });
+            applied++;
+          } catch {
+            failed++;
+          }
+        }
+        const after = await exportPng(clone2, scale);
+        frames.push({
+          rootId: root.id,
+          name: root.name,
+          width: root.width,
+          height: root.height,
+          scale,
+          before,
+          after,
+          applied,
+          failed,
+          issueIds: group.items.map((g) => g.item.issueId)
+        });
+        rendered += group.items.length;
+      } finally {
+        if (clone2 && !clone2.removed) clone2.remove();
+      }
+    }
+    return { frames, skipped: located - rendered };
+  }
+  function sweepPreviewClones() {
+    let removed = 0;
+    const visit = (nodes) => {
+      for (const n of nodes) {
+        if (n.getPluginData(PREVIEW_TAG)) {
+          n.remove();
+          removed++;
+        } else if (n.type === "SECTION") visit(n.children);
+      }
+    };
+    visit(figma.currentPage.children);
+    return removed;
+  }
+
+  // src/plugin/reveal.ts
+  var UI_CHROME_H = 40;
+  var MARGIN = 24;
+  var MIN_REGION = 96;
+  var PANEL_INSET = 240;
+  var PANEL_INSET_MIN_WIDTH = 1100;
+  function union(rects) {
+    let x1 = Infinity;
+    let y1 = Infinity;
+    let x2 = -Infinity;
+    let y2 = -Infinity;
+    for (const r of rects) {
+      x1 = Math.min(x1, r.x);
+      y1 = Math.min(y1, r.y);
+      x2 = Math.max(x2, r.x + r.width);
+      y2 = Math.max(y2, r.y + r.height);
+    }
+    return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+  }
+  function intersects(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  function clip(a, to) {
+    const x = Math.max(a.x, to.x);
+    const y = Math.max(a.y, to.y);
+    return { x, y, w: Math.min(a.x + a.w, to.x + to.w) - x, h: Math.min(a.y + a.h, to.y + to.h) - y };
+  }
+  function revealNodes(nodes, uiSize2) {
+    figma.viewport.scrollAndZoomIntoView(nodes);
+    try {
+      const rects = nodes.map((n) => n.absoluteBoundingBox).filter((r) => Boolean(r));
+      if (!rects.length) return;
+      const box = union(rects);
+      const vb = figma.viewport.bounds;
+      const zoom = figma.viewport.zoom;
+      const vw = vb.width * zoom;
+      const vh = vb.height * zoom;
+      const pos = figma.ui.getPosition().canvasSpace;
+      const plugin = clip(
+        { x: (pos.x - vb.x) * zoom, y: (pos.y - vb.y) * zoom - UI_CHROME_H, w: uiSize2.width, h: uiSize2.height + UI_CHROME_H },
+        { x: 0, y: 0, w: vw, h: vh }
+      );
+      if (plugin.w <= 0 || plugin.h <= 0) return;
+      const target = { x: (box.x - vb.x) * zoom, y: (box.y - vb.y) * zoom, w: box.width * zoom, h: box.height * zoom };
+      if (!intersects(target, plugin)) return;
+      const inset = vw >= PANEL_INSET_MIN_WIDTH ? PANEL_INSET : 0;
+      const regions = [
+        { x: inset, y: 0, w: plugin.x - inset, h: vh },
+        { x: plugin.x + plugin.w, y: 0, w: vw - inset - (plugin.x + plugin.w), h: vh },
+        { x: inset, y: 0, w: vw - 2 * inset, h: plugin.y },
+        { x: inset, y: plugin.y + plugin.h, w: vw - 2 * inset, h: vh - (plugin.y + plugin.h) }
+      ].filter((r) => r.w >= MIN_REGION && r.h >= MIN_REGION);
+      if (!regions.length) return;
+      const fits = regions.filter((r) => r.w - 2 * MARGIN >= target.w && r.h - 2 * MARGIN >= target.h);
+      const pick = (fits.length ? fits : regions).sort((a, b) => b.w * b.h - a.w * a.h)[0];
+      let nextZoom = zoom;
+      if (!fits.length) nextZoom = Math.max(0.02, Math.min(zoom, (pick.w - 2 * MARGIN) / box.width, (pick.h - 2 * MARGIN) / box.height));
+      const regionCx = pick.x + pick.w / 2;
+      const regionCy = pick.y + pick.h / 2;
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      figma.viewport.zoom = nextZoom;
+      figma.viewport.center = { x: cx + (vw / 2 - regionCx) / nextZoom, y: cy + (vh / 2 - regionCy) / nextZoom };
+    } catch {
     }
   }
 
@@ -1925,8 +2108,9 @@
             ctx.warnings.push(`library:${col.libraryName}`);
           }
         }
-      } catch {
-        ctx.warnings.push("libraries-unavailable");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        ctx.warnings.push(/permission|manifest/i.test(message) ? "libraries-no-permission" : "libraries-unavailable");
       }
     }
     buildFloatScales(ctx);
@@ -2152,19 +2336,26 @@
   var SETTINGS_KEY = "scd:settings:v1";
   var IGNORED_KEY = "scd:ignored";
   var MIN_W = 560;
-  var MIN_H = 480;
-  var MAX_W = 900;
-  var MAX_H = 1200;
+  var MIN_H = 400;
+  var MAX_W = 1200;
+  var MAX_H = 1400;
+  var MIN_TOTAL_W = 200;
+  var MIN_TOTAL_H = 40;
+  var MAX_TOTAL_W = 2200;
   var settings = { ...DEFAULT_SETTINGS };
+  var uiSize = { ...DEFAULT_SETTINGS.window };
   var scanning = false;
   var cancelRequested = false;
   var issues = /* @__PURE__ */ new Map();
   var plans = /* @__PURE__ */ new Map();
   var journals = /* @__PURE__ */ new Map();
   var batchCounter = 0;
+  var previewRunning = false;
+  var previewPending = null;
   var post = (msg) => figma.ui.postMessage(msg);
+  var clamp = (v, min, max) => Math.round(Math.min(max, Math.max(min, v)));
   function clampWindow(w, h) {
-    return { width: Math.round(Math.min(MAX_W, Math.max(MIN_W, w))), height: Math.round(Math.min(MAX_H, Math.max(MIN_H, h))) };
+    return { width: clamp(w, MIN_W, MAX_W), height: clamp(h, MIN_H, MAX_H) };
   }
   async function loadSettings() {
     var _a, _b, _c, _d, _e;
@@ -2265,7 +2456,7 @@
       return;
     }
     figma.currentPage.selection = nodes;
-    figma.viewport.scrollAndZoomIntoView(nodes);
+    revealNodes(nodes, uiSize);
   }
   function planFor(issueId, alternativeId) {
     var _a;
@@ -2319,7 +2510,34 @@
     }
     post({ type: "undo-done", batchId, issueIds: restored });
   }
+  async function handlePreview(msg) {
+    if (previewRunning) {
+      previewPending = msg;
+      return;
+    }
+    previewRunning = true;
+    try {
+      const items = [];
+      for (const { issueId, alternativeId } of msg.items) {
+        const issue = issues.get(issueId);
+        const plan = planFor(issueId, alternativeId);
+        if (issue && plan && issue.status === "open") items.push({ issueId, nodeId: issue.nodeId, plan });
+      }
+      const out = await renderPreview(items, clamp(msg.maxRoots, 1, 6));
+      post({ type: "preview-done", requestId: msg.requestId, frames: out.frames, skipped: out.skipped });
+    } catch (e) {
+      post({ type: "preview-error", requestId: msg.requestId, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      previewRunning = false;
+      if (previewPending) {
+        const next = previewPending;
+        previewPending = null;
+        void handlePreview(next);
+      }
+    }
+  }
   figma.ui.onmessage = async (msg) => {
+    var _a;
     switch (msg.type) {
       case "ui-ready":
         sendInit();
@@ -2346,6 +2564,9 @@
       case "undo":
         await undoBatch(msg.batchId);
         break;
+      case "preview":
+        await handlePreview(msg);
+        break;
       case "ignore-issue": {
         const set = new Set(readIgnored());
         if (msg.ignored) set.add(msg.issueId);
@@ -2361,9 +2582,10 @@
         post({ type: "settings-saved", settings });
         break;
       case "resize": {
-        const size = clampWindow(msg.width, msg.height);
-        figma.ui.resize(size.width, size.height);
-        await saveSettings({ window: size });
+        const total = { width: clamp(msg.width, MIN_TOTAL_W, MAX_TOTAL_W), height: clamp(msg.height, MIN_TOTAL_H, MAX_H) };
+        figma.ui.resize(total.width, total.height);
+        uiSize = total;
+        if (msg.persist !== false) await saveSettings({ window: clampWindow((_a = msg.baseWidth) != null ? _a : total.width, total.height) });
         break;
       }
       case "notify":
@@ -2378,6 +2600,11 @@
   figma.on("currentpagechange", () => post({ type: "page-changed", pageName: figma.currentPage.name }));
   (async () => {
     settings = await loadSettings();
+    uiSize = { ...settings.window };
+    try {
+      sweepPreviewClones();
+    } catch {
+    }
     figma.showUI(__html__, { width: settings.window.width, height: settings.window.height, themeColors: true });
   })();
 })();

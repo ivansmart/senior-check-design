@@ -44,6 +44,9 @@ export type PresetId = 'quick' | 'handoff' | 'design-system' | 'a11y' | 'craft' 
 
 export type Locale = 'fr' | 'en';
 
+/** Lignes incluses dans « Appliquer » quand rien n'est sélectionné : exactes seules, + proches, ou toutes (y compris ambiguës). */
+export type AutoApplyLevel = 'exact' | 'close' | 'all';
+
 export interface SuggestionAlternative {
   id: string;
   label: string;
@@ -121,6 +124,9 @@ export interface Settings {
   disabledRules: string[];
   /** Règles activées en plus du preset. */
   enabledRules: string[];
+  /** Niveau de correspondance appliqué sans sélection explicite. */
+  autoApply: AutoApplyLevel;
+  /** Taille de la colonne principale (hors volet Comparer). */
   window: { width: number; height: number };
 }
 
@@ -145,6 +151,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showContrast: true,
   disabledRules: [],
   enabledRules: [],
+  autoApply: 'exact',
   window: { width: 680, height: 640 },
 };
 
@@ -210,7 +217,10 @@ export type UiToPluginMessage =
   | { type: 'undo'; batchId: string }
   | { type: 'ignore-issue'; issueId: string; ignored: boolean }
   | { type: 'save-settings'; settings: Partial<Settings> }
-  | { type: 'resize'; width: number; height: number }
+  /** `persist: false` pour une taille transitoire (fenêtre repliée). `baseWidth` : largeur de la colonne principale à mémoriser quand le volet Comparer est ouvert. */
+  | { type: 'resize'; width: number; height: number; persist?: boolean; baseWidth?: number }
+  /** Rendu avant/après des corrections listées, regroupées par cadre racine (au plus `maxRoots`). */
+  | { type: 'preview'; requestId: number; items: { issueId: string; alternativeId?: string }[]; maxRoots: number }
   | { type: 'notify'; message: string; error?: boolean }
   | { type: 'open-url'; url: string };
 
@@ -223,6 +233,23 @@ export interface FixOutcome {
   ok: boolean;
   /** Explication en cas d'échec (clé i18n ou texte brut). */
   reason?: string;
+}
+
+/** Un cadre racine rendu avant et après application des corrections (PNG). */
+export interface PreviewFrame {
+  rootId: string;
+  name: string;
+  /** Dimensions du cadre en px de design. */
+  width: number;
+  height: number;
+  /** Échelle d'export : pixels image par px de design. */
+  scale: number;
+  before: Uint8Array;
+  after: Uint8Array;
+  /** Corrections appliquées sur le clone / impossibles à appliquer. */
+  applied: number;
+  failed: number;
+  issueIds: string[];
 }
 
 export type PluginToUiMessage =
@@ -246,4 +273,6 @@ export type PluginToUiMessage =
   | { type: 'fix-progress'; done: number; total: number }
   | { type: 'undo-done'; batchId: string; issueIds: string[] }
   | { type: 'ignored-updated'; ignoredIssueIds: string[] }
-  | { type: 'settings-saved'; settings: Settings };
+  | { type: 'settings-saved'; settings: Settings }
+  | { type: 'preview-done'; requestId: number; frames: PreviewFrame[]; skipped: number }
+  | { type: 'preview-error'; requestId: number; message: string };
