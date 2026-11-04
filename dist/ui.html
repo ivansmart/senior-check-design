@@ -1,0 +1,1412 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Senior Check Design</title>
+    <style>
+      /* ---------------------------------------------------------------------------
+   Senior Check Design — UI
+   Thème : variables Figma (themeColors: true) avec repli pour l'aperçu navigateur.
+   --------------------------------------------------------------------------- */
+:root {
+  --bg: var(--figma-color-bg, #ffffff);
+  --bg-2: var(--figma-color-bg-secondary, #f5f5f5);
+  --bg-3: var(--figma-color-bg-tertiary, #e6e6e6);
+  --bg-hover: var(--figma-color-bg-hover, rgba(0, 0, 0, 0.06));
+  --bg-pressed: var(--figma-color-bg-pressed, rgba(0, 0, 0, 0.1));
+  --bg-selected: var(--figma-color-bg-selected, #e5f4ff);
+  --bg-brand: var(--figma-color-bg-brand, #0d99ff);
+  --bg-brand-hover: var(--figma-color-bg-brand-hover, #007be5);
+  --bg-brand-3: var(--figma-color-bg-brand-tertiary, #e5f4ff);
+  --bg-danger: var(--figma-color-bg-danger, #f24822);
+  --bg-danger-3: var(--figma-color-bg-danger-tertiary, #ffe2e0);
+  --bg-warning: var(--figma-color-bg-warning, #ffcd29);
+  --bg-warning-3: var(--figma-color-bg-warning-tertiary, #fff1c2);
+  --bg-success: var(--figma-color-bg-success, #14ae5c);
+  --bg-success-3: var(--figma-color-bg-success-tertiary, #cff7d3);
+  --bg-component-3: var(--figma-color-bg-component-tertiary, #f0e9ff);
+  --bg-inverse: var(--figma-color-bg-inverse, #2c2c2c);
+  --bg-disabled: var(--figma-color-bg-disabled, #e6e6e6);
+  --text: var(--figma-color-text, rgba(0, 0, 0, 0.9));
+  --text-2: var(--figma-color-text-secondary, rgba(0, 0, 0, 0.5));
+  --text-3: var(--figma-color-text-tertiary, rgba(0, 0, 0, 0.3));
+  --text-brand: var(--figma-color-text-brand, #007be5);
+  --text-danger: var(--figma-color-text-danger, #dc3412);
+  --text-warning: var(--figma-color-text-warning, #a8720b);
+  --text-success: var(--figma-color-text-success, #0a8a4a);
+  --text-component: var(--figma-color-text-component, #7a3ef0);
+  --text-onbrand: var(--figma-color-text-onbrand, #ffffff);
+  --text-oninverse: var(--figma-color-text-oninverse, #ffffff);
+  --text-disabled: var(--figma-color-text-disabled, rgba(0, 0, 0, 0.3));
+  --border: var(--figma-color-border, #e6e6e6);
+  --border-strong: var(--figma-color-border-strong, #2c2c2c);
+  --border-brand: var(--figma-color-border-brand, #0d99ff);
+  --border-selected: var(--figma-color-border-selected, #0d99ff);
+  --icon: var(--figma-color-icon, rgba(0, 0, 0, 0.9));
+  --icon-2: var(--figma-color-icon-secondary, rgba(0, 0, 0, 0.5));
+
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 10px;
+  --font: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --mono: 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+  --fs-xs: 10px;
+  --fs-s: 11px;
+  --fs-m: 12px;
+  --fs-l: 13px;
+  --fs-xl: 16px;
+  --fs-score: 28px;
+
+  --d-fast: 100ms;
+  --d-fix: 180ms;
+  --d-count: 300ms;
+  --d-panel: 200ms;
+  --d-toast-in: 180ms;
+  --d-toast-out: 140ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--border-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --d-fast: 0ms;
+    --d-fix: 0ms;
+    --d-count: 0ms;
+    --d-panel: 0ms;
+    --d-toast-in: 0ms;
+    --d-toast-out: 0ms;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+body {
+  font: 400 var(--fs-s) / 1.45 var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+button:disabled {
+  cursor: default;
+}
+:focus {
+  outline: none;
+}
+:focus-visible {
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-s);
+}
+.num,
+.score-value,
+.count,
+.value {
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* ---- Layout ------------------------------------------------------------ */
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: screen-in var(--d-panel) var(--ease-out);
+}
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.header .title {
+  font-weight: 600;
+  font-size: var(--fs-m);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header .sub {
+  color: var(--text-2);
+  font-weight: 400;
+  margin-left: 6px;
+}
+.footer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+  align-items: center;
+}
+.footer .spacer {
+  flex: 1;
+}
+.section {
+  padding: 12px;
+}
+.section + .section {
+  border-top: 1px solid var(--border);
+}
+.section-title {
+  font-size: var(--fs-s);
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.hint {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.muted {
+  color: var(--text-2);
+}
+
+/* ---- Buttons ----------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-m);
+  font-weight: 500;
+  font-size: var(--fs-s);
+  border: 1px solid transparent;
+  transition:
+    background var(--d-fast) var(--ease-out),
+    border-color var(--d-fast) var(--ease-out),
+    color var(--d-fast) var(--ease-out),
+    transform var(--d-fast) var(--ease-out);
+  white-space: nowrap;
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+.btn-primary {
+  background: var(--bg-brand);
+  color: var(--text-onbrand);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--bg-brand-hover);
+}
+.btn-primary:disabled {
+  background: var(--bg-disabled);
+  color: var(--text-disabled);
+}
+.btn-secondary {
+  border-color: var(--border);
+  background: var(--bg);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.btn-ghost {
+  color: var(--text-2);
+  padding: 0 8px;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.btn-success {
+  background: var(--bg-success);
+  color: #fff;
+}
+.btn-success:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+.btn-sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-s);
+}
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-s);
+  color: var(--icon-2);
+}
+.btn-icon:hover {
+  background: var(--bg-hover);
+  color: var(--icon);
+}
+.btn-block {
+  width: 100%;
+}
+.icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+/* ---- Form controls ----------------------------------------------------- */
+.select {
+  position: relative;
+}
+.select select {
+  appearance: none;
+  width: 100%;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg);
+  color: var(--text);
+}
+.select select:hover {
+  border-color: var(--border-strong);
+}
+.select::after {
+  content: '';
+  position: absolute;
+  right: 11px;
+  top: 12px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--icon-2);
+  border-bottom: 1.5px solid var(--icon-2);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.segmented {
+  display: flex;
+  background: var(--bg-2);
+  border-radius: var(--radius-m);
+  padding: 2px;
+  gap: 2px;
+}
+.segmented button {
+  flex: 1;
+  height: 26px;
+  border-radius: var(--radius-s);
+  color: var(--text-2);
+  font-weight: 500;
+  transition:
+    background var(--d-fast) var(--ease-out),
+    color var(--d-fast) var(--ease-out);
+}
+.segmented button:hover {
+  color: var(--text);
+}
+.segmented button[aria-pressed='true'] {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+}
+.segmented button:disabled {
+  color: var(--text-disabled);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  cursor: pointer;
+}
+.check input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+  transition: background var(--d-fast) var(--ease-out);
+  flex-shrink: 0;
+}
+.check input:checked {
+  background: var(--bg-brand);
+  border-color: var(--bg-brand);
+}
+.check input:checked::after {
+  content: '';
+  width: 4px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+.check input:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+}
+.field input[type='number'] {
+  width: 64px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--bg);
+  text-align: right;
+}
+.search {
+  position: relative;
+}
+.search input {
+  width: 100%;
+  height: 30px;
+  padding: 0 28px 0 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg);
+}
+.search input:focus {
+  border-color: var(--border-brand);
+}
+.search .icon {
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  color: var(--icon-2);
+}
+.search .kbd {
+  position: absolute;
+  right: 8px;
+  top: 7px;
+}
+.kbd {
+  font: 500 var(--fs-xs) / 1 var(--mono);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  background: var(--bg-2);
+}
+details.accordion summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-weight: 500;
+  height: 24px;
+}
+details.accordion summary::-webkit-details-marker {
+  display: none;
+}
+details.accordion summary::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--d-fast) var(--ease-out);
+  margin-left: 2px;
+}
+details.accordion[open] summary::before {
+  transform: rotate(45deg);
+}
+details.accordion .body {
+  padding-top: 6px;
+}
+
+/* ---- Preset cards ------------------------------------------------------ */
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.preset-card {
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg);
+  transition:
+    border-color var(--d-fast) var(--ease-out),
+    background var(--d-fast) var(--ease-out);
+}
+.preset-card:hover {
+  background: var(--bg-hover);
+}
+.preset-card[aria-pressed='true'] {
+  border-color: var(--border-brand);
+  background: var(--bg-brand-3);
+}
+.preset-card .name {
+  font-weight: 600;
+  display: block;
+}
+.preset-card .desc {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  display: block;
+  margin-top: 1px;
+}
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.rule-list .check {
+  height: 24px;
+  font-size: var(--fs-xs);
+}
+.rule-list .cat {
+  color: var(--text-3);
+  margin-left: auto;
+}
+
+/* ---- Scanning ---------------------------------------------------------- */
+.progress-wrap {
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.progress-title {
+  font-size: var(--fs-l);
+  font-weight: 600;
+}
+.progress-phase {
+  color: var(--text-2);
+  min-height: 16px;
+}
+.bar {
+  height: 4px;
+  background: var(--bg-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--bg-brand);
+  border-radius: 2px;
+  transition: width 120ms linear;
+}
+.bar.indeterminate > i {
+  width: 40%;
+  animation: slide 1.1s var(--ease-out) infinite;
+}
+@keyframes slide {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+.found-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  color: var(--text-2);
+}
+.found-grid .count {
+  color: var(--text);
+  font-weight: 500;
+  text-align: right;
+  transition: color var(--d-fix) var(--ease-out);
+}
+
+/* ---- Score card -------------------------------------------------------- */
+.score-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  align-items: center;
+  padding: 12px;
+  margin: 10px 12px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg);
+}
+.score-ring {
+  width: 56px;
+  height: 56px;
+  position: relative;
+  grid-row: span 2;
+}
+.score-ring svg {
+  transform: rotate(-90deg);
+}
+.score-ring circle {
+  fill: none;
+  stroke-width: 4;
+}
+.score-ring .track {
+  stroke: var(--bg-3);
+}
+.score-ring .fill {
+  stroke: var(--bg-success);
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--d-count) var(--ease-out), stroke var(--d-count) var(--ease-out);
+}
+.score-ring[data-level='mid'] .fill {
+  stroke: var(--bg-warning);
+}
+.score-ring[data-level='low'] .fill {
+  stroke: var(--bg-danger);
+}
+.score-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.score-label {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.score-label .tag {
+  margin-left: auto;
+}
+.score-meta {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  background: var(--bg-2);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.tag-error {
+  background: var(--bg-danger-3);
+  color: var(--text-danger);
+}
+.tag-warning {
+  background: var(--bg-warning-3);
+  color: var(--text-warning);
+}
+.tag-info {
+  background: var(--bg-brand-3);
+  color: var(--text-brand);
+}
+.tag-safe {
+  background: var(--bg-success-3);
+  color: var(--text-success);
+}
+.tag-review {
+  background: var(--bg-component-3);
+  color: var(--text-component);
+}
+.tag-fixed {
+  background: var(--bg-success-3);
+  color: var(--text-success);
+}
+
+/* ---- Chips ------------------------------------------------------------- */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 12px 0;
+}
+.chip {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--bg);
+  transition:
+    background var(--d-fast) var(--ease-out),
+    border-color var(--d-fast) var(--ease-out),
+    color var(--d-fast) var(--ease-out),
+    opacity var(--d-fix) var(--ease-out);
+}
+.chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.chip[aria-pressed='true'] {
+  background: var(--bg-inverse);
+  color: var(--text-oninverse);
+  border-color: var(--bg-inverse);
+}
+.chip .count {
+  font-weight: 600;
+  min-width: 10px;
+  text-align: center;
+}
+.chip.empty {
+  opacity: 0.45;
+}
+.chip-fill {
+  animation: chip-pop var(--d-fix) var(--ease-out);
+}
+@keyframes chip-pop {
+  from {
+    transform: scale(0.96);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  align-items: center;
+}
+.toolbar .search {
+  flex: 1;
+}
+.toolbar .select select {
+  height: 30px;
+  font-size: var(--fs-xs);
+  padding-right: 24px;
+}
+.toolbar .select::after {
+  top: 11px;
+}
+
+/* ---- Issue list -------------------------------------------------------- */
+.list {
+  padding: 0 0 8px;
+}
+.cat-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 4px;
+  background: var(--bg);
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.cat-head .count {
+  color: var(--text-3);
+  font-weight: 500;
+}
+.group {
+  margin: 0 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  background: var(--bg);
+}
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  transition: background var(--d-fast) var(--ease-out);
+}
+.group-head:hover {
+  background: var(--bg-hover);
+}
+.group-head .caret {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--icon-2);
+  border-bottom: 1.5px solid var(--icon-2);
+  transform: rotate(-45deg);
+  transition: transform var(--d-fast) var(--ease-out);
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+.group[data-open='true'] .group-head .caret {
+  transform: rotate(45deg);
+}
+.group-head .g-title {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.group-head .g-count {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.group-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 8px 24px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  flex-wrap: wrap;
+}
+.group-value .arrow {
+  color: var(--text-3);
+}
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%),
+    linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%);
+  background-size: 6px 6px;
+  background-position:
+    0 0,
+    3px 3px;
+  position: relative;
+  overflow: hidden;
+}
+.swatch > i {
+  position: absolute;
+  inset: 0;
+}
+.value {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.group-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 8px 24px;
+}
+.issues {
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.issue {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px 6px 12px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    background var(--d-fix) var(--ease-out),
+    opacity var(--d-fix) var(--ease-out);
+  position: relative;
+}
+.issue:first-child {
+  border-top: 0;
+}
+.issue:hover,
+.issue:focus-visible {
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+.issue[aria-selected='true'] {
+  background: var(--bg-selected);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  transition: background var(--d-fix) var(--ease-out);
+}
+.dot-error {
+  background: var(--bg-danger);
+}
+.dot-warning {
+  background: var(--bg-warning);
+}
+.dot-info {
+  background: var(--bg-brand);
+}
+.issue .meta {
+  min-width: 0;
+}
+.issue .name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.issue .path {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.issue .path > span {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+.issue .actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--ease-out);
+}
+.issue:hover .actions,
+.issue:focus-within .actions,
+.issue[aria-selected='true'] .actions {
+  opacity: 1;
+}
+.issue.is-fixed,
+.issue.is-ignored {
+  opacity: 0.55;
+}
+.issue.is-fixed .dot {
+  background: var(--bg-success);
+}
+.issue.is-fixed .name {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
+}
+.issue.just-fixed {
+  animation: fixed-flash var(--d-fix) var(--ease-out);
+}
+@keyframes fixed-flash {
+  from {
+    background: var(--bg-success-3);
+  }
+  to {
+    background: transparent;
+  }
+}
+.issue .state {
+  font-size: var(--fs-xs);
+  color: var(--text-success);
+  font-weight: 500;
+}
+.issue.is-ignored .state {
+  color: var(--text-2);
+}
+
+/* ---- Empty / error states --------------------------------------------- */
+.state-box {
+  padding: 32px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.state-box .big-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--bg-success-3);
+  color: var(--text-success);
+  margin-bottom: 4px;
+}
+.state-box .big-icon.warn {
+  background: var(--bg-warning-3);
+  color: var(--text-warning);
+}
+.state-box .big-icon.neutral {
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+.state-box h2 {
+  margin: 0;
+  font-size: var(--fs-l);
+  font-weight: 600;
+}
+.state-box p {
+  margin: 0;
+  color: var(--text-2);
+  max-width: 300px;
+}
+.state-box .row {
+  margin-top: 8px;
+}
+.notice {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
+  background: var(--bg-warning-3);
+  color: var(--text-warning);
+  font-size: var(--fs-xs);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.notice.info {
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+
+/* ---- Detail panel ------------------------------------------------------ */
+.detail {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  animation: detail-in var(--d-panel) var(--ease-out);
+  z-index: 5;
+}
+@keyframes detail-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.detail.leaving {
+  animation: detail-out var(--d-panel) var(--ease-in) forwards;
+}
+@keyframes detail-out {
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+.detail h1 {
+  font-size: var(--fs-l);
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.detail .tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.kv {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.kv .k {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 3px;
+}
+.kv .v {
+  color: var(--text);
+}
+.compare {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-2);
+}
+.compare .cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.compare .cell .swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+.compare .cell .txt {
+  min-width: 0;
+}
+.compare .cell .main {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compare .cell .sub {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compare .arrow {
+  color: var(--text-3);
+}
+.alt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.alt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--bg);
+  width: 100%;
+  text-align: left;
+}
+.alt:hover {
+  background: var(--bg-hover);
+}
+.alt .main {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.alt .sub {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.path-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  color: var(--text-2);
+}
+.path-list .sep {
+  color: var(--text-3);
+}
+.path-list .last {
+  color: var(--text);
+  font-weight: 500;
+}
+.detail .footer {
+  flex-wrap: wrap;
+}
+.detail .footer .btn {
+  flex: 1 1 auto;
+}
+
+/* ---- Dialog / confirm -------------------------------------------------- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: grid;
+  place-items: center;
+  z-index: 20;
+  animation: fade-in var(--d-fast) var(--ease-out);
+  padding: 16px;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.dialog {
+  background: var(--bg);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-2);
+  padding: 16px;
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: screen-in var(--d-panel) var(--ease-out);
+}
+.dialog h2 {
+  margin: 0;
+  font-size: var(--fs-l);
+}
+.dialog p {
+  margin: 0;
+  color: var(--text-2);
+}
+.dialog .row {
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* ---- Toasts ------------------------------------------------------------ */
+.toasts {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 30;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border-radius: var(--radius-m);
+  background: var(--bg-inverse);
+  color: var(--text-oninverse);
+  box-shadow: var(--shadow-2);
+  animation: toast-in var(--d-toast-in) var(--ease-out);
+  font-size: var(--fs-xs);
+}
+.toast.leaving {
+  animation: toast-out var(--d-toast-out) var(--ease-in) forwards;
+}
+@keyframes toast-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes toast-out {
+  to {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+.toast .msg {
+  flex: 1;
+  min-width: 0;
+}
+.toast .btn {
+  height: 24px;
+  padding: 0 8px;
+  color: #8fd1ff;
+  font-weight: 600;
+}
+.toast .btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.toast .progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  width: 100%;
+  transform-origin: left;
+  border-radius: 0 0 var(--radius-m) var(--radius-m);
+}
+.toast {
+  position: relative;
+  overflow: hidden;
+}
+
+/* ---- Resize handle ----------------------------------------------------- */
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 40;
+  opacity: 0.5;
+}
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--icon-2);
+  border-bottom: 1.5px solid var(--icon-2);
+}
+.resize-handle:hover {
+  opacity: 1;
+}
+
+/* ---- Keyboard hint ----------------------------------------------------- */
+.kbd-hint {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  padding: 4px 12px 0;
+  text-align: center;
+}
+
+@keyframes shrink {
+  to {
+    transform: scaleX(0);
+  }
+}
+.toast:hover .progress {
+  animation-play-state: paused;
+}
+.issue .btn-icon {
+  width: 24px;
+  height: 24px;
+}
+.issue .btn-icon .icon {
+  width: 13px;
+  height: 13px;
+}
+.fix-progress {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.menu {
+  position: absolute;
+  right: 12px;
+  top: 40px;
+  background: var(--bg);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-2);
+  padding: 4px;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  animation: screen-in var(--d-fast) var(--ease-out);
+}
+.menu button {
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-s);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.menu button:hover {
+  background: var(--bg-hover);
+}
+.menu .sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.scope-badge {
+  font-weight: 500;
+}
+.sev-select {
+  min-width: 96px;
+}
+
+    </style>
+  </head>
+  <body>
+    <div id="app" role="application" aria-label="Senior Check Design"></div>
+    <script>
+      "use strict";(()=>{var U=[{id:"colors/hardcoded-fill",category:"colors",severity:"error"},{id:"colors/hardcoded-stroke",category:"colors",severity:"error"},{id:"typography/no-text-style",category:"typography",severity:"error"},{id:"typography/mixed-styles",category:"typography",severity:"info"},{id:"typography/off-scale-size",category:"typography",severity:"warning"},{id:"spacing/off-scale-padding",category:"spacing",severity:"warning"},{id:"spacing/off-scale-gap",category:"spacing",severity:"warning"},{id:"radius/not-tokenized",category:"radius",severity:"warning"},{id:"components/detached-instance",category:"components",severity:"warning"},{id:"components/default-name",category:"components",severity:"info"},{id:"components/heavy-overrides",category:"components",severity:"info"},{id:"components/duplicate-component",category:"components",severity:"info",aggregate:!0},{id:"components/no-description",category:"components",severity:"info"},{id:"craft/missing-state",category:"craft",severity:"warning"},{id:"craft/missing-loading-state",category:"craft",severity:"warning"},{id:"craft/missing-empty-state",category:"craft",severity:"warning"},{id:"craft/state-naming",category:"craft",severity:"info",aggregate:!0},{id:"craft/missing-hover-transition",category:"craft",severity:"info"},{id:"craft/inconsistent-motion",category:"craft",severity:"warning",aggregate:!0},{id:"a11y/text-contrast",category:"a11y",severity:"error",docUrl:"https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html"},{id:"a11y/contrast-not-verifiable",category:"a11y",severity:"info"},{id:"a11y/touch-target",category:"a11y",severity:"warning",docUrl:"https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html"},{id:"a11y/text-too-small",category:"a11y",severity:"info"},{id:"handoff/fractional-size",category:"handoff",severity:"info"},{id:"handoff/fractional-position",category:"handoff",severity:"info"},{id:"handoff/stackable-without-autolayout",category:"handoff",severity:"info"}],se=Object.fromEntries(U.map(t=>[t.id,t])),ae=U.map(t=>t.id),j=(...t)=>U.filter(e=>t.includes(e.category)).map(e=>e.id),be={quick:["colors/hardcoded-fill","colors/hardcoded-stroke","typography/no-text-style","spacing/off-scale-padding","spacing/off-scale-gap","components/detached-instance","components/default-name"],handoff:[...j("colors","typography","spacing","radius","handoff"),"components/detached-instance","components/default-name","components/heavy-overrides"],"design-system":[...j("colors","typography","spacing","radius","components"),"craft/state-naming","craft/missing-state"],a11y:[...j("a11y"),"craft/missing-state"],craft:[...j("craft"),"a11y/touch-target"],strict:ae},xe=["quick","handoff","design-system","a11y","craft","strict"];function ie(t,e,i){var r;let o=new Set((r=be[t])!=null?r:be.quick);for(let l of i)se[l]&&o.add(l);for(let l of e)o.delete(l);return o}var H=["colors","typography","spacing","radius","components","craft","a11y","handoff"],Ge={ignoreHidden:!0,ignoreLocked:!0,scanInsideInstances:!1,includeLibraries:!0,baseGrid:4,spacingTolerance:2,minTouchTarget:24,minFontSize:12},_={locale:"fr",preset:"quick",scope:"page",options:Ge,disabledRules:[],enabledRules:[],window:{width:420,height:640}};function oe(t){return t.replace(/\|/g,"\\|").replace(/\n/g," ")}function Se(t,e,i,o,r,l){var d,g,p;let u=t.filter(f=>f.status!=="ignored"),c=[];c.push(`# ${o.title} \u2014 ${r}`),c.push(""),c.push(`- ${o.generated} : ${l.toISOString().slice(0,16).replace("T"," ")}`),c.push(`- ${o.scope} : ${e.scopeLabel}`),c.push(`- ${o.nodes} : ${e.nodesScanned}`),c.push(`- ${o.duration} : ${(e.durationMs/1e3).toFixed(1)} s`),c.push(`- **${o.score} : ${i.total} / 100**`),c.push(""),c.push(`## ${o.summary}`),c.push(""),c.push(`| ${o.columns.category} | ${o.severity("error")} | ${o.severity("warning")} | ${o.severity("info")} |`),c.push("| :-- | --: | --: | --: |");for(let f of H){let x=u.filter(w=>w.category===f&&w.status==="open");if(!x.length)continue;let k=w=>x.filter(y=>y.severity===w).length;c.push(`| ${o.category(f)} | ${k("error")} | ${k("warning")} | ${k("info")} |`)}if(c.push(""),!u.length)return c.push(o.noIssues),c.join(`
+`);for(let f of H){let x=u.filter(w=>w.category===f);if(!x.length)continue;c.push(`## ${o.category(f)} (${x.length})`),c.push("");let k=new Map;for(let w of x)k.set(w.ruleId,[...(d=k.get(w.ruleId))!=null?d:[],w]);for(let[w,y]of k){c.push(`### ${o.rule(w)} \u2014 ${o.occurrences(y.length)}`),c.push(""),c.push(`| ${o.columns.severity} | ${o.columns.layer} | ${o.columns.current} | ${o.columns.suggested} | ${o.columns.status} |`),c.push("| :-- | :-- | :-- | :-- | :-- |");for(let C of y){let m=[...C.nodePath,C.nodeName].map(oe).join(" \u203A ");c.push(`| ${o.severity(C.severity)} | ${m} | ${oe(C.currentValue)} | ${oe((p=(g=C.suggestion)==null?void 0:g.label)!=null?p:"\u2014")} | ${o.status(C.status)} |`)}c.push("")}}return c.join(`
+`)}function we(t){let e=t===void 0?"":String(t);return/[",\n;]/.test(e)?`"${e.replace(/"/g,'""')}"`:e}function ke(t,e){let i=[e.columns.rule,e.columns.severity,e.columns.category,e.columns.layer,e.columns.path,e.columns.current,e.columns.suggested,e.columns.fix,e.columns.status,"nodeId"],o=t.map(r=>{var l,u;return[e.rule(r.ruleId),e.severity(r.severity),e.category(r.category),r.nodeName,r.nodePath.join(" \u203A "),r.currentValue,(u=(l=r.suggestion)==null?void 0:l.label)!=null?u:"",e.fixSafety(r.fixSafety),e.status(r.status),r.nodeId].map(we).join(",")});return[i.map(we).join(","),...o].join(`
+`)}var ze={error:3,warning:1.5,info:.5};function re(t,e){var c;let i=Math.max(e,20),o={},r=0;for(let d of t){if(d.status!=="open")continue;let g=ze[d.severity];o[d.category]=((c=o[d.category])!=null?c:0)+g,r+=g}let l=d=>Math.round(100/(1+4*(d/i))),u={};for(let[d,g]of Object.entries(o))u[d]=l(g);return{total:l(r),byCategory:u}}function Ce(t){let e={error:0,warning:0,info:0};for(let i of t)i.status==="open"&&e[i.severity]++;return e}function n(t,e={},...i){let o=document.createElement(t);for(let[r,l]of Object.entries(e))l==null||l===!1||(r.startsWith("on")&&typeof l=="function"?o.addEventListener(r.slice(2).toLowerCase(),l):r==="class"?o.className=String(l):r==="style"?o.setAttribute("style",String(l)):l===!0?o.setAttribute(r,""):o.setAttribute(r,String(l)));return K(o,i),o}function K(t,e){for(let i of e)i==null||i===!1||(Array.isArray(i)?K(t,i):i instanceof Node?t.appendChild(i):t.appendChild(document.createTextNode(String(i))))}function h(t,e=14){let i=document.createElementNS("http://www.w3.org/2000/svg","svg");return i.setAttribute("viewBox","0 0 16 16"),i.setAttribute("width",String(e)),i.setAttribute("height",String(e)),i.setAttribute("class","icon"),i.setAttribute("aria-hidden","true"),i.innerHTML=We[t],i}var We={back:'<path d="M10 3 5 8l5 5"/>',check:'<path d="m3 8.5 3 3 7-7"/>',close:'<path d="m4 4 8 8M12 4l-8 8"/>',search:'<circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/>',settings:'<circle cx="8" cy="8" r="2"/><path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.6 3.6l1.05 1.05M11.35 11.35l1.05 1.05M3.6 12.4l1.05-1.05M11.35 4.65 12.4 3.6"/>',target:'<circle cx="8" cy="8" r="5.25"/><circle cx="8" cy="8" r="1.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/>',refresh:'<path d="M13 8a5 5 0 1 1-1.5-3.6"/><path d="M13 2.5V6H9.5"/>',export:'<path d="M8 10V2.5M5 5.5l3-3 3 3"/><path d="M2.5 9.5v3a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3"/>',eye:'<path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>',"eye-off":'<path d="M2 2l12 12M6.3 6.4A2 2 0 0 0 9.6 9.7M3.9 4.6C2.3 5.9 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1.1 0 2.1-.3 3-.8M6.6 3.7c.5-.1.9-.2 1.4-.2 4 0 6.5 4.5 6.5 4.5s-.6 1.1-1.7 2.3"/>',wand:'<path d="m3 13 7.5-7.5M10.5 2.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6ZM4 3l.4 1 1 .4-1 .4L4 5.8l-.4-1-1-.4 1-.4Z"/>',alert:'<path d="M8 2.5 14 13H2L8 2.5Z"/><path d="M8 6.5v3M8 11.2v.3"/>',info:'<circle cx="8" cy="8" r="5.75"/><path d="M8 7.25V11M8 5v.3"/>',external:'<path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/><path d="M11 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3"/>',play:'<path d="M4.5 3.2v9.6L12.5 8 4.5 3.2Z"/>',undo:'<path d="M3.5 6.5H9a3.5 3.5 0 0 1 0 7H6"/><path d="M6 3.5 3 6.5l3 3"/>',sparkle:'<path d="M8 2.5l1.3 3.2 3.2 1.3-3.2 1.3L8 11.5 6.7 8.3 3.5 7l3.2-1.3Z"/>'};function B(t){for(;t.firstChild;)t.removeChild(t.firstChild)}function Te(t,e,i,o){if(i<=0||t===e)return o(e),()=>{};let r=performance.now(),l=0,u=c=>{let d=Math.min(1,(c-r)/i),g=1-Math.pow(1-d,3);o(Math.round(t+(e-t)*g)),d<1&&(l=requestAnimationFrame(u))};return l=requestAnimationFrame(u),()=>cancelAnimationFrame(l)}function le(t,e,i){let o=new Blob([e],{type:i}),r=URL.createObjectURL(o),l=n("a",{href:r,download:t});document.body.appendChild(l),l.click(),setTimeout(()=>{l.remove(),URL.revokeObjectURL(r)},500)}async function Ie(t){try{return await navigator.clipboard.writeText(t),!0}catch{let e=n("textarea",{style:"position:fixed;opacity:0;left:-9999px"},t);document.body.appendChild(e),e.select();let i=!1;try{i=document.execCommand("copy")}catch{i=!1}return e.remove(),i}}var Ve={ui:{appName:"Senior Check Design",tagline:"Audit local, d\xE9terministe et gratuit.",preset:"Preset",scope:"P\xE9rim\xE8tre",scopeSelection:"S\xE9lection",scopePage:"Page active",scopeFile:"Tout le fichier",selectionCount:"{n} calques s\xE9lectionn\xE9s",selectionOne:"1 calque s\xE9lectionn\xE9",selectionNone:"Aucun calque s\xE9lectionn\xE9",options:"Options",optIgnoreHidden:"Ignorer les calques masqu\xE9s",optIgnoreLocked:"Ignorer les calques verrouill\xE9s",optInsideInstances:"Analyser l\u2019int\xE9rieur des instances",optIncludeLibraries:"Lire les variables des librairies activ\xE9es",optBaseGrid:"Grille de base (sans tokens)",optTolerance:"Tol\xE9rance d\u2019espacement",optTouch:"Zone tactile minimale",optMinFont:"Taille de texte minimale",rulesTitle:"R\xE8gles du preset",rulesHint:"D\xE9sactive une r\xE8gle pour ce preset, ou active-en d\u2019autres.",analyzeSelection:"Analyser la s\xE9lection",analyzePage:"Analyser la page",analyzeFile:"Analyser tout le fichier",fileWarningTitle:"Analyser tout le fichier ?",fileWarningBody:"Les {pages} pages seront charg\xE9es. Sur un fichier volumineux, cela peut prendre plusieurs secondes. Tu pourras annuler \xE0 tout moment.",confirm:"Lancer",cancel:"Annuler",back:"Retour",settings:"R\xE9glages",language:"Langue",scanning:"Analyse en cours\u2026",phaseIndexing:"Lecture des variables et styles",phaseIndexingLib:"Lecture de la librairie \xAB {name} \xBB",phaseCollecting:"Collecte des calques",phaseScanning:"{scanned} / {total} calques analys\xE9s",phaseFinalizing:"V\xE9rifications crois\xE9es",cancelScan:"Arr\xEAter l\u2019analyse",cancelled:"Analyse arr\xEAt\xE9e",cancelledBody:"Les r\xE9sultats partiels restent exploitables.",done:"Analyse termin\xE9e en {s} s",health:"Design Health",nodesScanned:"{n} calques",counts:"{e} erreurs \xB7 {w} warnings \xB7 {i} infos",safeFixes:"{n} corrections rapides",safeFixesOne:"1 correction rapide",reviewItems:"{n} points \xE0 examiner",reviewOne:"1 point \xE0 examiner",fixAllSafe:"Corriger les {n} fixes s\xFBrs",fixAllSafeOne:"Corriger le fix s\xFBr",fixAllConfirm:"Appliquer {n} corrections s\xFBres ? Chaque changement reste annulable.",apply:"Appliquer",fixing:"Correction {done} / {total}",search:"Rechercher\u2026",searchTitle:"R\xE8gle, valeur, nom de calque, token",searchShortcut:"Appuie sur / pour rechercher",filterSeverity:"S\xE9v\xE9rit\xE9",sevAll:"Toutes",sevErrors:"Erreurs",sevErrorsWarnings:"Erreurs + warnings",filterStatus:"Statut",statusOpen:"Ouvertes",statusFixed:"Corrig\xE9es",statusIgnored:"Ignor\xE9es",all:"Tout",occurrences:"{n} occurrences",occurrenceOne:"1 occurrence",view:"Voir",fix:"Corriger",review:"Examiner",ignore:"Ignorer",unignore:"R\xE9activer",fixed:"Corrig\xE9e",ignored:"Ignor\xE9e",safeFix:"Fix s\xFBr",reviewFix:"\xC0 valider",noFix:"Manuel",current:"Valeur actuelle",suggested:"Suggestion",alternatives:"Autres correspondances",where:"O\xF9",why:"Pourquoi",whatToDo:"Que faire",applySuggestion:"Appliquer la suggestion",applyTo:"Appliquer aux {n} occurrences identiques",ignoreIssue:"Ignorer cette issue",ignoreRule:"D\xE9sactiver cette r\xE8gle",openDoc:"Documentation",export:"Exporter",exportMd:"Rapport Markdown",exportCsv:"Export CSV",copyMd:"Copier le Markdown",copied:"Rapport copi\xE9 dans le presse-papiers",downloaded:"Fichier t\xE9l\xE9charg\xE9",rescan:"Relancer",newScan:"Nouvelle analyse",emptyTitle:"Aucun probl\xE8me d\xE9tect\xE9",emptyBody:"Ton p\xE9rim\xE8tre \xAB {scope} \xBB respecte les r\xE8gles du preset {preset}.",emptyStrict:"Passer en mode Strict",emptyFiltered:"Aucune issue ne correspond aux filtres.",resetFilters:"R\xE9initialiser les filtres",noMatchHint:"Aucun token ne correspond : rien \xE0 lier automatiquement.",undo:"Annuler",toastFixed:"{n} corrections appliqu\xE9es \xB7 Design Health {before} \u2192 {after}",toastFixedOne:"Correction appliqu\xE9e : {label}",toastFixFailed:"{n} corrections n\u2019ont pas pu \xEAtre appliqu\xE9es",toastUndone:"{n} corrections annul\xE9es",toastUndoneOne:"Correction annul\xE9e",toastIgnored:"Issue ignor\xE9e pour ce fichier",toastUnignored:"Issue r\xE9activ\xE9e",toastRuleDisabled:"R\xE8gle d\xE9sactiv\xE9e : relance l\u2019analyse pour l\u2019appliquer",errorTitle:"L\u2019analyse s\u2019est arr\xEAt\xE9e",errorBody:"Ce qui a fonctionn\xE9 reste affich\xE9. D\xE9tail technique : {message}",retry:"R\xE9essayer",retrySelection:"Analyser la s\xE9lection",warnLibraryCap:"Librairies tr\xE8s volumineuses : seules les 800 premi\xE8res variables ont \xE9t\xE9 lues.",warnLibrary:"Variables de la librairie \xAB {name} \xBB illisibles.",warnLibrariesUnavailable:"Les variables des librairies n\u2019ont pas pu \xEAtre lues : seules les variables locales sont utilis\xE9es.",warnRule:"La r\xE8gle {rule} a rencontr\xE9 une erreur sur certains calques.",tokensSummary:"{colors} couleurs \xB7 {floats} nombres \xB7 {text} styles de texte",librariesSummary:"{n} librairies lues",noTokens:"Aucune variable d\xE9tect\xE9e : les suggestions de liaison sont d\xE9sactiv\xE9es.",keyboardHint:"\u2191\u2193 naviguer \xB7 \u21B5 ouvrir \xB7 F corriger \xB7 / rechercher \xB7 Esc retour",resizeHandle:"Redimensionner",pageChanged:"Page chang\xE9e : {name}",scopeBadgePage:"Page",scopeBadgeFile:"Fichier",scopeBadgeSelection:"S\xE9lection",scoreHint:"Densit\xE9 d\u2019issues ouvertes par calque analys\xE9, pond\xE9r\xE9e par s\xE9v\xE9rit\xE9.",sourceLocal:"Local",byCategory:"Par cat\xE9gorie",aboutTitle:"Comment \xE7a marche",aboutBody:"Toutes les r\xE8gles s\u2019ex\xE9cutent localement, sans IA ni r\xE9seau. Les corrections \xAB s\xFBres \xBB lient une valeur \xE0 un token identique ; les autres demandent ta validation. Tout est annulable.",version:"v0.1.0"},categories:{colors:"Couleurs",typography:"Typographie",spacing:"Espacement",radius:"Radius",components:"Composants",craft:"Craft & interaction",a11y:"Accessibilit\xE9",handoff:"Handoff"},categoriesShort:{colors:"Couleurs",typography:"Typo",spacing:"Spacing",radius:"Radius",components:"Composants",craft:"Craft",a11y:"A11y",handoff:"Handoff"},severity:{error:"Erreur",warning:"Warning",info:"Info"},presets:{quick:{name:"Quick check",hint:"Nettoyage rapide avant review"},handoff:{name:"Handoff",hint:"Fichier pr\xEAt pour le d\xE9veloppement"},"design-system":{name:"Design system",hint:"Sant\xE9 de la librairie"},a11y:{name:"Accessibilit\xE9",hint:"Contraste, cibles tactiles, \xE9tats"},craft:{name:"Product Craft",hint:"\xC9tats, feedback, motion"},strict:{name:"Strict",hint:"Audit senior complet"}},rules:{"colors/hardcoded-fill":{title:"Couleur de fond cod\xE9e en dur",message:{exact:"{value} n\u2019est pas li\xE9e \xE0 une variable. \xAB {suggestion} \xBB correspond exactement.",close:"{value} n\u2019est pas li\xE9e \xE0 une variable. \xAB {suggestion} \xBB est tr\xE8s proche.",ambiguous:"{value} n\u2019est pas li\xE9e \xE0 une variable. Plusieurs tokens sont proches : \xE0 toi de choisir.",none:"{value} n\u2019est pas li\xE9e \xE0 une variable et aucun token ne correspond.",noTokens:"{value} est cod\xE9e en dur. Ce fichier n\u2019a pas encore de variables de couleur."},why:"Une couleur non li\xE9e ne suivra pas les changements de th\xE8me ou de marque, et les d\xE9veloppeurs ne sauront pas quel token utiliser.",suggestion:{default:"Lier la couleur \xE0 la variable correspondante.",none:"Cr\xE9er un token si cette couleur est l\xE9gitime, ou la remplacer par un token existant.",noTokens:"Cr\xE9er une collection de variables de couleur, puis relancer l\u2019analyse."}},"colors/hardcoded-stroke":{title:"Couleur de contour cod\xE9e en dur",message:{exact:"{value} n\u2019est pas li\xE9e \xE0 une variable. \xAB {suggestion} \xBB correspond exactement.",close:"{value} n\u2019est pas li\xE9e \xE0 une variable. \xAB {suggestion} \xBB est tr\xE8s proche.",ambiguous:"{value} n\u2019est pas li\xE9e \xE0 une variable. Plusieurs tokens sont proches : \xE0 toi de choisir.",none:"{value} n\u2019est pas li\xE9e \xE0 une variable et aucun token ne correspond.",noTokens:"{value} est cod\xE9e en dur. Ce fichier n\u2019a pas encore de variables de couleur."},why:"Les contours cod\xE9s en dur d\xE9rivent avec le temps : une bordure l\xE9g\xE8rement diff\xE9rente par composant finit par rendre l\u2019interface \xAB sale \xBB.",suggestion:{default:"Lier le contour \xE0 la variable correspondante.",none:"Cr\xE9er un token de bordure ou r\xE9utiliser un token existant.",noTokens:"Cr\xE9er une collection de variables de couleur, puis relancer l\u2019analyse."}},"typography/no-text-style":{title:"Texte sans style",message:{exact:"\xAB {value} \xBB n\u2019utilise aucun Text Style. \xAB {suggestion} \xBB correspond exactement.",close:"\xAB {value} \xBB n\u2019utilise aucun Text Style. \xAB {suggestion} \xBB partage la m\xEAme famille et la m\xEAme taille.",none:"\xAB {value} \xBB n\u2019utilise aucun Text Style et aucun style ne correspond.",noStyles:"\xAB {value} \xBB n\u2019utilise aucun Text Style. Ce fichier n\u2019a pas encore de styles de texte."},why:"Sans style, chaque texte est une exception : impossible de faire \xE9voluer la typographie globalement, et le handoff perd le nom du style.",suggestion:{default:"Appliquer le Text Style correspondant.",none:"Choisir un style existant ou cr\xE9er un style si cette combinaison est l\xE9gitime.",noStyles:"Cr\xE9er les Text Styles de l\u2019\xE9chelle typographique, puis relancer l\u2019analyse."}},"typography/mixed-styles":{title:"Styles m\xE9lang\xE9s dans un texte",message:"Ce bloc contient {segments} styles typographiques diff\xE9rents.",why:"Des styles m\xE9lang\xE9s dans un m\xEAme calque sont difficiles \xE0 impl\xE9menter proprement et fragiles \xE0 maintenir.",suggestion:"S\xE9parer les textes ou n\u2019utiliser qu\u2019un style par calque."},"typography/off-scale-size":{title:"Taille hors \xE9chelle",message:"{value} ne fait pas partie de l\u2019\xE9chelle du fichier ({scale}). Valeur la plus proche : {nearest} px.",why:"Une taille isol\xE9e casse le rythme typographique et multiplie les exceptions c\xF4t\xE9 code.",suggestion:"Utiliser une taille de l\u2019\xE9chelle ou appliquer un Text Style."},"spacing/off-scale-padding":{title:"Padding hors \xE9chelle",message:{exact:"Padding {fields} = {value}, non li\xE9. \xAB {suggestion} \xBB correspond exactement.",close:"Padding {fields} = {value}, non li\xE9. \xAB {suggestion} \xBB est la valeur la plus proche.",ambiguous:"Padding {fields} = {value}, non li\xE9. Deux tokens sont \xE0 distance \xE9gale : choisis.",grid:"Padding {fields} = {value} : pas un multiple de la grille de {grid} px.",none:"Padding {fields} = {value}, non li\xE9 et sans token d\u2019espacement correspondant."},why:"Les espacements hors \xE9chelle cr\xE9ent des rythmes \xAB presque \xBB identiques (16 vs 18) qui paraissent incoh\xE9rents et compliquent l\u2019impl\xE9mentation.",suggestion:{default:"Lier \xE0 un token d\u2019espacement.",grid:"Arrondir \xE0 un multiple de {grid} px.",none:"Choisir une valeur de l\u2019\xE9chelle ou cr\xE9er un token."}},"spacing/off-scale-gap":{title:"Gap hors \xE9chelle",message:{exact:"Gap = {value}, non li\xE9. \xAB {suggestion} \xBB correspond exactement.",close:"Gap = {value}, non li\xE9. \xAB {suggestion} \xBB est la valeur la plus proche.",ambiguous:"Gap = {value}, non li\xE9. Deux tokens sont \xE0 distance \xE9gale : choisis.",grid:"Gap = {value} : pas un multiple de la grille de {grid} px.",none:"Gap = {value}, non li\xE9 et sans token d\u2019espacement correspondant."},why:"Le gap d\xE9finit le rythme d\u2019une liste ou d\u2019une grille : une valeur isol\xE9e se voit imm\xE9diatement.",suggestion:{default:"Lier \xE0 un token d\u2019espacement.",grid:"Arrondir \xE0 un multiple de {grid} px.",none:"Choisir une valeur de l\u2019\xE9chelle ou cr\xE9er un token."}},"radius/not-tokenized":{title:"Rayon non tokenis\xE9",message:{exact:"Rayon {fields} = {value}, non li\xE9. \xAB {suggestion} \xBB correspond exactement.",close:"Rayon {fields} = {value}, non li\xE9. \xAB {suggestion} \xBB est proche.",ambiguous:"Rayon {fields} = {value}, non li\xE9. Plusieurs tokens sont proches.",none:"Rayon {fields} = {value}, non li\xE9 et sans token de radius correspondant."},why:"Les rayons sont une signature visuelle : un rayon isol\xE9 casse la coh\xE9rence des composants.",suggestion:{default:"Lier au token de radius.",none:"Utiliser une valeur de l\u2019\xE9chelle de radius."}},"components/detached-instance":{title:"Instance d\xE9tach\xE9e",message:"\xAB {node} \xBB a \xE9t\xE9 d\xE9tach\xE9 d\u2019un composant ({origin}).",why:"Un calque d\xE9tach\xE9 ne re\xE7oit plus les mises \xE0 jour du composant et d\xE9rive silencieusement.",suggestion:"Reprendre une instance du composant, ou documenter l\u2019exception si elle est volontaire."},"components/default-name":{title:"Nom de calque par d\xE9faut",message:"\xAB {node} \xBB garde son nom par d\xE9faut.",why:"Les noms par d\xE9faut (Frame 47, Group 3) n\u2019aident ni la navigation, ni le handoff, ni les exports.",suggestion:"Nommer le calque selon son r\xF4le : \xAB Card / Header \xBB, \xAB Price badge \xBB."},"components/heavy-overrides":{title:"Instance tr\xE8s modifi\xE9e",message:"{count} propri\xE9t\xE9s de style surcharg\xE9es sur cette instance ({fields}).",why:"Beaucoup d\u2019overrides signalent un composant qui ne couvre pas ce besoin : il manque une variante, ou l\u2019instance devrait \xEAtre un autre composant.",suggestion:"Ajouter une variante ou une propri\xE9t\xE9 au composant, puis r\xE9initialiser les overrides."},"components/duplicate-component":{title:"Composants en doublon",message:"\xAB {node} \xBB existe en {count} exemplaires : {others}.",why:"Deux composants quasi identiques se d\xE9synchronisent et doublent le travail de maintenance.",suggestion:"Fusionner en un seul composant avec des variantes."},"components/no-description":{title:"Composant sans description",message:"\xAB {node} \xBB n\u2019a pas de description.",why:"La description explique l\u2019usage, les props et les limites : c\u2019est la documentation minimale pour l\u2019\xE9quipe et les devs.",suggestion:"Ajouter une description courte : usage, variantes, lien vers la doc."},"craft/missing-state":{title:"\xC9tat interactif manquant",message:"\xAB {component} \xBB n\u2019a pas d\u2019\xE9tat {state} (propri\xE9t\xE9 {prop}).",why:{focus:"Un utilisateur clavier ne pourra pas voir o\xF9 se trouve le focus.",hover:"L\u2019utilisateur ne saura pas que l\u2019\xE9l\xE9ment est interactif avant de cliquer.",pressed:"Aucun retour visuel ne confirme que l\u2019action est en cours.",disabled:"Impossible de montrer qu\u2019une action est temporairement indisponible.",error:"L\u2019utilisateur ne saura pas qu\u2019une saisie est invalide, ni pourquoi.",selected:"L\u2019\xE9tat s\xE9lectionn\xE9 ou coch\xE9 n\u2019est pas diff\xE9renci\xE9 : l\u2019utilisateur ne sait pas ce qu\u2019il a choisi.",default:"Un \xE9tat manquant devra \xEAtre invent\xE9 par les d\xE9veloppeurs, souvent sans coh\xE9rence."},suggestion:"Ajouter une variante {prop}={state} au composant."},"craft/missing-loading-state":{title:"\xC9tat de chargement manquant",message:"\xAB {component} \xBB d\xE9clenche une action longue mais n\u2019a pas d\u2019\xE9tat loading.",why:"Apr\xE8s le clic, l\u2019utilisateur ne saura pas si l\u2019action est en cours et risquera de cliquer deux fois.",suggestion:"Ajouter une variante {prop}=Loading avec spinner et label conserv\xE9."},"craft/missing-empty-state":{title:"\xC9tat vide manquant",message:"\xAB {component} \xBB n\u2019a pas d\u2019\xE9tat vide.",why:"Sans \xE9tat vide, l\u2019utilisateur face \xE0 une liste sans r\xE9sultat n\u2019a aucune orientation.",suggestion:"Ajouter un \xE9tat Empty avec message et action (ex. \xAB R\xE9initialiser les filtres \xBB)."},"craft/state-naming":{title:"Nomenclature d\u2019\xE9tats incoh\xE9rente",message:"\xAB {component} \xBB utilise une orthographe minoritaire : {changes}.",why:"Des variantes nomm\xE9es diff\xE9remment (Hover, hover, :hover) compliquent le swap d\u2019instances et le mapping avec le code.",suggestion:"Harmoniser les noms de propri\xE9t\xE9s et de valeurs sur l\u2019ensemble des composants."},"craft/missing-hover-transition":{title:"Transition hover manquante",message:"\xAB {component} \xBB a un \xE9tat hover mais aucune interaction Default \u2192 Hover.",why:"Les autres composants du fichier sont interactifs : celui-ci para\xEEtra fig\xE9 dans le prototype.",suggestion:"Ajouter une interaction \xAB While hovering \u2192 Change to Hover \xBB."},"craft/inconsistent-motion":{title:"Dur\xE9e de transition incoh\xE9rente",message:"Hover en {duration} ms sur \xAB {component} \xBB ; les autres {kind} utilisent {mode} ms.",why:"M\xEAme action = m\xEAme dur\xE9e : une transition diff\xE9rente para\xEEt cass\xE9e ou lente.",suggestion:"Harmoniser \xE0 {mode} ms."},"a11y/text-contrast":{title:"Contraste insuffisant",message:"Contraste {ratio} entre {fg} et {bg} ; minimum requis : {required} pour {size} px.",why:"Sous le seuil WCAG AA, une partie des utilisateurs ne peut pas lire ce texte, notamment en plein soleil ou avec une basse vision.",suggestion:{default:"Assombrir ou \xE9claircir le texte ou le fond. Token conforme le plus proche : \xAB {suggestion} \xBB.",none:"Assombrir ou \xE9claircir le texte ou le fond jusqu\u2019\xE0 atteindre {required}."}},"a11y/contrast-not-verifiable":{title:"Contraste non v\xE9rifiable",message:{image:"Le texte repose sur une image : le contraste n\u2019est pas calculable automatiquement.",gradient:"Le texte repose sur un d\xE9grad\xE9 : le contraste n\u2019est pas calculable automatiquement.",opacity:"Un parent semi-transparent emp\xEAche de conna\xEEtre le fond r\xE9el.",mixed:"Ce texte m\xE9lange plusieurs couleurs.",default:"Le fond r\xE9el ne peut pas \xEAtre d\xE9termin\xE9."},why:"Le plugin n\u2019invente pas de r\xE9sultat : v\xE9rifie ce texte manuellement.",suggestion:"Ajouter un voile ou un fond uni derri\xE8re le texte, puis relancer l\u2019analyse."},"a11y/touch-target":{title:"Zone tactile trop petite",message:"{width} \xD7 {height} px : la cible interactive fait moins de {min} px.",why:"Les cibles trop petites provoquent des erreurs de clic, surtout sur mobile et pour les personnes avec des troubles moteurs (WCAG 2.5.8).",suggestion:"Agrandir la zone cliquable \xE0 au moins {min} \xD7 {min} px, m\xEAme si l\u2019ic\xF4ne reste petite."},"a11y/text-too-small":{title:"Texte trop petit",message:"{value} : en dessous du minimum recommand\xE9 de {min} px.",why:"Les petits textes sont les premiers illisibles sur mobile et pour les personnes avec une basse vision.",suggestion:"Monter \xE0 {min} px minimum, ou r\xE9server cette taille aux mentions secondaires."},"handoff/fractional-size":{title:"Dimension non arrondie",message:"{value} : des fractions de pixel qui n\u2019existent pas en CSS.",why:"Les valeurs d\xE9cimales produisent du flou, des arrondis incoh\xE9rents et des specs illisibles.",suggestion:"Arrondir \xE0 l\u2019entier le plus proche."},"handoff/fractional-position":{title:"Position non arrondie",message:"{value} : le calque n\u2019est pas sur la grille de pixels.",why:"Un calque \xE0 mi-pixel se rend flou et d\xE9cale les mesures dans le mode Dev.",suggestion:"Arrondir la position \xE0 l\u2019entier le plus proche."},"handoff/stackable-without-autolayout":{title:"Pile sans auto layout",message:"{count} enfants align\xE9s en {direction} sans auto layout.",why:"Un empilement manuel ne s\u2019adapte ni au contenu ni aux largeurs : les devs devront deviner le flex.",suggestion:"Activer l\u2019auto layout (\u21E7 A) et v\xE9rifier le gap."}},fixReasons:{"no-plan":"Aucune correction automatique pour cette issue.","node-missing":"Le calque n\u2019existe plus.","variable-missing":"La variable n\u2019est plus accessible.","mixed-paints":"Les remplissages sont mixtes.","paint-changed":"Le remplissage a chang\xE9 depuis l\u2019analyse.","mixed-text":"Le texte a des styles mixtes.","style-missing":"Le style n\u2019existe plus.","node-type":"Type de calque incompatible.","no-transition":"Aucune transition \xE0 harmoniser.",unknown:"Erreur inattendue."}},je={ui:{appName:"Senior Check Design",tagline:"Local, deterministic, free design QA.",preset:"Preset",scope:"Scope",scopeSelection:"Selection",scopePage:"Current page",scopeFile:"Whole file",selectionCount:"{n} layers selected",selectionOne:"1 layer selected",selectionNone:"No layer selected",options:"Options",optIgnoreHidden:"Ignore hidden layers",optIgnoreLocked:"Ignore locked layers",optInsideInstances:"Scan inside instances",optIncludeLibraries:"Read variables from enabled libraries",optBaseGrid:"Base grid (when no tokens)",optTolerance:"Spacing tolerance",optTouch:"Minimum touch target",optMinFont:"Minimum text size",rulesTitle:"Preset rules",rulesHint:"Disable a rule for this preset, or enable extra ones.",analyzeSelection:"Check selection",analyzePage:"Check page",analyzeFile:"Check whole file",fileWarningTitle:"Check the whole file?",fileWarningBody:"All {pages} pages will be loaded. On large files this can take several seconds. You can cancel anytime.",confirm:"Run",cancel:"Cancel",back:"Back",settings:"Settings",language:"Language",scanning:"Checking\u2026",phaseIndexing:"Reading variables and styles",phaseIndexingLib:"Reading library \u201C{name}\u201D",phaseCollecting:"Collecting layers",phaseScanning:"{scanned} / {total} layers checked",phaseFinalizing:"Cross-checks",cancelScan:"Stop",cancelled:"Check stopped",cancelledBody:"Partial results are still usable.",done:"Checked in {s} s",health:"Design Health",nodesScanned:"{n} layers",counts:"{e} errors \xB7 {w} warnings \xB7 {i} infos",safeFixes:"{n} quick fixes",safeFixesOne:"1 quick fix",reviewItems:"{n} items to review",reviewOne:"1 item to review",fixAllSafe:"Apply {n} safe fixes",fixAllSafeOne:"Apply the safe fix",fixAllConfirm:"Apply {n} safe fixes? Every change stays undoable.",apply:"Apply",fixing:"Fixing {done} / {total}",search:"Search\u2026",searchTitle:"Rule, value, layer name, token",searchShortcut:"Press / to search",filterSeverity:"Severity",sevAll:"All",sevErrors:"Errors",sevErrorsWarnings:"Errors + warnings",filterStatus:"Status",statusOpen:"Open",statusFixed:"Fixed",statusIgnored:"Ignored",all:"All",occurrences:"{n} occurrences",occurrenceOne:"1 occurrence",view:"View",fix:"Fix",review:"Review",ignore:"Ignore",unignore:"Restore",fixed:"Fixed",ignored:"Ignored",safeFix:"Safe fix",reviewFix:"Review",noFix:"Manual",current:"Current value",suggested:"Suggestion",alternatives:"Other matches",where:"Where",why:"Why",whatToDo:"What to do",applySuggestion:"Apply suggestion",applyTo:"Apply to all {n} identical occurrences",ignoreIssue:"Ignore this issue",ignoreRule:"Disable this rule",openDoc:"Documentation",export:"Export",exportMd:"Markdown report",exportCsv:"CSV export",copyMd:"Copy Markdown",copied:"Report copied to clipboard",downloaded:"File downloaded",rescan:"Run again",newScan:"New check",emptyTitle:"No issue found",emptyBody:"Your scope \u201C{scope}\u201D passes every rule of the {preset} preset.",emptyStrict:"Try the Strict preset",emptyFiltered:"No issue matches the current filters.",resetFilters:"Reset filters",noMatchHint:"No matching token: nothing to bind automatically.",undo:"Undo",toastFixed:"{n} fixes applied \xB7 Design Health {before} \u2192 {after}",toastFixedOne:"Fixed: {label}",toastFixFailed:"{n} fixes could not be applied",toastUndone:"{n} fixes undone",toastUndoneOne:"Fix undone",toastIgnored:"Issue ignored for this file",toastUnignored:"Issue restored",toastRuleDisabled:"Rule disabled: run the check again to apply",errorTitle:"The check stopped",errorBody:"What worked is still shown. Technical detail: {message}",retry:"Retry",retrySelection:"Check selection",warnLibraryCap:"Very large libraries: only the first 800 variables were read.",warnLibrary:"Variables of library \u201C{name}\u201D could not be read.",warnLibrariesUnavailable:"Library variables could not be read: only local variables are used.",warnRule:"Rule {rule} failed on some layers.",tokensSummary:"{colors} colors \xB7 {floats} numbers \xB7 {text} text styles",librariesSummary:"{n} libraries read",noTokens:"No variables found: binding suggestions are disabled.",keyboardHint:"\u2191\u2193 navigate \xB7 \u21B5 open \xB7 F fix \xB7 / search \xB7 Esc back",resizeHandle:"Resize",pageChanged:"Page changed: {name}",scopeBadgePage:"Page",scopeBadgeFile:"File",scopeBadgeSelection:"Selection",scoreHint:"Density of open issues per checked layer, weighted by severity.",sourceLocal:"Local",byCategory:"By category",aboutTitle:"How it works",aboutBody:"Every rule runs locally, with no AI and no network. \u201CSafe\u201D fixes bind a value to an identical token; the others wait for your call. Everything is undoable.",version:"v0.1.0"},categories:{colors:"Colors",typography:"Typography",spacing:"Spacing",radius:"Radius",components:"Components",craft:"Craft & interaction",a11y:"Accessibility",handoff:"Handoff"},categoriesShort:{colors:"Colors",typography:"Type",spacing:"Spacing",radius:"Radius",components:"Components",craft:"Craft",a11y:"A11y",handoff:"Handoff"},severity:{error:"Error",warning:"Warning",info:"Info"},presets:{quick:{name:"Quick check",hint:"Fast cleanup before a review"},handoff:{name:"Handoff",hint:"Dev-ready file"},"design-system":{name:"Design system",hint:"Library health"},a11y:{name:"Accessibility",hint:"Contrast, targets, states"},craft:{name:"Product Craft",hint:"States, feedback, motion"},strict:{name:"Strict",hint:"Full senior audit"}},rules:{"colors/hardcoded-fill":{title:"Hard-coded fill color",message:{exact:"{value} is not bound to a variable. \u201C{suggestion}\u201D matches exactly.",close:"{value} is not bound to a variable. \u201C{suggestion}\u201D is very close.",ambiguous:"{value} is not bound to a variable. Several tokens are close: your call.",none:"{value} is not bound to a variable and no token matches.",noTokens:"{value} is hard-coded. This file has no color variables yet."},why:"An unbound color will not follow theme or brand changes, and developers will not know which token to use.",suggestion:{default:"Bind the color to the matching variable.",none:"Create a token if this color is legitimate, or replace it with an existing token.",noTokens:"Create a color variable collection, then run the check again."}},"colors/hardcoded-stroke":{title:"Hard-coded stroke color",message:{exact:"{value} is not bound to a variable. \u201C{suggestion}\u201D matches exactly.",close:"{value} is not bound to a variable. \u201C{suggestion}\u201D is very close.",ambiguous:"{value} is not bound to a variable. Several tokens are close: your call.",none:"{value} is not bound to a variable and no token matches.",noTokens:"{value} is hard-coded. This file has no color variables yet."},why:"Hard-coded strokes drift over time: slightly different borders per component make the UI look unpolished.",suggestion:{default:"Bind the stroke to the matching variable.",none:"Create a border token or reuse an existing one.",noTokens:"Create a color variable collection, then run the check again."}},"typography/no-text-style":{title:"Text without style",message:{exact:"\u201C{value}\u201D uses no Text Style. \u201C{suggestion}\u201D matches exactly.",close:"\u201C{value}\u201D uses no Text Style. \u201C{suggestion}\u201D shares the same family and size.",none:"\u201C{value}\u201D uses no Text Style and no style matches.",noStyles:"\u201C{value}\u201D uses no Text Style. This file has no text styles yet."},why:"Without a style every text is an exception: typography cannot evolve globally, and the handoff loses the style name.",suggestion:{default:"Apply the matching Text Style.",none:"Pick an existing style, or create one if this combination is legitimate.",noStyles:"Create the Text Styles of your type scale, then run the check again."}},"typography/mixed-styles":{title:"Mixed styles in one text",message:"This block contains {segments} different type styles.",why:"Mixed styles inside a single layer are hard to implement cleanly and fragile to maintain.",suggestion:"Split the texts or use one style per layer."},"typography/off-scale-size":{title:"Off-scale font size",message:"{value} is not part of the file\u2019s type scale ({scale}). Nearest value: {nearest} px.",why:"An isolated size breaks the typographic rhythm and multiplies exceptions in code.",suggestion:"Use a size from the scale or apply a Text Style."},"spacing/off-scale-padding":{title:"Off-scale padding",message:{exact:"Padding {fields} = {value}, unbound. \u201C{suggestion}\u201D matches exactly.",close:"Padding {fields} = {value}, unbound. \u201C{suggestion}\u201D is the closest value.",ambiguous:"Padding {fields} = {value}, unbound. Two tokens are equally close: your call.",grid:"Padding {fields} = {value}: not a multiple of the {grid} px grid.",none:"Padding {fields} = {value}, unbound and no spacing token matches."},why:"Off-scale spacing creates \u201Calmost identical\u201D rhythms (16 vs 18) that look inconsistent and complicate implementation.",suggestion:{default:"Bind to a spacing token.",grid:"Round to a multiple of {grid} px.",none:"Pick a value from the scale or create a token."}},"spacing/off-scale-gap":{title:"Off-scale gap",message:{exact:"Gap = {value}, unbound. \u201C{suggestion}\u201D matches exactly.",close:"Gap = {value}, unbound. \u201C{suggestion}\u201D is the closest value.",ambiguous:"Gap = {value}, unbound. Two tokens are equally close: your call.",grid:"Gap = {value}: not a multiple of the {grid} px grid.",none:"Gap = {value}, unbound and no spacing token matches."},why:"The gap sets the rhythm of a list or grid: an isolated value is immediately visible.",suggestion:{default:"Bind to a spacing token.",grid:"Round to a multiple of {grid} px.",none:"Pick a value from the scale or create a token."}},"radius/not-tokenized":{title:"Untokenized radius",message:{exact:"Radius {fields} = {value}, unbound. \u201C{suggestion}\u201D matches exactly.",close:"Radius {fields} = {value}, unbound. \u201C{suggestion}\u201D is close.",ambiguous:"Radius {fields} = {value}, unbound. Several tokens are close.",none:"Radius {fields} = {value}, unbound and no radius token matches."},why:"Radii are a visual signature: an isolated radius breaks component consistency.",suggestion:{default:"Bind to the radius token.",none:"Use a value from the radius scale."}},"components/detached-instance":{title:"Detached instance",message:"\u201C{node}\u201D was detached from a component ({origin}).",why:"A detached layer no longer receives component updates and drifts silently.",suggestion:"Use an instance of the component again, or document the exception if intentional."},"components/default-name":{title:"Default layer name",message:"\u201C{node}\u201D still has its default name.",why:"Default names (Frame 47, Group 3) help neither navigation, handoff nor exports.",suggestion:"Name the layer after its role: \u201CCard / Header\u201D, \u201CPrice badge\u201D."},"components/heavy-overrides":{title:"Heavily overridden instance",message:"{count} style properties are overridden on this instance ({fields}).",why:"Many overrides mean the component does not cover this need: a variant is missing, or this should be another component.",suggestion:"Add a variant or property to the component, then reset the overrides."},"components/duplicate-component":{title:"Duplicate components",message:"\u201C{node}\u201D exists {count} times: {others}.",why:"Two near-identical components drift apart and double the maintenance work.",suggestion:"Merge into a single component with variants."},"components/no-description":{title:"Component without description",message:"\u201C{node}\u201D has no description.",why:"The description explains usage, props and limits: the minimal documentation for the team and developers.",suggestion:"Add a short description: usage, variants, link to docs."},"craft/missing-state":{title:"Missing interactive state",message:"\u201C{component}\u201D has no {state} state (property {prop}).",why:{focus:"Keyboard users will not see where the focus is.",hover:"Users will not know the element is interactive before clicking.",pressed:"No visual feedback confirms the action is happening.",disabled:"There is no way to show an action is temporarily unavailable.",error:"Users will not know an input is invalid, nor why.",selected:"The selected or checked state is not differentiated: users cannot tell what they chose.",default:"A missing state will be invented by developers, often inconsistently."},suggestion:"Add a {prop}={state} variant to the component."},"craft/missing-loading-state":{title:"Missing loading state",message:"\u201C{component}\u201D triggers a long action but has no loading state.",why:"After the click, users will not know whether the action is running and may click twice.",suggestion:"Add a {prop}=Loading variant with a spinner and the label kept."},"craft/missing-empty-state":{title:"Missing empty state",message:"\u201C{component}\u201D has no empty state.",why:"Without an empty state, a user facing an empty list has no guidance.",suggestion:"Add an Empty state with a message and an action (e.g. \u201CReset filters\u201D)."},"craft/state-naming":{title:"Inconsistent state naming",message:"\u201C{component}\u201D uses a minority spelling: {changes}.",why:"Differently named variants (Hover, hover, :hover) complicate instance swapping and code mapping.",suggestion:"Harmonize property and value names across components."},"craft/missing-hover-transition":{title:"Missing hover transition",message:"\u201C{component}\u201D has a hover state but no Default \u2192 Hover interaction.",why:"Other components in this file are interactive: this one will feel frozen in the prototype.",suggestion:"Add a \u201CWhile hovering \u2192 Change to Hover\u201D interaction."},"craft/inconsistent-motion":{title:"Inconsistent transition duration",message:"Hover takes {duration} ms on \u201C{component}\u201D; other {kind} use {mode} ms.",why:"Same action, same duration: a different transition feels broken or slow.",suggestion:"Harmonize to {mode} ms."},"a11y/text-contrast":{title:"Insufficient contrast",message:"Contrast {ratio} between {fg} and {bg}; required minimum: {required} at {size} px.",why:"Below WCAG AA, part of your users cannot read this text, especially in sunlight or with low vision.",suggestion:{default:"Darken or lighten the text or background. Closest compliant token: \u201C{suggestion}\u201D.",none:"Darken or lighten the text or background until you reach {required}."}},"a11y/contrast-not-verifiable":{title:"Contrast not verifiable",message:{image:"The text sits on an image: contrast cannot be computed automatically.",gradient:"The text sits on a gradient: contrast cannot be computed automatically.",opacity:"A semi-transparent parent hides the real background.",mixed:"This text mixes several colors.",default:"The real background cannot be determined."},why:"The plugin never invents a result: check this text manually.",suggestion:"Add a scrim or a solid background behind the text, then run again."},"a11y/touch-target":{title:"Touch target too small",message:"{width} \xD7 {height} px: the interactive target is under {min} px.",why:"Small targets cause mis-taps, especially on mobile and for people with motor impairments (WCAG 2.5.8).",suggestion:"Grow the clickable area to at least {min} \xD7 {min} px, even if the icon stays small."},"a11y/text-too-small":{title:"Text too small",message:"{value}: below the recommended minimum of {min} px.",why:"Small text is the first to become unreadable on mobile and for people with low vision.",suggestion:"Raise to at least {min} px, or keep this size for secondary notes only."},"handoff/fractional-size":{title:"Fractional size",message:"{value}: sub-pixel values that do not exist in CSS.",why:"Decimal values produce blur, inconsistent rounding and unreadable specs.",suggestion:"Round to the nearest integer."},"handoff/fractional-position":{title:"Fractional position",message:"{value}: the layer is off the pixel grid.",why:"A half-pixel layer renders blurry and shifts measurements in Dev Mode.",suggestion:"Round the position to the nearest integer."},"handoff/stackable-without-autolayout":{title:"Stack without auto layout",message:"{count} children aligned as a {direction} without auto layout.",why:"A manual stack adapts neither to content nor to widths: developers will have to guess the flex.",suggestion:"Enable auto layout (\u21E7 A) and check the gap."}},fixReasons:{"no-plan":"No automatic fix for this issue.","node-missing":"The layer no longer exists.","variable-missing":"The variable is no longer available.","mixed-paints":"Fills are mixed.","paint-changed":"The fill changed since the check.","mixed-text":"The text has mixed styles.","style-missing":"The style no longer exists.","node-type":"Incompatible layer type.","no-transition":"No transition to harmonize.",unknown:"Unexpected error."}},Re={fr:Ve,en:je};function Y(t,e){return t.replace(/\{(\w+)\}/g,(i,o)=>{let r=e[o];return r==null?"":String(r)})}function ce(t,e){var i,o;if(typeof t=="string")return t;for(let r of e)if(r&&t[r])return t[r];return(o=(i=t.default)!=null?i:Object.values(t)[0])!=null?o:""}function ue(t){var e,i;return{...(e=t.params)!=null?e:{},value:t.currentValue,suggestion:(i=t.suggestion)==null?void 0:i.label,node:t.nodeName}}function de(t){var r;let e=(r=t.params)!=null?r:{},i=typeof e.confidence=="string"?e.confidence:void 0,o=[];return i==="none"&&e.hasTokens===0&&o.push("noTokens"),i==="none"&&e.hasStyles===0&&o.push("noStyles"),!t.suggestion&&t.ruleId==="a11y/text-contrast"&&o.push("none"),o.push(i),typeof e.state=="string"&&o.push(e.state),typeof e.reason=="string"&&o.push(e.reason),o.push("default"),o}var N=class{constructor(e){this.locale=e}get d(){return Re[this.locale]}t(e,i={}){var r,l;let o=(l=(r=this.d.ui[e])!=null?r:Re.en.ui[e])!=null?l:e;return Y(o,i)}category(e,i=!1){return i?this.d.categoriesShort[e]:this.d.categories[e]}severity(e){return this.d.severity[e]}preset(e){return this.d.presets[e]}ruleTitle(e){var i,o;return(o=(i=this.d.rules[e])==null?void 0:i.title)!=null?o:e}ruleMessage(e){let i=this.d.rules[e.ruleId];return i?Y(ce(i.message,de(e)),ue(e)):e.currentValue}ruleWhy(e){let i=this.d.rules[e.ruleId];return i?Y(ce(i.why,de(e)),ue(e)):""}ruleSuggestion(e){let i=this.d.rules[e.ruleId];if(!i)return"";let r=de(e).map(l=>l==="exact"||l==="close"||l==="ambiguous"?void 0:l);return Y(ce(i.suggestion,r),ue(e))}fixReason(e){var i;return(i=this.d.fixReasons[e!=null?e:"unknown"])!=null?i:this.d.fixReasons.unknown}plural(e,i,o,r={}){return e===1?this.t(i,{n:e,...r}):this.t(o,{n:e,...r})}};function Z(){try{return/^fr/i.test(navigator.language)?"fr":"en"}catch{return"en"}}var s={screen:"config",settings:{..._,locale:Z()},i18n:new N(Z()),selectionCount:0,fileName:"",pageName:"",pageCount:1,ignoredIssueIds:new Set,progress:null,result:null,issues:new Map,notice:null,filters:{categories:new Set,severity:"all",status:"open",query:""},openGroups:new Set,closedGroups:new Set,detailId:null,toasts:[],confirm:null,menu:null,fixing:null,pendingFixIds:new Set,lastScore:100,scanStartedAt:0,toastSeq:0},T=document.getElementById("app"),I=t=>parent.postMessage({pluginMessage:t},"*"),a=(t,e)=>s.i18n.t(t,e),R=null;function S(){switch(B(T),s.screen){case"config":T.appendChild(Ye());break;case"scanning":T.appendChild(Ze());break;case"results":T.appendChild(tt());break}s.detailId&&T.appendChild(De(s.detailId)),s.confirm&&T.appendChild(ut(s.confirm)),s.menu&&T.appendChild(Ue(s.menu)),R=n("div",{class:"toasts","aria-live":"polite"}),T.appendChild(R);for(let t of s.toasts)R.appendChild(Be(t));T.appendChild(dt())}function _e(){switch(s.settings.scope){case"selection":return a("analyzeSelection");case"file":return a("analyzeFile");default:return a("analyzePage")}}function Ke(){return ie(s.settings.preset,s.settings.disabledRules,s.settings.enabledRules)}function Ye(){let t=s.settings,e=t.scope==="selection"&&s.selectionCount===0?"page":t.scope;e!==t.scope&&(t.scope=e);let i=n("header",{class:"header"},n("div",{class:"title"},a("appName"),n("span",{class:"sub"},a("tagline"))),n("button",{class:"btn btn-icon",title:a("settings"),"aria-label":a("settings"),onclick:()=>ee("settings")},h("settings"))),o=n("div",{class:"preset-grid",role:"radiogroup","aria-label":a("preset")},...xe.map(m=>n("button",{class:"preset-card",role:"radio","aria-checked":String(t.preset===m),"aria-pressed":String(t.preset===m),onclick:()=>{t.preset=m,t.disabledRules=[],t.enabledRules=[],q(),S()}},n("span",{class:"name"},s.i18n.preset(m).name),n("span",{class:"desc"},s.i18n.preset(m).hint)))),r=s.selectionCount===0?a("selectionNone"):s.selectionCount===1?a("selectionOne"):a("selectionCount",{n:s.selectionCount}),l=n("div",{class:"segmented",role:"radiogroup","aria-label":a("scope")},...["selection","page","file"].map(m=>n("button",{role:"radio","aria-checked":String(t.scope===m),"aria-pressed":String(t.scope===m),disabled:m==="selection"&&s.selectionCount===0,title:m==="selection"?r:m==="page"?s.pageName:s.fileName,onclick:()=>{t.scope=m,q(),S()}},a(m==="selection"?"scopeSelection":m==="page"?"scopePage":"scopeFile")))),u=n("div",{class:"hint",style:"margin-top:6px"},t.scope==="selection"?r:t.scope==="page"?s.pageName:`${s.fileName} \xB7 ${s.pageCount} pages`),c=t.options,d=(m,F)=>n("label",{class:"check"},n("input",{type:"checkbox",checked:!!c[m],onchange:A=>{c[m]=A.target.checked,q()}}),n("span",{},F)),g=(m,F,A,O)=>n("div",{class:"field"},n("span",{},F),n("input",{type:"number",min:A,max:O,value:c[m],onchange:V=>{let b=Number(V.target.value);Number.isFinite(b)&&(c[m]=Math.min(O,Math.max(A,b))),q()}})),p=n("div",{class:"field"},n("span",{},a("optBaseGrid")),n("div",{class:"segmented",style:"width:96px"},...[4,8].map(m=>n("button",{"aria-pressed":String(c.baseGrid===m),onclick:()=>{c.baseGrid=m,q(),S()}},`${m} px`)))),f=n("details",{class:"accordion"},n("summary",{},a("options")),n("div",{class:"body stack"},d("ignoreHidden",a("optIgnoreHidden")),d("ignoreLocked",a("optIgnoreLocked")),d("scanInsideInstances",a("optInsideInstances")),d("includeLibraries",a("optIncludeLibraries")),p,g("spacingTolerance",a("optTolerance"),0,12),g("minTouchTarget",a("optTouch"),16,64),g("minFontSize",a("optMinFont"),8,16))),x=Ke(),k=n("div",{class:"rule-list"},...U.map(m=>n("label",{class:"check"},n("input",{type:"checkbox",checked:x.has(m.id),onchange:F=>{let A=F.target.checked;Le(m.id,A)}}),n("span",{},s.i18n.ruleTitle(m.id)),n("span",{class:"cat"},s.i18n.category(m.category,!0))))),w=n("details",{class:"accordion"},n("summary",{},`${a("rulesTitle")} \xB7 ${x.size}/${ae.length}`),n("div",{class:"body stack"},n("div",{class:"hint"},a("rulesHint")),k)),y=n("div",{class:"scroll"},n("section",{class:"section"},n("h2",{class:"section-title"},a("preset")),o),n("section",{class:"section"},n("h2",{class:"section-title"},a("scope")),l,u),n("section",{class:"section"},f),n("section",{class:"section"},w)),C=n("footer",{class:"footer"},n("button",{class:"btn btn-primary btn-block",onclick:()=>Me()},h("play"),_e()));return n("div",{class:"screen"},i,y,C)}function Le(t,e){let i=s.settings,o=ie(i.preset,[],[]).has(t);i.disabledRules=i.disabledRules.filter(r=>r!==t),i.enabledRules=i.enabledRules.filter(r=>r!==t),o&&!e&&i.disabledRules.push(t),!o&&e&&i.enabledRules.push(t),q()}function q(){I({type:"save-settings",settings:s.settings})}function Me(){if(s.settings.scope==="file"){s.confirm={title:a("fileWarningTitle"),body:a("fileWarningBody",{pages:s.pageCount}),confirmLabel:a("confirm"),onConfirm:()=>Q()},S();return}Q()}function Q(){let t=s.settings;s.confirm=null,s.menu=null,s.detailId=null,s.progress={phase:"indexing",scanned:0,total:0,found:{}},s.screen="scanning",s.scanStartedAt=performance.now(),s.notice=null,I({type:"scan",scope:t.scope,preset:t.preset,options:t.options,disabledRules:t.disabledRules,enabledRules:t.enabledRules}),S()}var D=null;function Ee(t){switch(t.phase){case"indexing":return t.detail&&t.detail!=="local"?a("phaseIndexingLib",{name:t.detail}):a("phaseIndexing");case"collecting":return a("phaseCollecting");case"scanning":return a("phaseScanning",{scanned:t.scanned,total:t.total});case"finalizing":return a("phaseFinalizing")}}function Ze(){let t=s.progress,e=new Map,i=n("div",{class:"found-grid"});for(let g of H){let p=n("span",{class:"count num"},"0");e.set(g,p),i.append(n("span",{},s.i18n.category(g)),p)}let o=n("i"),r=n("div",{class:"bar indeterminate"},o),l=n("div",{class:"progress-phase"},Ee(t));D={phase:l,bar:o,barWrap:r,counts:e};let u=n("header",{class:"header"},n("div",{class:"title"},a("appName"))),c=n("div",{class:"scroll"},n("div",{class:"progress-wrap"},n("div",{class:"progress-title"},a("scanning")),r,l,i)),d=n("footer",{class:"footer"},n("div",{class:"spacer"}),n("button",{class:"btn btn-secondary",onclick:()=>I({type:"cancel-scan"})},a("cancelScan")));return Fe(t),n("div",{class:"screen"},u,c,d)}function Fe(t){var e;if(s.progress=t,!(!D||s.screen!=="scanning")){if(D.phase.textContent=Ee(t),t.phase==="scanning"||t.phase==="finalizing"){D.barWrap.classList.remove("indeterminate");let i=t.total?Math.min(100,t.scanned/t.total*100):100;D.bar.style.width=`${t.phase==="finalizing"?100:i}%`}for(let[i,o]of D.counts){let r=(e=t.found[i])!=null?e:0;o.textContent!==String(r)&&(o.textContent=String(r),o.style.color=r?"var(--text)":"")}}}var v=null,ge=24,fe=2*Math.PI*ge;function M(){return[...s.issues.values()]}function Qe(){return M().filter(t=>t.status==="open")}function Xe(){return Qe().filter(t=>t.fixSafety==="safe")}function he(){var t,e;return re(M(),(e=(t=s.result)==null?void 0:t.stats.nodesScanned)!=null?e:0).total}function Je(t,e){var o,r;if(!e)return!0;let i=[s.i18n.ruleTitle(t.ruleId),t.currentValue,(r=(o=t.suggestion)==null?void 0:o.label)!=null?r:"",t.nodeName,t.nodePath.join(" "),t.ruleId,s.i18n.ruleMessage(t)].join(" ").toLowerCase();return e.toLowerCase().split(/\s+/).filter(Boolean).every(l=>i.includes(l))}function et(){let t=s.filters;return M().filter(e=>t.categories.size&&!t.categories.has(e.category)||t.severity==="errors"&&e.severity!=="error"||t.severity==="errors-warnings"&&e.severity==="info"||t.status!=="all"&&e.status!==t.status?!1:Je(e,t.query))}function qe(t){return t>=80?"high":t>=60?"mid":"low"}function tt(){var O,V;let e=s.result.stats,i=e.scope==="file"?a("scopeBadgeFile"):e.scope==="selection"?a("scopeBadgeSelection"):a("scopeBadgePage"),o=n("header",{class:"header"},n("button",{class:"btn btn-icon",title:a("back"),"aria-label":a("back"),onclick:()=>Pe()},h("back")),n("div",{class:"title"},n("span",{class:"scope-badge"},i),n("span",{class:"sub"},e.scopeLabel),n("span",{class:"sub"},"\xB7 ",s.i18n.preset(s.settings.preset).name)),n("button",{class:"btn btn-icon",title:a("rescan"),"aria-label":a("rescan"),onclick:()=>Q()},h("refresh")),n("button",{class:"btn btn-icon",title:a("export"),"aria-label":a("export"),onclick:()=>ee("export")},h("export")),n("button",{class:"btn btn-icon",title:a("settings"),"aria-label":a("settings"),onclick:()=>ee("settings")},h("settings"))),r=n("div",{class:"scroll"});((O=s.notice)==null?void 0:O.kind)==="cancelled"&&r.appendChild(n("div",{class:"notice info"},h("info"),n("span",{},`${a("cancelled")} \u2014 ${a("cancelledBody")}`))),((V=s.notice)==null?void 0:V.kind)==="error"&&r.appendChild(n("div",{class:"notice"},h("alert"),n("span",{},`${a("errorTitle")} \u2014 ${a("errorBody",{message:s.notice.message})}`)));for(let b of e.warnings){let L="";b==="library-cap"?L=a("warnLibraryCap"):b==="libraries-unavailable"?L=a("warnLibrariesUnavailable"):b.startsWith("library:")?L=a("warnLibrary",{name:b.slice(8)}):b.startsWith("rule:")&&(L=a("warnRule",{rule:s.i18n.ruleTitle(b.slice(5))})),L&&r.appendChild(n("div",{class:"notice"},h("alert"),n("span",{},L)))}e.tokens.colorVariables+e.tokens.floatVariables+e.tokens.textStyles+e.tokens.paintStyles===0&&r.appendChild(n("div",{class:"notice info"},h("info"),n("span",{},a("noTokens"))));let l=he(),u=document.createElementNS("http://www.w3.org/2000/svg","circle");u.setAttribute("class","fill"),u.setAttribute("cx","28"),u.setAttribute("cy","28"),u.setAttribute("r",String(ge)),u.setAttribute("stroke-dasharray",String(fe)),u.setAttribute("stroke-dashoffset",String(fe));let c=document.createElementNS("http://www.w3.org/2000/svg","circle");c.setAttribute("class","track"),c.setAttribute("cx","28"),c.setAttribute("cy","28"),c.setAttribute("r",String(ge));let d=document.createElementNS("http://www.w3.org/2000/svg","svg");d.setAttribute("viewBox","0 0 56 56"),d.setAttribute("width","56"),d.setAttribute("height","56"),d.append(c,u);let g=n("div",{class:"score-value num"},"0"),p=n("div",{class:"score-ring","data-level":qe(l),title:a("scoreHint")},d,g),f=n("div",{class:"score-meta"}),x=n("div",{class:"score-card"},p,n("div",{class:"score-label"},a("health"),n("span",{class:"tag"},a("done",{s:(e.durationMs/1e3).toFixed(1)}))),f);r.appendChild(x);let k=new Map,w=n("div",{class:"chips",role:"group","aria-label":a("byCategory")});for(let b of H){let L=n("span",{class:"count num"},"0"),ne=n("button",{class:"chip","aria-pressed":String(s.filters.categories.has(b)),onclick:()=>{s.filters.categories.has(b)?s.filters.categories.delete(b):s.filters.categories.add(b),ne.setAttribute("aria-pressed",String(s.filters.categories.has(b))),$()}},s.i18n.category(b,!0),L);k.set(b,{chip:ne,count:L}),w.appendChild(ne)}r.appendChild(w);let y=n("input",{type:"search",placeholder:a("search"),title:a("searchTitle"),value:s.filters.query,"aria-label":a("searchTitle"),oninput:b=>{s.filters.query=b.target.value,$()}});y.id="search-input";let C=n("select",{"aria-label":a("filterSeverity"),onchange:b=>{s.filters.severity=b.target.value,$()}},n("option",{value:"all",selected:s.filters.severity==="all"},a("sevAll")),n("option",{value:"errors",selected:s.filters.severity==="errors"},a("sevErrors")),n("option",{value:"errors-warnings",selected:s.filters.severity==="errors-warnings"},a("sevErrorsWarnings"))),m=n("select",{"aria-label":a("filterStatus"),onchange:b=>{s.filters.status=b.target.value,$()}},n("option",{value:"open",selected:s.filters.status==="open"},a("statusOpen")),n("option",{value:"fixed",selected:s.filters.status==="fixed"},a("statusFixed")),n("option",{value:"ignored",selected:s.filters.status==="ignored"},a("statusIgnored")),n("option",{value:"all",selected:s.filters.status==="all"},a("all")));r.appendChild(n("div",{class:"toolbar"},n("div",{class:"search"},h("search"),y,n("span",{class:"kbd","aria-hidden":"true"},"/")),n("div",{class:"select sev-select"},C),n("div",{class:"select"},m)));let F=n("div",{class:"list",role:"list"});r.appendChild(F),r.appendChild(n("div",{class:"kbd-hint"},a("keyboardHint")));let A=n("footer",{class:"footer"});return v={scoreValue:g,ring:p,ringFill:u,summary:f,chips:k,list:F,footer:A,scroll:r},s.lastScore=0,W(!0),$(),ye(),n("div",{class:"screen"},o,r,A)}function W(t=!1){var d,g;if(!v)return;let e=M(),i=e.filter(p=>p.status==="open"),o=he(),r=s.lastScore;Te(r,o,300,p=>v.scoreValue.textContent=String(p)),s.lastScore=o,v.ringFill.setAttribute("stroke-dashoffset",String(fe*(1-o/100))),v.ring.setAttribute("data-level",qe(o));let l=Ce(e),u=i.filter(p=>p.fixSafety==="safe").length,c=i.filter(p=>p.fixSafety==="review").length;B(v.summary),K(v.summary,[n("span",{class:"num"},a("counts",{e:l.error,w:l.warning,i:l.info})),n("span",{class:"num"},a("nodesScanned",{n:(g=(d=s.result)==null?void 0:d.stats.nodesScanned)!=null?g:0})),u?n("span",{class:"num",style:"color:var(--text-success)"},s.i18n.plural(u,"safeFixesOne","safeFixes")):null,c?n("span",{class:"num"},s.i18n.plural(c,"reviewOne","reviewItems")):null]);for(let[p,{chip:f,count:x}]of v.chips){let k=i.filter(w=>w.category===p).length;x.textContent!==String(k)&&(x.textContent=String(k),f.classList.remove("chip-fill"),f.offsetWidth,f.classList.add("chip-fill")),f.classList.toggle("empty",k===0&&!s.filters.categories.has(p))}ye()}function ye(){if(!v)return;let t=v.footer;if(B(t),s.fixing){let i=s.fixing.total?s.fixing.done/s.fixing.total*100:0;t.append(n("div",{class:"fix-progress"},n("span",{},a("fixing",{done:s.fixing.done,total:s.fixing.total})),n("div",{class:"bar"},n("i",{style:`width:${i}%`}))));return}let e=Xe();e.length&&t.append(n("button",{class:"btn btn-success",onclick:()=>{s.confirm={title:a("fixAllSafe",{n:e.length}),body:a("fixAllConfirm",{n:e.length}),confirmLabel:a("apply"),onConfirm:()=>ve(e.map(i=>i.id))},S()}},h("wand"),e.length===1?a("fixAllSafeOne"):a("fixAllSafe",{n:e.length}))),t.append(n("div",{class:"spacer"})),t.append(n("button",{class:"btn btn-secondary",onclick:()=>ee("export")},h("export"),a("export")))}function nt(t,e,i){return s.openGroups.has(t)?!0:s.closedGroups.has(t)?!1:e<=4||i<2}function $(){var r;if(!v)return;let t=v.list,e=v.scroll.scrollTop;B(t);let i=M().length,o=et();if(i===0){t.appendChild(it());return}if(!o.length){t.appendChild(n("div",{class:"state-box"},n("div",{class:"big-icon neutral"},h("search",18)),n("p",{},a("emptyFiltered")),n("div",{class:"row"},n("button",{class:"btn btn-secondary btn-sm",onclick:()=>{s.filters={categories:new Set,severity:"all",status:"open",query:""},S()}},a("resetFilters")))));return}for(let l of H){let u=o.filter(g=>g.category===l);if(!u.length)continue;let c=new Map;for(let g of u)c.set(g.groupKey,[...(r=c.get(g.groupKey))!=null?r:[],g]);t.appendChild(n("div",{class:"cat-head"},s.i18n.category(l),n("span",{class:"count num"},String(u.length))));let d=0;for(let[g,p]of c)t.appendChild(st(g,p,nt(g,c.size,d))),d++}v.scroll.scrollTop=e}function z(t,e){return t?n("span",{class:"swatch",style:e?`width:${e}px;height:${e}px`:""},n("i",{style:`background:${t}`})):null}function st(t,e,i){let o=e[0],r=e.filter(f=>f.status==="open").length,l=e.filter(f=>f.status==="open"&&f.fixSafety==="safe").map(f=>f.id),u=n("div",{class:"group","data-open":String(i),role:"listitem"}),c=n("button",{class:"group-head","aria-expanded":String(i),onclick:()=>{let f=u.getAttribute("data-open")!=="true";u.setAttribute("data-open",String(f)),c.setAttribute("aria-expanded",String(f)),f?(s.openGroups.add(t),s.closedGroups.delete(t)):(s.closedGroups.add(t),s.openGroups.delete(t)),p.hidden=!f}},n("span",{class:"caret"}),n("span",{class:`dot dot-${o.severity}`}),n("span",{class:"g-title"},s.i18n.ruleTitle(o.ruleId)),n("span",{class:"g-count num"},e.length===1?a("occurrenceOne"):a("occurrences",{n:e.length}))),d=n("div",{class:"group-value"},z(o.swatch),n("span",{class:"value"},o.currentValue),o.suggestion?n("span",{class:"arrow"},"\u2192"):null,o.suggestion?z(o.suggestion.swatch):null,o.suggestion?n("span",{class:"value"},o.suggestion.label):null,o.fixSafety==="safe"?n("span",{class:"tag tag-safe"},a("safeFix")):o.fixSafety==="review"?n("span",{class:"tag tag-review"},a("reviewFix")):null),g=n("div",{class:"group-actions"});l.length>1&&r>0&&g.appendChild(n("button",{class:"btn btn-secondary btn-sm",onclick:()=>ve(l)},h("wand"),a("applyTo",{n:l.length})));let p=n("div",{class:"issues"},...e.map(f=>He(f)));return p.hidden=!i,u.append(c,d,g.childElementCount?g:"",p),u}function at(t){let e=t.nodePath.slice(1);return n("div",{class:"path",title:[...t.nodePath,t.nodeName].join(" \u203A ")},n("span",{},e.join(" \u203A ")||t.nodePath[0]||""))}function He(t){let e=n("div",{class:`issue${t.status==="fixed"?" is-fixed":""}${t.status==="ignored"?" is-ignored":""}`,role:"button",tabindex:"0","data-id":t.id,"aria-selected":String(s.detailId===t.id),onclick:o=>{o.target.closest(".actions")||P(t.id)},onkeydown:o=>{let r=o;r.key==="Enter"?(r.preventDefault(),P(t.id)):r.key.toLowerCase()==="f"&&!r.metaKey&&!r.ctrlKey?(r.preventDefault(),t.status==="open"&&t.fixSafety!=="none"&&X(t.id)):r.key.toLowerCase()==="v"&&(r.preventDefault(),me(t))}}),i=n("div",{class:"actions"});return i.appendChild(n("button",{class:"btn btn-icon",title:a("view"),"aria-label":a("view"),onclick:o=>{o.stopPropagation(),me(t)}},h("target"))),t.status==="open"&&t.fixSafety!=="none"&&i.appendChild(n("button",{class:"btn btn-icon",title:t.fixSafety==="safe"?a("fix"):a("review"),"aria-label":t.fixSafety==="safe"?a("fix"):a("review"),onclick:o=>{o.stopPropagation(),t.fixSafety==="safe"?X(t.id):P(t.id)}},h("wand"))),t.status==="open"?i.appendChild(n("button",{class:"btn btn-icon",title:a("ignore"),"aria-label":a("ignore"),onclick:o=>{o.stopPropagation(),J(t.id,!0)}},h("eye-off"))):t.status==="ignored"&&i.appendChild(n("button",{class:"btn btn-icon",title:a("unignore"),"aria-label":a("unignore"),onclick:o=>{o.stopPropagation(),J(t.id,!1)}},h("eye"))),e.append(n("span",{class:`dot dot-${t.severity}`}),n("div",{class:"meta"},n("div",{class:"name"},t.nodeName),at(t)),n("div",{class:"row",style:"gap:6px"},t.status==="fixed"?n("span",{class:"state"},a("fixed")):t.status==="ignored"?n("span",{class:"state"},a("ignored")):null,i)),e}function te(t,e=!1){let i=s.issues.get(t);if(!i||!v)return;let o=v.list.querySelector(`.issue[data-id="${CSS.escape(t)}"]`);if(!o)return;let r=He(i);e&&r.classList.add("just-fixed"),o.replaceWith(r)}function it(){let t=s.result.stats;return n("div",{class:"state-box"},n("div",{class:"big-icon"},h("check",18)),n("h2",{},a("emptyTitle")),n("p",{},a("emptyBody",{scope:t.scopeLabel,preset:s.i18n.preset(s.settings.preset).name})),n("div",{class:"row"},s.settings.preset!=="strict"?n("button",{class:"btn btn-secondary btn-sm",onclick:()=>{s.settings.preset="strict",s.settings.disabledRules=[],s.settings.enabledRules=[],q(),Q()}},a("emptyStrict")):null,n("button",{class:"btn btn-secondary btn-sm",onclick:()=>Pe()},a("newScan"))))}function Pe(){s.screen="config",s.detailId=null,s.menu=null,S()}function P(t){var i;s.detailId=t;let e=T.querySelector(".detail");e&&e.remove(),T.insertBefore(De(t),R),v==null||v.list.querySelectorAll('.issue[aria-selected="true"]').forEach(o=>o.setAttribute("aria-selected","false")),(i=v==null?void 0:v.list.querySelector(`.issue[data-id="${CSS.escape(t)}"]`))==null||i.setAttribute("aria-selected","true")}function Ne(){let t=T.querySelector(".detail");if(s.detailId=null,!t)return;t.classList.add("leaving");let e=()=>t.remove();t.addEventListener("animationend",e,{once:!0}),setTimeout(e,260),v==null||v.list.querySelectorAll('.issue[aria-selected="true"]').forEach(i=>i.setAttribute("aria-selected","false"))}function De(t){var k,w;let e=s.issues.get(t);if(!e)return n("div");let i=s.i18n,o=se[e.ruleId],r=M().filter(y=>y.groupKey===e.groupKey&&y.status==="open"&&y.id!==e.id),l=n("header",{class:"header"},n("button",{class:"btn btn-icon",title:a("back"),"aria-label":a("back"),onclick:()=>Ne()},h("back")),n("div",{class:"title"},i.category(e.category)),n("button",{class:"btn btn-icon",title:a("view"),"aria-label":a("view"),onclick:()=>me(e)},h("target"))),u=n("div",{class:"tags"},n("span",{class:`tag tag-${e.severity}`},i.severity(e.severity)),e.status==="fixed"?n("span",{class:"tag tag-fixed"},a("fixed")):e.status==="ignored"?n("span",{class:"tag"},a("ignored")):e.fixSafety==="safe"?n("span",{class:"tag tag-safe"},a("safeFix")):e.fixSafety==="review"?n("span",{class:"tag tag-review"},a("reviewFix")):n("span",{class:"tag"},a("noFix")),n("span",{class:"tag mono"},e.ruleId)),c=n("div",{class:"compare"},n("div",{class:"cell"},z(e.swatch,16),n("div",{class:"txt"},n("div",{class:"main value"},e.currentValue),n("div",{class:"sub"},a("current")))),n("span",{class:"arrow"},"\u2192"),e.suggestion?n("div",{class:"cell"},z(e.suggestion.swatch,16),n("div",{class:"txt"},n("div",{class:"main"},e.suggestion.label),n("div",{class:"sub"},[e.suggestion.value,e.suggestion.source].filter(Boolean).join(" \xB7 ")||a("suggested")))):n("div",{class:"cell"},n("div",{class:"txt"},n("div",{class:"sub"},a("noMatchHint"))))),d=(w=(k=e.suggestion)==null?void 0:k.alternatives)!=null&&w.length?n("div",{},n("div",{class:"k"},a("alternatives")),n("div",{class:"alt-list"},...e.suggestion.alternatives.map(y=>n("button",{class:"alt",disabled:e.status!=="open",title:a("applySuggestion"),onclick:()=>X(e.id,y.id)},z(y.swatch),n("span",{class:"main"},y.label),y.value?n("span",{class:"sub"},y.value):null,h("wand"))))):null,g=[...e.nodePath,e.nodeName],p=n("div",{class:"path-list"},...g.flatMap((y,C)=>[C?n("span",{class:"sep"},"\u203A"):null,n("span",{class:C===g.length-1?"last":""},y)])),f=n("div",{class:"scroll"},n("div",{class:"section"},n("h1",{},i.ruleTitle(e.ruleId)),u,n("p",{style:"margin:0 0 12px"},i.ruleMessage(e)),n("div",{class:"kv"},c,d,n("div",{},n("div",{class:"k"},a("where")),p),n("div",{},n("div",{class:"k"},a("why")),n("div",{class:"v"},i.ruleWhy(e))),n("div",{},n("div",{class:"k"},a("whatToDo")),n("div",{class:"v"},i.ruleSuggestion(e)))))),x=n("footer",{class:"footer"});if(e.status==="open"&&e.fixSafety!=="none"){x.appendChild(n("button",{class:"btn btn-primary",onclick:()=>X(e.id)},h("wand"),a("applySuggestion")));let y=r.filter(C=>C.fixSafety===e.fixSafety);y.length&&x.appendChild(n("button",{class:"btn btn-secondary",onclick:()=>ve([e.id,...y.map(C=>C.id)])},a("applyTo",{n:y.length+1})))}return e.status==="open"&&x.appendChild(n("button",{class:"btn btn-secondary",onclick:()=>J(e.id,!0)},h("eye-off"),a("ignoreIssue"))),e.status==="ignored"&&x.appendChild(n("button",{class:"btn btn-secondary",onclick:()=>J(e.id,!1)},h("eye"),a("unignore"))),x.appendChild(n("button",{class:"btn btn-ghost",onclick:()=>{Le(e.ruleId,!1),E({message:a("toastRuleDisabled"),timeout:4e3})}},a("ignoreRule"))),o!=null&&o.docUrl&&x.appendChild(n("button",{class:"btn btn-ghost",onclick:()=>I({type:"open-url",url:o.docUrl})},h("external"),a("openDoc"))),n("div",{class:"detail",role:"dialog","aria-label":i.ruleTitle(e.ruleId)},l,f,x)}function me(t){I({type:"select-node",nodeId:t.nodeId,pageId:t.pageId})}function X(t,e){s.pendingFixIds.has(t)||(s.pendingFixIds.add(t),I({type:"fix",issueId:t,alternativeId:e}))}function ve(t){if(s.confirm=null,!!t.length){for(let e of t)s.pendingFixIds.add(e);s.fixing={done:0,total:t.length},S(),I({type:"fix-many",issueIds:t})}}function J(t,e){let i=s.issues.get(t);i&&(i.status=e?"ignored":"open",I({type:"ignore-issue",issueId:t,ignored:e}),te(t),W(),s.detailId===t&&P(t),E({message:a(e?"toastIgnored":"toastUnignored"),actionLabel:a("undo"),onAction:()=>ot(t,!e),timeout:6e3}))}function ot(t,e){let i=s.issues.get(t);i&&(i.status=e?"ignored":"open",I({type:"ignore-issue",issueId:t,ignored:e}),te(t),W(),s.detailId===t&&P(t))}function rt(t,e,i){var d,g;let o=s.lastScore,r=[],l=[];for(let p of e){s.pendingFixIds.delete(p.issueId);let f=s.issues.get(p.issueId);f&&(p.ok?(f.status="fixed",r.push(f)):l.push(p))}let u=s.fixing!==null;if(s.fixing=null,u)S();else{for(let p of r)te(p.id,!0);W(),s.detailId&&r.some(p=>p.id===s.detailId)&&P(s.detailId)}let c=he();if(r.length){let p=(g=(d=r[0].suggestion)==null?void 0:d.label)!=null?g:s.i18n.ruleTitle(r[0].ruleId);E({message:r.length===1?a("toastFixedOne",{label:p}):a("toastFixed",{n:r.length,before:o,after:c}),actionLabel:i?a("undo"):void 0,onAction:i?()=>I({type:"undo",batchId:t}):void 0,timeout:1e4})}if(l.length){let p=s.i18n.fixReason(l[0].reason);E({message:l.length===1?p:`${a("toastFixFailed",{n:l.length})} \u2014 ${p}`,timeout:6e3,error:!0})}}function lt(t){for(let e of t){let i=s.issues.get(e);i&&(i.status="open")}if(s.screen==="results"){for(let e of t)te(e);W(),s.detailId&&t.includes(s.detailId)&&P(s.detailId)}E({message:t.length===1?a("toastUndoneOne"):a("toastUndone",{n:t.length}),timeout:4e3})}function $e(){let t=s.i18n;return{title:a("appName"),generated:s.settings.locale==="fr"?"G\xE9n\xE9r\xE9":"Generated",scope:a("scope"),nodes:s.settings.locale==="fr"?"Calques analys\xE9s":"Layers checked",duration:s.settings.locale==="fr"?"Dur\xE9e":"Duration",score:a("health"),summary:s.settings.locale==="fr"?"R\xE9sum\xE9":"Summary",category:e=>t.category(e),severity:e=>t.severity(e),rule:e=>t.ruleTitle(e),message:e=>t.ruleMessage(e),status:e=>a(e==="open"?"statusOpen":e==="fixed"?"fixed":"ignored"),columns:{rule:s.settings.locale==="fr"?"R\xE8gle":"Rule",severity:a("filterSeverity"),category:s.settings.locale==="fr"?"Cat\xE9gorie":"Category",layer:s.settings.locale==="fr"?"Calque":"Layer",path:s.settings.locale==="fr"?"Chemin":"Path",current:a("current"),suggested:a("suggested"),status:a("filterStatus"),fix:"Fix"},fixSafety:e=>a(e==="safe"?"safeFix":e==="review"?"reviewFix":"noFix"),noIssues:a("emptyTitle"),occurrences:e=>e===1?a("occurrenceOne"):a("occurrences",{n:e})}}function Oe(){let t=new Date().toISOString().slice(0,10);return`senior-check-${(s.fileName||"design").replace(/[^\w.-]+/g,"-").toLowerCase()}-${t}`}function Ae(t){if(!s.result)return;let e=Se(M(),s.result.stats,re(M(),s.result.stats.nodesScanned),$e(),s.fileName,new Date);t?Ie(e).then(i=>E({message:i?a("copied"):a("toastFixFailed",{n:1}),timeout:3e3,error:!i})):(le(`${Oe()}.md`,e,"text/markdown;charset=utf-8"),E({message:a("downloaded"),timeout:3e3}))}function ct(){let t=ke(M(),$e());le(`${Oe()}.csv`,"\uFEFF"+t,"text/csv;charset=utf-8"),E({message:a("downloaded"),timeout:3e3})}function ee(t){s.menu=s.menu===t?null:t;let e=T.querySelector(".menu");e&&e.remove(),s.menu&&T.insertBefore(Ue(s.menu),R)}function Ue(t){let e=()=>{var o;s.menu=null,(o=T.querySelector(".menu"))==null||o.remove(),document.removeEventListener("mousedown",i,!0)},i=o=>{o.target.closest(".menu")||e()};if(setTimeout(()=>document.addEventListener("mousedown",i,!0),0),t==="export"){let o=!s.result;return n("div",{class:"menu",role:"menu"},n("button",{role:"menuitem",disabled:o,onclick:()=>(e(),Ae(!1))},h("export"),a("exportMd")),n("button",{role:"menuitem",disabled:o,onclick:()=>(e(),Ae(!0))},h("check"),a("copyMd")),n("button",{role:"menuitem",disabled:o,onclick:()=>(e(),ct())},h("export"),a("exportCsv")))}return n("div",{class:"menu",role:"menu",style:"min-width:220px"},n("div",{class:"hint",style:"padding:6px 10px 2px"},a("language")),n("div",{class:"segmented",style:"margin:0 6px 6px"},...["fr","en"].map(o=>n("button",{"aria-pressed":String(s.settings.locale===o),onclick:()=>{s.settings.locale=o,s.i18n=new N(o),document.documentElement.lang=o,q(),s.menu=null,S()}},o==="fr"?"Fran\xE7ais":"English"))),n("div",{class:"sep"}),n("div",{style:"padding:6px 10px"},n("div",{style:"font-weight:600;margin-bottom:2px"},a("aboutTitle")),n("div",{class:"hint"},a("aboutBody"))),n("div",{class:"hint",style:"padding:2px 10px 6px"},`${a("appName")} ${a("version")}`))}function ut(t){let e=()=>{s.confirm=null,S()},i=n("div",{class:"dialog",role:"alertdialog","aria-modal":"true","aria-label":t.title},n("h2",{},t.title),n("p",{},t.body),n("div",{class:"row"},n("button",{class:"btn btn-secondary",onclick:e},a("cancel")),n("button",{class:`btn ${t.danger,"btn-primary"}`,onclick:()=>t.onConfirm()},t.confirmLabel))),o=n("div",{class:"overlay",onclick:r=>r.target===r.currentTarget&&e()},i);return setTimeout(()=>{var r;return(r=i.querySelector(".btn-primary"))==null?void 0:r.focus()},0),o}function E(t){let e={id:++s.toastSeq,...t};s.toasts.push(e),s.toasts.length>3&&G(s.toasts[0].id),R==null||R.appendChild(Be(e))}function G(t){s.toasts=s.toasts.filter(o=>o.id!==t);let e=R==null?void 0:R.querySelector(`[data-toast="${t}"]`);if(!e)return;e.classList.add("leaving");let i=()=>e.remove();e.addEventListener("animationend",i,{once:!0}),setTimeout(i,220)}function Be(t){let e=t.timeout,i=performance.now(),o=window.setTimeout(()=>G(t.id),e),r=n("span",{class:"progress",style:`animation: shrink ${t.timeout}ms linear forwards`});return n("div",{class:"toast",role:"status","data-toast":String(t.id),style:t.error?"background:var(--bg-danger)":"",onmouseenter:()=>{clearTimeout(o),e-=performance.now()-i},onmouseleave:()=>{i=performance.now(),o=window.setTimeout(()=>G(t.id),Math.max(800,e))}},n("span",{class:"msg"},t.message),t.actionLabel?n("button",{class:"btn",onclick:()=>{var u;(u=t.onAction)==null||u.call(t),G(t.id)}},t.actionLabel):null,n("button",{class:"btn btn-icon","aria-label":a("cancel"),style:"color:inherit;width:22px;height:22px",onclick:()=>G(t.id)},h("close",12)),r)}function dt(){let t=n("div",{class:"resize-handle",title:a("resizeHandle"),"aria-hidden":"true"});return t.addEventListener("pointerdown",e=>{e.preventDefault(),t.setPointerCapture(e.pointerId);let i=e.clientX,o=e.clientY,r=window.innerWidth,l=window.innerHeight,u=0,c=g=>{let p=r+(g.clientX-i),f=l+(g.clientY-o);cancelAnimationFrame(u),u=requestAnimationFrame(()=>I({type:"resize",width:Math.round(p),height:Math.round(f)}))},d=()=>{t.removeEventListener("pointermove",c),t.removeEventListener("pointerup",d)};t.addEventListener("pointermove",c),t.addEventListener("pointerup",d)}),t}document.addEventListener("keydown",t=>{var o,r;let e=t.target,i=e.tagName==="INPUT"||e.tagName==="SELECT"||e.tagName==="TEXTAREA";if(t.key==="Escape"){s.menu?(s.menu=null,(o=T.querySelector(".menu"))==null||o.remove()):s.confirm?(s.confirm=null,S()):s.detailId?Ne():i&&e.value&&(e.value="",s.filters.query="",$());return}if(!i){if(t.key==="/"&&s.screen==="results"){t.preventDefault(),(r=document.getElementById("search-input"))==null||r.focus();return}if((t.key==="ArrowDown"||t.key==="ArrowUp")&&s.screen==="results"&&!s.detailId){let l=[...T.querySelectorAll(".issue")].filter(d=>d.offsetParent!==null);if(!l.length)return;t.preventDefault();let u=l.findIndex(d=>d===document.activeElement),c=t.key==="ArrowDown"?Math.min(l.length-1,u+1):Math.max(0,u-1);l[c].focus(),l[c].scrollIntoView({block:"nearest"})}t.key==="Enter"&&s.screen==="config"&&(t.metaKey||t.ctrlKey)&&Me()}});window.onmessage=t=>{var i;let e=(i=t.data)==null?void 0:i.pluginMessage;if(e)switch(e.type){case"init":{let o=e.settings;s.settings={..._,...o,options:{..._.options,...o.options}},o.locale||(s.settings.locale=Z()),s.i18n=new N(s.settings.locale),document.documentElement.lang=s.settings.locale,s.selectionCount=e.selectionCount,s.fileName=e.fileName,s.pageName=e.pageName,s.pageCount=e.pageCount,s.ignoredIssueIds=new Set(e.ignoredIssueIds),S();break}case"selection":s.selectionCount=e.count,s.screen==="config"&&S();break;case"page-changed":s.pageName=e.pageName,s.screen==="config"&&S();break;case"scan-progress":Fe(e.progress);break;case"scan-done":pe(e.result,null);break;case"scan-cancelled":e.partial?pe(e.partial,{kind:"cancelled"}):(s.screen="config",S());break;case"scan-error":e.partial?pe(e.partial,{kind:"error",message:e.message}):(s.screen="config",S(),E({message:`${a("errorTitle")} \u2014 ${e.message}`,timeout:8e3,error:!0}));break;case"fix-progress":s.fixing={done:e.done,total:e.total},ye();break;case"fix-done":rt(e.batchId,e.outcomes,e.undoable);break;case"undo-done":lt(e.issueIds);break;case"ignored-updated":s.ignoredIssueIds=new Set(e.ignoredIssueIds);break;case"settings-saved":break}};function pe(t,e){s.result=t,s.issues=new Map(t.issues.map(i=>[i.id,{...i}])),s.notice=e,s.filters={categories:new Set,severity:"all",status:"open",query:""},s.openGroups.clear(),s.closedGroups.clear(),s.detailId=null,s.fixing=null,s.pendingFixIds.clear(),s.screen="results",S()}S();I({type:"ui-ready"});})();
+
+    </script>
+  </body>
+</html>
