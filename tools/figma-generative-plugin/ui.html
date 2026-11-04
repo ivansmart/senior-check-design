@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Senior Check Design</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font: 11px/16px Inter, system-ui, -apple-system, sans-serif;
+    color: var(--figma-color-text, #1e1e1e);
+    background: var(--figma-color-bg, #ffffff);
+  }
+  .box { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; max-width: 380px; padding: 16px; }
+  .spinner {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--figma-color-border, #e6e6e6);
+    border-top-color: var(--figma-color-bg-brand, #0d99ff);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .title { font-weight: 600; }
+  .muted { color: var(--figma-color-text-secondary, #757575); }
+  .error { color: var(--figma-color-text-danger, #f24822); white-space: pre-wrap; word-break: break-word; }
+  button {
+    font: inherit; font-weight: 500; height: 24px; padding: 0 8px; border-radius: 5px;
+    border: 1px solid var(--figma-color-border, #e6e6e6);
+    background: var(--figma-color-bg, #ffffff); color: inherit; cursor: pointer;
+  }
+  button:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="spinner" id="spinner"></div>
+  <div class="title">Senior Check Design</div>
+  <div class="muted" id="status">Chargement du plugin…</div>
+  <div class="error" id="error" hidden></div>
+  <button id="retry" hidden>Réessayer</button>
+</div>
+<script>
+(function () {
+  var post = function (message) { parent.postMessage({ pluginMessage: message }, '*'); };
+  var byId = function (id) { return document.getElementById(id); };
+  var base = null;
+
+  function fail(message) {
+    byId('spinner').hidden = true;
+    byId('status').textContent = 'Impossible de charger le plugin.';
+    byId('error').hidden = false;
+    byId('error').textContent = message;
+    byId('retry').hidden = false;
+    post({ type: 'boot-failed', message: message });
+  }
+
+  function load() {
+    if (!base) return;
+    byId('spinner').hidden = false;
+    byId('error').hidden = true;
+    byId('retry').hidden = true;
+    byId('status').textContent = 'Chargement du plugin…';
+    var get = function (name) {
+      return fetch(base + name).then(function (response) {
+        if (!response.ok) throw new Error(name + ' : HTTP ' + response.status);
+        return response.text();
+      });
+    };
+    Promise.all([get('code.js'), get('ui.html')]).then(function (parts) {
+      byId('status').textContent = 'Démarrage…';
+      post({ type: 'boot', code: parts[0], html: parts[1] });
+    }).catch(function (error) {
+      fail(String((error && error.message) || error));
+    });
+  }
+
+  byId('retry').addEventListener('click', load);
+
+  window.addEventListener('message', function (event) {
+    var message = event.data && event.data.pluginMessage;
+    if (!message) return;
+    if (message.type === 'loader-config') { base = message.base; load(); }
+    else if (message.type === 'boot-error') { fail(message.message); }
+  });
+
+  post({ type: 'loader-ready' });
+})();
+</script>
+</body>
+</html>

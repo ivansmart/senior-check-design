@@ -145,3 +145,9 @@ Ce test a été exécuté sur un fichier de fixture (tokens couleur/espacement/r
 ## Licence
 
 MIT
+
+## Tester dans Figma sans importer le manifeste
+
+Un chargeur pour « plugin génératif » Figma est fourni dans `tools/figma-generative-plugin/`.
+Déployé dans la bibliothèque personnelle d'un compte Figma, il exécute le build `dist/`
+du dépôt épinglé sur un commit précis, sans build ni import local. Voir le README de ce dossier.
