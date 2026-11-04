@@ -62,7 +62,7 @@ export interface SuggestionAlternative {
 }
 
 export interface Suggestion {
-  kind: 'variable' | 'style' | 'value';
+  kind: 'variable' | 'style' | 'value' | 'component';
   /** Identifiant Figma (variable, style) ou valeur sérialisée. */
   id: string;
   label: string;

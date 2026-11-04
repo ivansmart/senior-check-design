@@ -751,6 +751,23 @@ const fr: Dictionary = {
       why: 'Deux textes superposés sont presque toujours un accident : illisible à l’écran, ambigu pour le développeur.',
       suggestion: 'Déplacer l’un des textes ou passer le parent en auto layout.',
     },
+    'components/reattach-instance': {
+      title: 'Instance détachée à rattacher',
+      message: {
+        exact: '« {value} » est détaché ; une instance de « {component} » reproduit son contenu à l’identique.',
+        close: '« {value} » est détaché ; une instance de « {component} » le reproduit avec {total} overrides reportés automatiquement (textes : {texts}, visibilité : {visibility}, couleurs : {paints}).',
+        'inside-instance': '« {value} » est détaché à l’intérieur d’une instance : impossible d’y insérer une instance.',
+        'component-missing': '« {value} » est détaché et son composant d’origine est introuvable (supprimé, ou librairie inaccessible).',
+        structure: '« {value} » a divergé de son composant : calques ajoutés ou non reproductibles ({detail}). Rattachement manuel.',
+      },
+      why: 'Un calque détaché ne reçoit plus les mises à jour du composant et dérive du système. Le rattacher ne vaut que si l’instance reproduit exactement ce qui est à l’écran.',
+      suggestion: {
+        default: 'Remplacer par une instance : textes, calques masqués, couleurs et taille sont reportés ; Cmd/Ctrl+Z restaure l’original à l’identique.',
+        structure: 'Retirer les calques ajoutés ou créer une variante correspondante dans le composant, puis relancer l’analyse.',
+        'inside-instance': 'Rattacher d’abord le parent, ou corriger dans le composant principal.',
+        'component-missing': 'Recréer le composant ou activer la librairie, puis relancer l’analyse.',
+      },
+    },
     'components/deprecated-in-use': {
       title: 'Composant obsolète utilisé',
       message: 'Instance de « {component} », marqué comme obsolète.',
@@ -891,6 +908,8 @@ const fr: Dictionary = {
     'style-missing': 'Le style n’existe plus.',
     'node-type': 'Type de calque incompatible.',
     'no-transition': 'Aucune transition à harmoniser.',
+    'component-missing': 'Le composant d’origine est introuvable.',
+    'inside-instance': 'Impossible d’insérer une instance dans une instance.',
     unknown: 'Erreur inattendue.',
   },
 };
@@ -1619,6 +1638,23 @@ const en: Dictionary = {
       why: 'Two stacked texts are almost always an accident: unreadable on screen, ambiguous for the developer.',
       suggestion: 'Move one of the texts or switch the parent to auto layout.',
     },
+    'components/reattach-instance': {
+      title: 'Detached instance to re-attach',
+      message: {
+        exact: '“{value}” is detached; an instance of “{component}” reproduces its content exactly.',
+        close: '“{value}” is detached; an instance of “{component}” reproduces it with {total} overrides applied automatically (texts: {texts}, visibility: {visibility}, colors: {paints}).',
+        'inside-instance': '“{value}” is detached inside an instance: an instance cannot be inserted there.',
+        'component-missing': '“{value}” is detached and its original component cannot be found (deleted, or library unavailable).',
+        structure: '“{value}” drifted from its component: layers added or not reproducible ({detail}). Manual re-attachment.',
+      },
+      why: 'A detached layer no longer receives component updates and drifts from the system. Re-attaching is only worth it when the instance reproduces exactly what is on screen.',
+      suggestion: {
+        default: 'Replace with an instance: texts, hidden layers, colors and size are carried over; Cmd/Ctrl+Z restores the original exactly.',
+        structure: 'Remove the added layers or create a matching variant in the component, then run the check again.',
+        'inside-instance': 'Re-attach the parent first, or fix it in the main component.',
+        'component-missing': 'Recreate the component or enable the library, then run the check again.',
+      },
+    },
     'components/deprecated-in-use': {
       title: 'Deprecated component in use',
       message: 'Instance of “{component}”, marked as deprecated.',
@@ -1759,6 +1795,8 @@ const en: Dictionary = {
     'style-missing': 'The style no longer exists.',
     'node-type': 'Incompatible layer type.',
     'no-transition': 'No transition to harmonize.',
+    'component-missing': 'The original component cannot be found.',
+    'inside-instance': 'An instance cannot be inserted inside an instance.',
     unknown: 'Unexpected error.',
   },
 };

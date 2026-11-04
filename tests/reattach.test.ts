@@ -1,0 +1,83 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { matchTrees, summarizeOverrides, type TreeNode } from '../src/shared/reattach';
+
+const n = (type: string, name: string, extra: Partial<TreeNode> = {}, children: TreeNode[] = []): TreeNode => ({
+  type,
+  name,
+  visible: true,
+  opacity: 1,
+  children,
+  ...extra,
+});
+const text = (name: string, value: string, extra: Partial<TreeNode> = {}) =>
+  n('TEXT', name, { text: value, fontName: { family: 'Inter', style: 'Regular' }, fontSize: 14, textStyleId: '', fillsKey: 'f1', fills: [{ type: 'SOLID' }], ...extra });
+
+const component = () =>
+  n('COMPONENT', 'Button / Pay', {}, [
+    n('INSTANCE', 'Icon', { mainId: 'c:icon', mainRemote: false, fillsKey: 'f0', fills: [] }),
+    text('Label', 'Payer'),
+    n('FRAME', 'Badge', { fillsKey: 'f2', fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }] }, [text('Count', '1')]),
+  ]);
+
+test('structure identique sans différence : rattachement exact, aucun override', () => {
+  const detached = component();
+  detached.type = 'FRAME';
+  const r = matchTrees(detached, component());
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.overrides, []);
+  assert.equal(r.stats.matched, 4);
+});
+
+test('texte, calque masqué et couleur modifiés : reproduits par overrides', () => {
+  const detached = n('FRAME', 'Button / Pay', {}, [
+    n('INSTANCE', 'Icon', { mainId: 'c:icon', mainRemote: false, fillsKey: 'f0', fills: [] }),
+    text('Label', 'Payer maintenant'),
+    n('FRAME', 'Badge', { visible: false, fillsKey: 'f9', fills: [{ type: 'SOLID', color: { r: 0, g: 0, b: 1 } }] }, [text('Count', '3')]),
+  ]);
+  const r = matchTrees(detached, component());
+  assert.equal(r.ok, true);
+  const s = summarizeOverrides(r);
+  assert.equal(s.texts, 2);
+  assert.equal(s.visibility, 1);
+  assert.equal(s.paints, 1);
+  assert.ok(r.overrides.some((o) => o.op === 'text' && o.value === 'Payer maintenant' && o.path.join('.') === '1'));
+  assert.ok(r.overrides.some((o) => o.op === 'visible' && o.value === false && o.path.join('.') === '2'));
+});
+
+test('calque du composant supprimé dans le détaché : masqué dans l’instance', () => {
+  const detached = n('FRAME', 'Button / Pay', {}, [text('Label', 'Payer'), n('FRAME', 'Badge', { fillsKey: 'f2', fills: [] }, [text('Count', '1')])]);
+  const r = matchTrees(detached, component());
+  assert.equal(r.ok, true);
+  assert.ok(r.overrides.some((o) => o.op === 'visible' && o.value === false && o.path.join('.') === '0'));
+  assert.equal(r.stats.hidden, 1);
+});
+
+test('calque ajouté à la main ou type différent : rattachement impossible', () => {
+  const added = component();
+  added.type = 'FRAME';
+  added.children.push(n('RECTANGLE', 'Extra'));
+  const r1 = matchTrees(added, component());
+  assert.equal(r1.ok, false);
+  assert.ok(r1.reasons.includes('added:Extra'));
+
+  const retyped = n('FRAME', 'Button / Pay', {}, [n('RECTANGLE', 'Icon'), text('Label', 'Payer'), n('FRAME', 'Badge', { fillsKey: 'f2', fills: [] }, [text('Count', '1')])]);
+  const r2 = matchTrees(retyped, component());
+  assert.equal(r2.ok, false);
+});
+
+test('calque renommé : override de nom ; police mixte : impossible ; échange d’instance locale : override', () => {
+  const renamed = component();
+  renamed.type = 'FRAME';
+  renamed.children[1].name = 'Libellé';
+  renamed.children[0].mainId = 'c:icon-2';
+  const r = matchTrees(renamed, component());
+  assert.equal(r.ok, true);
+  assert.ok(r.overrides.some((o) => o.op === 'name' && o.value === 'Libellé'));
+  assert.ok(r.overrides.some((o) => o.op === 'swap' && o.componentId === 'c:icon-2'));
+
+  const mixed = component();
+  mixed.type = 'FRAME';
+  mixed.children[1].fontName = 'mixed';
+  assert.equal(matchTrees(mixed, component()).ok, false);
+});

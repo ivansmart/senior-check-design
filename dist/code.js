@@ -29,6 +29,7 @@
     { id: "components/heavy-overrides", category: "components", severity: "info" },
     { id: "components/duplicate-component", category: "components", severity: "info", aggregate: true },
     { id: "components/no-description", category: "components", severity: "info" },
+    { id: "components/reattach-instance", category: "components", severity: "warning", tier: "pro" },
     { id: "components/deprecated-in-use", category: "components", severity: "warning", tier: "pro" },
     { id: "components/orphan-variant", category: "components", severity: "info", aggregate: true, tier: "pro" },
     { id: "components/useless-nesting", category: "components", severity: "info", tier: "pro" },
@@ -97,6 +98,7 @@
       "components/detached-instance",
       "components/default-name",
       "components/heavy-overrides",
+      "components/reattach-instance",
       "components/deprecated-in-use",
       "components/useless-nesting"
     ]),
@@ -455,9 +457,130 @@ module.exports = {
       await figma.loadFontAsync(fontName);
     }
   }
+  async function resolveComponent(plan) {
+    if (plan.componentKey) {
+      try {
+        return await figma.importComponentByKeyAsync(plan.componentKey);
+      } catch {
+        throw new FixError("component-missing");
+      }
+    }
+    const node = plan.componentId ? await figma.getNodeByIdAsync(plan.componentId) : null;
+    if (!node || node.type !== "COMPONENT" || node.removed) throw new FixError("component-missing");
+    return node;
+  }
+  function followPath(root, path) {
+    let n = root;
+    for (const i of path) {
+      if (!("children" in n)) return null;
+      const child = n.children[i];
+      if (!child) return null;
+      n = child;
+    }
+    return n;
+  }
+  async function applyOverride(target, op) {
+    switch (op.op) {
+      case "visible":
+        target.visible = op.value;
+        return;
+      case "name":
+        target.name = op.value;
+        return;
+      case "opacity":
+        if ("opacity" in target) target.opacity = op.value;
+        return;
+      case "fills":
+        if ("fills" in target) target.fills = op.value;
+        return;
+      case "strokes":
+        if ("strokes" in target) target.strokes = op.value;
+        return;
+      case "text": {
+        if (target.type !== "TEXT") return;
+        await loadFontsFor(target);
+        target.characters = op.value;
+        return;
+      }
+      case "font": {
+        if (target.type !== "TEXT") return;
+        await Promise.all([loadFontsFor(target), figma.loadFontAsync(op.fontName)]);
+        target.fontName = op.fontName;
+        target.fontSize = op.fontSize;
+        return;
+      }
+      case "textStyle": {
+        if (target.type !== "TEXT") return;
+        const style = await figma.getStyleByIdAsync(op.styleId);
+        if (!style || style.type !== "TEXT") return;
+        await Promise.all([loadFontsFor(target), figma.loadFontAsync(style.fontName)]);
+        await target.setTextStyleIdAsync(op.styleId);
+        return;
+      }
+      case "swap": {
+        if (target.type !== "INSTANCE") return;
+        const comp = await figma.getNodeByIdAsync(op.componentId);
+        if (comp && comp.type === "COMPONENT") target.swapComponent(comp);
+        return;
+      }
+    }
+  }
   async function applyPlan(issueId, plan) {
     var _a, _b, _c, _d;
     switch (plan.kind) {
+      case "reattach-instance": {
+        const frame = await getNode(plan.nodeId);
+        if (frame.type !== "FRAME") throw new FixError("node-type");
+        const parent = frame.parent;
+        if (!parent || !("children" in parent)) throw new FixError("node-missing");
+        for (let p = parent; p && p.type !== "PAGE" && p.type !== "DOCUMENT"; p = p.parent) if (p.type === "INSTANCE") throw new FixError("inside-instance");
+        const component = await resolveComponent(plan);
+        const host = parent;
+        const instance = component.createInstance();
+        host.insertChild(host.children.indexOf(frame), instance);
+        instance.name = frame.name;
+        instance.visible = frame.visible;
+        instance.locked = frame.locked;
+        instance.opacity = frame.opacity;
+        instance.blendMode = frame.blendMode;
+        instance.x = frame.x;
+        instance.y = frame.y;
+        instance.rotation = frame.rotation;
+        if (Math.abs(instance.width - frame.width) > 0.5 || Math.abs(instance.height - frame.height) > 0.5) instance.resize(frame.width, frame.height);
+        try {
+          instance.constraints = frame.constraints;
+        } catch {
+        }
+        try {
+          instance.layoutPositioning = frame.layoutPositioning;
+          instance.layoutAlign = frame.layoutAlign;
+          instance.layoutGrow = frame.layoutGrow;
+          if ("layoutMode" in host && host.layoutMode !== "NONE") {
+            instance.layoutSizingHorizontal = frame.layoutSizingHorizontal;
+            instance.layoutSizingVertical = frame.layoutSizingVertical;
+          }
+        } catch {
+        }
+        const ordered = [...plan.overrides].sort((a, b) => (a.op === "visible" ? 1 : 0) - (b.op === "visible" ? 1 : 0));
+        for (const op of ordered) {
+          const target = followPath(instance, op.path);
+          if (!target) continue;
+          try {
+            await applyOverride(target, op);
+          } catch {
+          }
+        }
+        frame.remove();
+        return {
+          issueId,
+          revert: async () => {
+            const inst = await getNode(instance.id);
+            if (inst.type !== "INSTANCE") return;
+            const back = inst.detachInstance();
+            back.name = plan.name;
+          }
+        };
+      }
       case "bind-paint-variable": {
         const node = await getNode(plan.nodeId);
         const variable = await getVariable(plan.variableId);
@@ -943,9 +1066,9 @@ module.exports = {
     for (const a of aliases) aliasToCanonical.set(a, canon);
   }
   function canonicalState(value) {
-    const norm = normalizeStateValue(value);
-    if (aliasToCanonical.has(norm)) return aliasToCanonical.get(norm);
-    const parts = norm.split(/[+/,&]/).map((p) => p.replace(/^-+|-+$/g, "").trim());
+    const norm2 = normalizeStateValue(value);
+    if (aliasToCanonical.has(norm2)) return aliasToCanonical.get(norm2);
+    const parts = norm2.split(/[+/,&]/).map((p) => p.replace(/^-+|-+$/g, "").trim());
     if (parts.length > 1) {
       for (const p of parts) if (aliasToCanonical.has(p)) return aliasToCanonical.get(p);
     }
@@ -1716,9 +1839,10 @@ module.exports = {
     {
       id: "components/detached-instance",
       types: ["FRAME"],
-      check: (node) => {
+      check: (node, ctx) => {
         const frame = node;
         if (!frame.detachedInfo) return;
+        if (ctx.activeRules.has("components/reattach-instance")) return;
         return [
           {
             ruleId: "components/detached-instance",
@@ -1829,7 +1953,227 @@ module.exports = {
     }
   ];
 
+  // src/shared/reattach.ts
+  var norm = (s) => s.trim().toLowerCase();
+  function matchChildren(detached, component, path, out) {
+    const used = /* @__PURE__ */ new Set();
+    let cursor = 0;
+    for (let ci = 0; ci < component.length; ci++) {
+      const c = component[ci];
+      const childPath = [...path, ci];
+      let dj = -1;
+      for (let j = cursor; j < detached.length; j++) {
+        if (used.has(j)) continue;
+        if (detached[j].type === c.type && norm(detached[j].name) === norm(c.name)) {
+          dj = j;
+          break;
+        }
+      }
+      if (dj < 0) {
+        for (let j = cursor; j < detached.length; j++) {
+          if (used.has(j) || detached[j].type !== c.type) continue;
+          const nameBelongsElsewhere = component.some((o, oi) => oi !== ci && o.type === detached[j].type && norm(o.name) === norm(detached[j].name));
+          if (!nameBelongsElsewhere) {
+            dj = j;
+            break;
+          }
+        }
+      }
+      if (dj < 0) {
+        if (c.visible) out.overrides.push({ path: childPath, op: "visible", value: false });
+        out.stats.hidden++;
+        continue;
+      }
+      used.add(dj);
+      cursor = dj + 1;
+      matchNode(detached[dj], c, childPath, out);
+    }
+    for (let j = 0; j < detached.length; j++) {
+      if (used.has(j)) continue;
+      out.stats.added++;
+      out.reasons.push(`added:${detached[j].name}`);
+    }
+  }
+  function matchNode(d, c, path, out) {
+    var _a, _b, _c;
+    out.stats.matched++;
+    if (norm(d.name) !== norm(c.name)) out.overrides.push({ path, op: "name", value: d.name });
+    if (d.visible !== c.visible) out.overrides.push({ path, op: "visible", value: d.visible });
+    if (Math.abs(d.opacity - c.opacity) > 1e-3) out.overrides.push({ path, op: "opacity", value: d.opacity });
+    if (d.type === "TEXT") {
+      if (d.fontName === "mixed" || d.fontSize === "mixed" || d.textStyleId === "mixed") {
+        out.reasons.push(`mixed-font:${d.name}`);
+      } else {
+        if (((_a = d.text) != null ? _a : "") !== ((_b = c.text) != null ? _b : "")) {
+          out.overrides.push({ path, op: "text", value: (_c = d.text) != null ? _c : "" });
+          out.stats.texts++;
+        }
+        if (d.textStyleId && d.textStyleId !== c.textStyleId) out.overrides.push({ path, op: "textStyle", styleId: d.textStyleId });
+        else if (!d.textStyleId && d.fontName && typeof d.fontSize === "number" && (fontKey(d.fontName) !== fontKey(c.fontName) || d.fontSize !== c.fontSize)) {
+          out.overrides.push({ path, op: "font", fontName: d.fontName, fontSize: d.fontSize });
+        }
+      }
+    }
+    if (d.fillsKey !== void 0 && c.fillsKey !== void 0 && d.fillsKey !== c.fillsKey) {
+      if (d.fillsKey === "mixed" || !d.fills) out.reasons.push(`mixed-paint:${d.name}`);
+      else out.overrides.push({ path, op: "fills", value: d.fills });
+    }
+    if (d.strokesKey !== void 0 && c.strokesKey !== void 0 && d.strokesKey !== c.strokesKey) {
+      if (d.strokesKey === "mixed" || !d.strokes) out.reasons.push(`mixed-paint:${d.name}`);
+      else out.overrides.push({ path, op: "strokes", value: d.strokes });
+    }
+    if (d.type === "INSTANCE" && c.type === "INSTANCE" && d.mainId !== void 0 && c.mainId !== void 0 && d.mainId !== c.mainId) {
+      if (d.mainId && !d.mainRemote) out.overrides.push({ path, op: "swap", componentId: d.mainId });
+      else out.reasons.push(`swap-remote:${d.name}`);
+    }
+    if (d.children.length || c.children.length) matchChildren(d.children, c.children, path, out);
+  }
+  var fontKey = (f) => f && f !== "mixed" ? `${f.family}|${f.style}` : String(f);
+  function matchTrees(detached, component) {
+    const out = { ok: true, overrides: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
+    if (Math.abs(detached.opacity - component.opacity) > 1e-3) out.overrides.push({ path: [], op: "opacity", value: detached.opacity });
+    if (detached.fillsKey !== void 0 && component.fillsKey !== void 0 && detached.fillsKey !== component.fillsKey) {
+      if (detached.fillsKey === "mixed" || !detached.fills) out.reasons.push(`mixed-paint:${detached.name}`);
+      else out.overrides.push({ path: [], op: "fills", value: detached.fills });
+    }
+    if (detached.strokesKey !== void 0 && component.strokesKey !== void 0 && detached.strokesKey !== component.strokesKey) {
+      if (detached.strokesKey === "mixed" || !detached.strokes) out.reasons.push(`mixed-paint:${detached.name}`);
+      else out.overrides.push({ path: [], op: "strokes", value: detached.strokes });
+    }
+    matchChildren(detached.children, component.children, [], out);
+    out.ok = out.reasons.length === 0;
+    return out;
+  }
+  function summarizeOverrides(result) {
+    let texts = 0;
+    let visibility = 0;
+    let paints = 0;
+    let other = 0;
+    for (const o of result.overrides) {
+      if (o.op === "text") texts++;
+      else if (o.op === "visible") visibility++;
+      else if (o.op === "fills" || o.op === "strokes") paints++;
+      else other++;
+    }
+    return { texts, visibility, paints, other };
+  }
+
   // src/plugin/rules/components-pro.ts
+  var TREE_MAX_DEPTH = 6;
+  var TREE_MAX_NODES = 400;
+  var MAX_VARIANT_CANDIDATES = 12;
+  var cloneJson = (v) => JSON.parse(JSON.stringify(v));
+  async function toTree(node, depth, budget) {
+    var _a, _b;
+    budget.left--;
+    const t = { type: node.type, name: node.name, visible: node.visible, opacity: "opacity" in node ? node.opacity : 1, children: [] };
+    if (node.type === "TEXT") {
+      t.text = node.characters;
+      t.fontName = node.fontName === figma.mixed ? "mixed" : node.fontName;
+      t.fontSize = node.fontSize === figma.mixed ? "mixed" : node.fontSize;
+      t.textStyleId = node.textStyleId === figma.mixed ? "mixed" : node.textStyleId;
+    }
+    if ("fills" in node) {
+      const fills = node.fills;
+      if (fills === figma.mixed) t.fillsKey = "mixed";
+      else {
+        t.fills = cloneJson(fills);
+        t.fillsKey = JSON.stringify(t.fills);
+      }
+    }
+    if ("strokes" in node) {
+      const strokes = node.strokes;
+      t.strokes = cloneJson(strokes);
+      t.strokesKey = JSON.stringify(t.strokes);
+    }
+    if (node.type === "INSTANCE") {
+      try {
+        const main = await node.getMainComponentAsync();
+        t.mainId = (_a = main == null ? void 0 : main.id) != null ? _a : null;
+        t.mainRemote = (_b = main == null ? void 0 : main.remote) != null ? _b : false;
+      } catch {
+        t.mainId = null;
+      }
+    }
+    if ("children" in node && depth < TREE_MAX_DEPTH) {
+      for (const child of node.children) {
+        if (budget.left <= 0) break;
+        t.children.push(await toTree(child, depth + 1, budget));
+      }
+    }
+    return t;
+  }
+  function variantLabel(comp) {
+    var _a;
+    const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
+    return set ? `${set.name} / ${comp.name}` : comp.name;
+  }
+  async function originComponent(info) {
+    try {
+      if (info.type === "local") {
+        const node = await figma.getNodeByIdAsync(info.componentId);
+        return node && node.type === "COMPONENT" && !node.removed ? node : null;
+      }
+      return await figma.importComponentByKeyAsync(info.componentKey);
+    } catch {
+      return null;
+    }
+  }
+  function manualReattach(frame, reason, detail = "") {
+    var _a, _b;
+    return { ruleId: "components/reattach-instance", node: frame, currentValue: frame.name, fixSafety: "none", params: { confidence: "none", reason, detail, origin: (_b = (_a = frame.detachedInfo) == null ? void 0 : _a.type) != null ? _b : "local" } };
+  }
+  function reattachPlan(frame, comp, result) {
+    return { kind: "reattach-instance", nodeId: frame.id, name: frame.name, componentId: comp.remote ? void 0 : comp.id, componentKey: comp.remote ? comp.key : void 0, overrides: result.overrides };
+  }
+  async function checkReattach(frame, ctx) {
+    var _a, _b;
+    const info = frame.detachedInfo;
+    if (!info) return;
+    if (ancestors(frame, ctx).some((a) => a.type === "INSTANCE")) return [manualReattach(frame, "inside-instance")];
+    const origin = await originComponent(info);
+    if (!origin) return [manualReattach(frame, "component-missing")];
+    const set = ((_a = origin.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? origin.parent : null;
+    const candidates = [origin, ...set ? set.children.filter((c) => c.type === "COMPONENT" && c.id !== origin.id) : []].slice(0, MAX_VARIANT_CANDIDATES);
+    const detachedTree = await toTree(frame, 0, { left: TREE_MAX_NODES });
+    const matches = [];
+    let originResult = null;
+    for (const comp of candidates) {
+      const result = matchTrees(detachedTree, await toTree(comp, 0, { left: TREE_MAX_NODES }));
+      if (comp === origin) originResult = result;
+      if (result.ok) matches.push({ comp, result });
+    }
+    if (!matches.length) {
+      const reasons = (_b = originResult == null ? void 0 : originResult.reasons) != null ? _b : [];
+      const detail = reasons.map((r) => r.slice(r.indexOf(":") + 1)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(", ");
+      return [manualReattach(frame, "structure", detail)];
+    }
+    matches.sort((a, b) => a.result.overrides.length - b.result.overrides.length || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
+    const best = matches[0];
+    const others = matches.slice(1, 4);
+    const sum = summarizeOverrides(best.result);
+    const exact = best.result.overrides.length === 0;
+    const label = variantLabel(best.comp);
+    return [
+      {
+        ruleId: "components/reattach-instance",
+        node: frame,
+        currentValue: frame.name,
+        suggestion: {
+          kind: "component",
+          id: best.comp.id,
+          label,
+          confidence: exact ? "exact" : "close",
+          source: best.comp.remote ? "Library" : "Local",
+          alternatives: others.length ? others.map((o) => ({ id: `comp:${o.comp.id}`, label: variantLabel(o.comp), value: `${o.result.overrides.length}` })) : void 0
+        },
+        fixSafety: exact ? "safe" : "review",
+        params: { confidence: exact ? "exact" : "close", component: label, total: best.result.overrides.length, texts: sum.texts, visibility: sum.visibility, paints: sum.paints, other: sum.other, origin: info.type },
+        plan: reattachPlan(frame, best.comp, best.result),
+        alternativePlans: Object.fromEntries(others.map((o) => [`comp:${o.comp.id}`, reattachPlan(frame, o.comp, o.result)]))
+      }
+    ];
+  }
   var MAX_ORPHAN_LOOKUPS = 60;
   var ORPHAN_BUDGET_MS = 4e3;
   function isTopLevelComponent(node) {
@@ -1842,6 +2186,11 @@ module.exports = {
     return p.visible !== false && ((_a = p.opacity) != null ? _a : 1) > 0;
   });
   var componentProRules = [
+    {
+      id: "components/reattach-instance",
+      types: ["FRAME"],
+      check: (node, ctx) => checkReattach(node, ctx)
+    },
     {
       id: "components/deprecated-in-use",
       types: ["INSTANCE"],

@@ -1,9 +1,133 @@
 /// <reference types="@figma/plugin-typings" />
-/** Composants (Pro) : obsolètes encore utilisés, variantes orphelines, imbrications inutiles, documentation et statut. */
+/** Composants (Pro) : rattachement des instances détachées, obsolètes encore utilisés, variantes orphelines, imbrications inutiles, documentation et statut. */
 import { DEPRECATED_RE, STATUS_RE } from '../../shared/names';
-import type { RawIssue } from '../scan/context';
+import { matchTrees, summarizeOverrides, type MatchResult, type TreeNode } from '../../shared/reattach';
+import type { FixPlan } from '../fix/plans';
+import type { RawIssue, ScanContext } from '../scan/context';
 import { ancestors } from '../scan/node-info';
 import type { Rule } from './types';
+
+/** Bornes de l'arbre comparé pour le rattachement (profondeur et nombre de calques). */
+const TREE_MAX_DEPTH = 6;
+const TREE_MAX_NODES = 400;
+const MAX_VARIANT_CANDIDATES = 12;
+
+const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v));
+
+/** Arbre sérialisable d'un calque, borné, pour la comparaison détaché / variante. */
+async function toTree(node: SceneNode, depth: number, budget: { left: number }): Promise<TreeNode> {
+  budget.left--;
+  const t: TreeNode = { type: node.type, name: node.name, visible: node.visible, opacity: 'opacity' in node ? (node as BlendMixin).opacity : 1, children: [] };
+  if (node.type === 'TEXT') {
+    t.text = node.characters;
+    t.fontName = node.fontName === figma.mixed ? 'mixed' : node.fontName;
+    t.fontSize = node.fontSize === figma.mixed ? 'mixed' : node.fontSize;
+    t.textStyleId = node.textStyleId === figma.mixed ? 'mixed' : node.textStyleId;
+  }
+  if ('fills' in node) {
+    const fills = (node as GeometryMixin).fills;
+    if (fills === figma.mixed) t.fillsKey = 'mixed';
+    else {
+      t.fills = cloneJson(fills as readonly Paint[]) as unknown[];
+      t.fillsKey = JSON.stringify(t.fills);
+    }
+  }
+  if ('strokes' in node) {
+    const strokes = (node as GeometryMixin).strokes;
+    t.strokes = cloneJson(strokes as readonly Paint[]) as unknown[];
+    t.strokesKey = JSON.stringify(t.strokes);
+  }
+  if (node.type === 'INSTANCE') {
+    try {
+      const main = await node.getMainComponentAsync();
+      t.mainId = main?.id ?? null;
+      t.mainRemote = main?.remote ?? false;
+    } catch {
+      t.mainId = null;
+    }
+  }
+  if ('children' in node && depth < TREE_MAX_DEPTH) {
+    for (const child of (node as SceneNode & ChildrenMixin).children) {
+      if (budget.left <= 0) break;
+      t.children.push(await toTree(child, depth + 1, budget));
+    }
+  }
+  return t;
+}
+
+function variantLabel(comp: ComponentNode): string {
+  const set = comp.parent?.type === 'COMPONENT_SET' ? comp.parent : null;
+  return set ? `${set.name} / ${comp.name}` : comp.name;
+}
+
+async function originComponent(info: DetachedInfo): Promise<ComponentNode | null> {
+  try {
+    if (info.type === 'local') {
+      const node = await figma.getNodeByIdAsync(info.componentId);
+      return node && node.type === 'COMPONENT' && !node.removed ? node : null;
+    }
+    return await figma.importComponentByKeyAsync(info.componentKey);
+  } catch {
+    return null;
+  }
+}
+
+function manualReattach(frame: FrameNode, reason: string, detail = ''): RawIssue {
+  return { ruleId: 'components/reattach-instance', node: frame, currentValue: frame.name, fixSafety: 'none', params: { confidence: 'none', reason, detail, origin: frame.detachedInfo?.type ?? 'local' } };
+}
+
+function reattachPlan(frame: FrameNode, comp: ComponentNode, result: MatchResult): FixPlan {
+  return { kind: 'reattach-instance', nodeId: frame.id, name: frame.name, componentId: comp.remote ? undefined : comp.id, componentKey: comp.remote ? comp.key : undefined, overrides: result.overrides };
+}
+
+async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIssue[] | void> {
+  const info = frame.detachedInfo;
+  if (!info) return;
+  if (ancestors(frame, ctx).some((a) => a.type === 'INSTANCE')) return [manualReattach(frame, 'inside-instance')];
+  const origin = await originComponent(info);
+  if (!origin) return [manualReattach(frame, 'component-missing')];
+  const set = origin.parent?.type === 'COMPONENT_SET' ? origin.parent : null;
+  const candidates: ComponentNode[] = [origin, ...(set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT' && c.id !== origin.id) : [])].slice(0, MAX_VARIANT_CANDIDATES);
+  const detachedTree = await toTree(frame, 0, { left: TREE_MAX_NODES });
+  const matches: { comp: ComponentNode; result: MatchResult }[] = [];
+  let originResult: MatchResult | null = null;
+  for (const comp of candidates) {
+    const result = matchTrees(detachedTree, await toTree(comp, 0, { left: TREE_MAX_NODES }));
+    if (comp === origin) originResult = result;
+    if (result.ok) matches.push({ comp, result });
+  }
+  if (!matches.length) {
+    const reasons = originResult?.reasons ?? [];
+    const detail = reasons.map((r) => r.slice(r.indexOf(':') + 1)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(', ');
+    return [manualReattach(frame, 'structure', detail)];
+  }
+  // La variante qui demande le moins d'overrides ; à égalité, celle d'origine.
+  matches.sort((a, b) => a.result.overrides.length - b.result.overrides.length || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
+  const best = matches[0];
+  const others = matches.slice(1, 4);
+  const sum = summarizeOverrides(best.result);
+  const exact = best.result.overrides.length === 0;
+  const label = variantLabel(best.comp);
+  return [
+    {
+      ruleId: 'components/reattach-instance',
+      node: frame,
+      currentValue: frame.name,
+      suggestion: {
+        kind: 'component',
+        id: best.comp.id,
+        label,
+        confidence: exact ? 'exact' : 'close',
+        source: best.comp.remote ? 'Library' : 'Local',
+        alternatives: others.length ? others.map((o) => ({ id: `comp:${o.comp.id}`, label: variantLabel(o.comp), value: `${o.result.overrides.length}` })) : undefined,
+      },
+      fixSafety: exact ? 'safe' : 'review',
+      params: { confidence: exact ? 'exact' : 'close', component: label, total: best.result.overrides.length, texts: sum.texts, visibility: sum.visibility, paints: sum.paints, other: sum.other, origin: info.type },
+      plan: reattachPlan(frame, best.comp, best.result),
+      alternativePlans: Object.fromEntries(others.map((o) => [`comp:${o.comp.id}`, reattachPlan(frame, o.comp, o.result)])),
+    },
+  ];
+}
 
 /** getInstancesAsync parcourt tout le document : borné en nombre et en temps, et seulement en périmètre fichier. */
 const MAX_ORPHAN_LOOKUPS = 60;
@@ -17,6 +141,11 @@ function isTopLevelComponent(node: SceneNode): boolean {
 const hasVisible = (paints: readonly Paint[] | typeof figma.mixed) => paints !== figma.mixed && paints.some((p) => p.visible !== false && (p.opacity ?? 1) > 0);
 
 export const componentProRules: Rule[] = [
+  {
+    id: 'components/reattach-instance',
+    types: ['FRAME'],
+    check: (node, ctx) => checkReattach(node as FrameNode, ctx),
+  },
   {
     id: 'components/deprecated-in-use',
     types: ['INSTANCE'],

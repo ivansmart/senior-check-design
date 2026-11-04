@@ -48,9 +48,11 @@ export const componentRules: Rule[] = [
   {
     id: 'components/detached-instance',
     types: ['FRAME'],
-    check: (node) => {
+    check: (node, ctx) => {
       const frame = node as FrameNode;
       if (!frame.detachedInfo) return;
+      // En mode Pro, la règle de rattachement prend le relais (même ligne, avec une proposition).
+      if (ctx.activeRules.has('components/reattach-instance')) return;
       return [
         {
           ruleId: 'components/detached-instance',

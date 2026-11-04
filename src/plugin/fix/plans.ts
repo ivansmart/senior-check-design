@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import type { OverrideOp } from '../../shared/reattach';
 
 /** Plans de correction : sérialisables, exécutés par apply.ts. */
 export type FixPlan =
@@ -15,4 +16,6 @@ export type FixPlan =
   | { kind: 'set-layout-sizing'; nodeId: string; axis: 'horizontal' | 'vertical'; value: 'FILL' | 'HUG' | 'FIXED' }
   | { kind: 'set-axis-sizing'; nodeId: string; axis: 'primary' | 'counter'; value: 'AUTO' | 'FIXED' }
   | { kind: 'set-hover-easing'; nodeId: string; easing: string }
-  | { kind: 'cap-transition-duration'; nodeId: string; maxMs: number };
+  | { kind: 'cap-transition-duration'; nodeId: string; maxMs: number }
+  /** Remplace un calque détaché par une instance de `componentId` (local) ou `componentKey` (librairie), overrides reportés. */
+  | { kind: 'reattach-instance'; nodeId: string; name: string; componentId?: string; componentKey?: string; overrides: OverrideOp[] };

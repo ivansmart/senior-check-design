@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import type { OverrideOp } from '../../shared/reattach';
 import type { FixPlan } from './plans';
 
 /** Entrée du journal d'annulation : une closure qui restaure l'état exact d'avant. */
@@ -46,9 +47,139 @@ async function loadFontsFor(node: TextNode): Promise<void> {
   }
 }
 
+async function resolveComponent(plan: { componentId?: string; componentKey?: string }): Promise<ComponentNode> {
+  if (plan.componentKey) {
+    try {
+      return await figma.importComponentByKeyAsync(plan.componentKey);
+    } catch {
+      throw new FixError('component-missing');
+    }
+  }
+  const node = plan.componentId ? await figma.getNodeByIdAsync(plan.componentId) : null;
+  if (!node || node.type !== 'COMPONENT' || node.removed) throw new FixError('component-missing');
+  return node;
+}
+
+function followPath(root: SceneNode, path: number[]): SceneNode | null {
+  let n: SceneNode = root;
+  for (const i of path) {
+    if (!('children' in n)) return null;
+    const child = (n as SceneNode & ChildrenMixin).children[i];
+    if (!child) return null;
+    n = child;
+  }
+  return n;
+}
+
+async function applyOverride(target: SceneNode, op: OverrideOp): Promise<void> {
+  switch (op.op) {
+    case 'visible':
+      target.visible = op.value;
+      return;
+    case 'name':
+      target.name = op.value;
+      return;
+    case 'opacity':
+      if ('opacity' in target) (target as BlendMixin).opacity = op.value;
+      return;
+    case 'fills':
+      if ('fills' in target) (target as GeometryMixin).fills = op.value as Paint[];
+      return;
+    case 'strokes':
+      if ('strokes' in target) (target as GeometryMixin).strokes = op.value as Paint[];
+      return;
+    case 'text': {
+      if (target.type !== 'TEXT') return;
+      await loadFontsFor(target);
+      target.characters = op.value;
+      return;
+    }
+    case 'font': {
+      if (target.type !== 'TEXT') return;
+      await Promise.all([loadFontsFor(target), figma.loadFontAsync(op.fontName)]);
+      target.fontName = op.fontName;
+      target.fontSize = op.fontSize;
+      return;
+    }
+    case 'textStyle': {
+      if (target.type !== 'TEXT') return;
+      const style = await figma.getStyleByIdAsync(op.styleId);
+      if (!style || style.type !== 'TEXT') return;
+      await Promise.all([loadFontsFor(target), figma.loadFontAsync(style.fontName)]);
+      await target.setTextStyleIdAsync(op.styleId);
+      return;
+    }
+    case 'swap': {
+      if (target.type !== 'INSTANCE') return;
+      const comp = await figma.getNodeByIdAsync(op.componentId);
+      if (comp && comp.type === 'COMPONENT') target.swapComponent(comp);
+      return;
+    }
+  }
+}
+
 /** Applique un plan et retourne l'opération inverse. */
 export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEntry> {
   switch (plan.kind) {
+    case 'reattach-instance': {
+      const frame = await getNode(plan.nodeId);
+      if (frame.type !== 'FRAME') throw new FixError('node-type');
+      const parent = frame.parent;
+      if (!parent || !('children' in parent)) throw new FixError('node-missing');
+      for (let p: BaseNode | null = parent; p && p.type !== 'PAGE' && p.type !== 'DOCUMENT'; p = p.parent) if (p.type === 'INSTANCE') throw new FixError('inside-instance');
+      const component = await resolveComponent(plan);
+      const host = parent as BaseNode & ChildrenMixin;
+      const instance = component.createInstance();
+      host.insertChild(host.children.indexOf(frame), instance);
+      // Géométrie et propriétés de calque du détaché, recopiées sur l'instance.
+      instance.name = frame.name;
+      instance.visible = frame.visible;
+      instance.locked = frame.locked;
+      instance.opacity = frame.opacity;
+      instance.blendMode = frame.blendMode;
+      instance.x = frame.x;
+      instance.y = frame.y;
+      instance.rotation = frame.rotation;
+      if (Math.abs(instance.width - frame.width) > 0.5 || Math.abs(instance.height - frame.height) > 0.5) instance.resize(frame.width, frame.height);
+      try {
+        instance.constraints = frame.constraints;
+      } catch {
+        /* parent sans contraintes */
+      }
+      try {
+        instance.layoutPositioning = frame.layoutPositioning;
+        instance.layoutAlign = frame.layoutAlign;
+        instance.layoutGrow = frame.layoutGrow;
+        if ('layoutMode' in host && (host as FrameNode).layoutMode !== 'NONE') {
+          instance.layoutSizingHorizontal = frame.layoutSizingHorizontal;
+          instance.layoutSizingVertical = frame.layoutSizingVertical;
+        }
+      } catch {
+        /* valeur de sizing non applicable dans ce contexte */
+      }
+      // Overrides : d'abord le contenu, puis la visibilité (un calque masqué garde son texte).
+      const ordered = [...plan.overrides].sort((a, b) => (a.op === 'visible' ? 1 : 0) - (b.op === 'visible' ? 1 : 0));
+      for (const op of ordered) {
+        const target = followPath(instance, op.path);
+        if (!target) continue;
+        try {
+          await applyOverride(target, op);
+        } catch {
+          /* override non applicable : l'instance reste cohérente, le reste est reporté */
+        }
+      }
+      frame.remove();
+      return {
+        issueId,
+        revert: async () => {
+          // L'original a été remplacé : on rend un calque détaché équivalent (Cmd/Ctrl+Z restaure l'exact).
+          const inst = await getNode(instance.id);
+          if (inst.type !== 'INSTANCE') return;
+          const back = inst.detachInstance();
+          back.name = plan.name;
+        },
+      };
+    }
     case 'bind-paint-variable': {
       const node = await getNode(plan.nodeId);
       const variable = await getVariable(plan.variableId);

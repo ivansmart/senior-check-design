@@ -134,6 +134,7 @@ const PROP_BY_RULE: Record<string, string> = {
   'spacing/fixed-should-fill': 'propSizing',
   'spacing/fixed-should-hug': 'propSizing',
   'spacing/text-overlap': 'propOverlap',
+  'components/reattach-instance': 'propDetached',
   'components/deprecated-in-use': 'propDeprecated',
   'components/orphan-variant': 'propOrphanVariant',
   'components/useless-nesting': 'propNesting',
@@ -790,7 +791,7 @@ function renderRow(row: Row): HTMLElement {
             render();
           },
         },
-        swatchEl(sug.swatch) ?? (sug.kind === 'style' ? el('span', { class: 'cell-icon' }, svgIcon('style')) : null),
+        swatchEl(sug.swatch) ?? (sug.kind === 'style' ? el('span', { class: 'cell-icon' }, svgIcon('style')) : sug.kind === 'component' ? el('span', { class: 'cell-icon' }, svgIcon('instance')) : null),
         el('span', { class: 'name' }, ...suggestionLabel(sug)),
         badgeFor(row, sug),
         hasAlternatives ? el('span', { class: 'chev' }, svgIcon('chevron')) : null,
@@ -827,7 +828,7 @@ function renderDropdown(row: Row): HTMLElement {
           render();
         },
       },
-      swatchEl(swatch) ?? (s.kind === 'style' ? el('span', { class: 'cell-icon' }, svgIcon('style')) : null),
+      swatchEl(swatch) ?? (s.kind === 'style' ? el('span', { class: 'cell-icon' }, svgIcon('style')) : s.kind === 'component' ? el('span', { class: 'cell-icon' }, svgIcon('instance')) : null),
       el('span', { class: 'dd-label' }, ...suggestionLabel({ label, kind: s.kind })),
       value ? el('span', { class: 'dd-sub' }, value) : null,
       confidence === 'exact' ? el('span', { class: 'badge badge-match' }, t('badgeMatch')) : null,

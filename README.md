@@ -56,12 +56,14 @@ Ce que Pro ajoute, catégorie par catégorie (toutes les règles restent déterm
 | Tokens (onglet dédié) | alias cassé, alias circulaire, token jamais utilisé (périmètre fichier), tokens de même valeur, token primitif utilisé directement (suggère le sémantique de même valeur), mode non couvert, token sans scope |
 | Typographie | styles quasi identiques, ligne trop longue, interligne incohérent (fix), casse de libellé incohérente |
 | Dimensions | rythme presque identique (fix du gap), dimension fixe à passer en Fill ou en Hug (fix), textes qui se chevauchent |
-| Composants | composant obsolète utilisé, variante jamais utilisée, conteneur sans rôle, composant sans lien de documentation, composant sans statut |
+| Composants | **rattachement des instances détachées** (voir ci-dessous), composant obsolète utilisé, variante jamais utilisée, conteneur sans rôle, composant sans lien de documentation, composant sans statut |
 | Craft | état de succès manquant, action destructive sans confirmation ni annulation, erreur sans issue, message d'erreur générique, état en double, matrice d'états réduite, easing incohérent (fix), transition trop longue (fix), survol sans retour |
 | Accessibilité | niveau de titre sauté, contraste d'icône et de bordure de champ (3:1), bouton icône sans libellé, statut porté par la couleur seule |
 | Handoff | motif répété non composantisé, image recadrée à la main |
 
 Les règles qui ne peuvent pas conclure sans convention (statut, lien de doc, scopes, modes) ne s'activent que si le fichier pratique déjà cette convention : elles signalent les écarts, pas l'absence de politique.
+
+**Rattachement des instances détachées.** En mode Pro, une instance détachée n'est plus seulement signalée : le plugin retrouve le composant d'origine (local ou de librairie), compare l'arbre du calque détaché avec celui de chaque variante, et propose la variante qui reproduit le contenu avec le moins d'overrides. Au rattachement, l'instance est insérée à la même place, avec la même géométrie, puis les différences sont reportées automatiquement : textes, calques masqués ou renommés, opacité, remplissages et contours, police ou style de texte, échange d'instances imbriquées locales ; un calque présent dans le composant mais supprimé dans le détaché est simplement masqué. Sans aucune différence, la correction est « sûre » et incluse dans « Appliquer » ; avec des overrides elle est « proche » (à sélectionner ou à inclure). Quand la structure a divergé (calque ajouté à la main, type différent, police mixte, instance imbriquée distante), le plugin le dit et laisse le rattachement manuel plutôt que de produire une instance à retoucher. L'annulation par toast rend un calque détaché équivalent ; `Cmd/Ctrl + Z` restaure l'original à l'identique.
 
 Fonctions Pro transverses :
 
