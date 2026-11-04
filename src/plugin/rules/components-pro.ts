@@ -1,7 +1,7 @@
 /// <reference types="@figma/plugin-typings" />
 /** Composants (Pro) : rattachement des instances détachées, obsolètes encore utilisés, variantes orphelines, imbrications inutiles, documentation et statut. */
 import { DEPRECATED_RE, STATUS_RE } from '../../shared/names';
-import { matchTrees, summarizeOverrides, type MatchResult, type TreeNode } from '../../shared/reattach';
+import { forcedCost, matchTrees, summarizeOverrides, type MatchResult, type TreeNode } from '../../shared/reattach';
 import type { FixPlan } from '../fix/plans';
 import type { RawIssue, ScanContext } from '../scan/context';
 import { ancestors } from '../scan/node-info';
@@ -11,6 +11,8 @@ import type { Rule } from './types';
 const TREE_MAX_DEPTH = 6;
 const TREE_MAX_NODES = 400;
 const MAX_VARIANT_CANDIDATES = 12;
+/** Au-delà, le détaché n'a plus grand-chose du composant : on reste manuel. */
+const MAX_FORCED_EXTRAS = 12;
 
 const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -42,6 +44,7 @@ async function toTree(node: SceneNode, depth: number, budget: { left: number }):
       const main = await node.getMainComponentAsync();
       t.mainId = main?.id ?? null;
       t.mainRemote = main?.remote ?? false;
+      if (main?.remote) t.mainKey = main.key;
     } catch {
       t.mainId = null;
     }
@@ -76,9 +79,25 @@ function manualReattach(frame: FrameNode, reason: string, detail = ''): RawIssue
   return { ruleId: 'components/reattach-instance', node: frame, currentValue: frame.name, fixSafety: 'none', params: { confidence: 'none', reason, detail, origin: frame.detachedInfo?.type ?? 'local' } };
 }
 
-function reattachPlan(frame: FrameNode, comp: ComponentNode, result: MatchResult): FixPlan {
-  return { kind: 'reattach-instance', nodeId: frame.id, name: frame.name, componentId: comp.remote ? undefined : comp.id, componentKey: comp.remote ? comp.key : undefined, overrides: result.overrides };
+function reattachPlan(frame: FrameNode, comp: ComponentNode, result: MatchResult, forced = false): FixPlan {
+  return {
+    kind: 'reattach-instance',
+    nodeId: frame.id,
+    name: frame.name,
+    componentId: comp.remote ? undefined : comp.id,
+    componentKey: comp.remote ? comp.key : undefined,
+    overrides: result.overrides,
+    extras: forced && result.extras.length ? result.extras : undefined,
+    forced: forced || undefined,
+  };
 }
+
+const reasonDetail = (reasons: string[]) =>
+  reasons
+    .map((r) => r.slice(r.indexOf(':') + 1))
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .slice(0, 3)
+    .join(', ');
 
 async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIssue[] | void> {
   const info = frame.detachedInfo;
@@ -90,16 +109,41 @@ async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIss
   const candidates: ComponentNode[] = [origin, ...(set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT' && c.id !== origin.id) : [])].slice(0, MAX_VARIANT_CANDIDATES);
   const detachedTree = await toTree(frame, 0, { left: TREE_MAX_NODES });
   const matches: { comp: ComponentNode; result: MatchResult }[] = [];
-  let originResult: MatchResult | null = null;
+  const all: { comp: ComponentNode; result: MatchResult }[] = [];
   for (const comp of candidates) {
     const result = matchTrees(detachedTree, await toTree(comp, 0, { left: TREE_MAX_NODES }));
-    if (comp === origin) originResult = result;
+    all.push({ comp, result });
     if (result.ok) matches.push({ comp, result });
   }
   if (!matches.length) {
-    const reasons = originResult?.reasons ?? [];
-    const detail = reasons.map((r) => r.slice(r.indexOf(':') + 1)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(', ');
-    return [manualReattach(frame, 'structure', detail)];
+    // Structure divergente : rattachement « forcé » possible avec consentement, rendu conservé
+    // (overrides reproductibles + calques ajoutés gardés au-dessus de l'instance dans un cadre).
+    all.sort((a, b) => forcedCost(a.result) - forcedCost(b.result) || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
+    const best = all[0];
+    if (!best || best.result.extras.length > MAX_FORCED_EXTRAS) return [manualReattach(frame, 'structure', reasonDetail(best?.result.reasons ?? []))];
+    const sum = summarizeOverrides(best.result);
+    const label = variantLabel(best.comp);
+    return [
+      {
+        ruleId: 'components/reattach-instance',
+        node: frame,
+        currentValue: frame.name,
+        suggestion: { kind: 'component', id: best.comp.id, label, confidence: 'ambiguous', source: best.comp.remote ? 'Library' : 'Local' },
+        fixSafety: 'review',
+        params: {
+          confidence: 'forced',
+          component: label,
+          detail: reasonDetail(best.result.reasons),
+          extras: best.result.extras.length,
+          total: best.result.overrides.length,
+          texts: sum.texts,
+          visibility: sum.visibility,
+          paints: sum.paints,
+          origin: info.type,
+        },
+        plan: reattachPlan(frame, best.comp, best.result, true),
+      },
+    ];
   }
   // La variante qui demande le moins d'overrides ; à égalité, celle d'origine.
   matches.sort((a, b) => a.result.overrides.length - b.result.overrides.length || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));

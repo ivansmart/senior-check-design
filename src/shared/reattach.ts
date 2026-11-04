@@ -29,9 +29,11 @@ export interface TreeNode {
   /** Valeurs brutes à reporter (sérialisables). */
   fills?: unknown[];
   strokes?: unknown[];
-  /** INSTANCE : composant principal (id local) ; null si distant ou inaccessible. */
+  /** INSTANCE : composant principal (id local) ; null si inaccessible. */
   mainId?: string | null;
   mainRemote?: boolean;
+  /** INSTANCE distante : clé de librairie, pour un échange par import. */
+  mainKey?: string;
   children: TreeNode[];
 }
 
@@ -44,12 +46,15 @@ export type OverrideOp =
   | { path: number[]; op: 'strokes'; value: unknown[] }
   | { path: number[]; op: 'font'; fontName: { family: string; style: string }; fontSize: number }
   | { path: number[]; op: 'textStyle'; styleId: string }
-  | { path: number[]; op: 'swap'; componentId: string };
+  | { path: number[]; op: 'swap'; componentId?: string; componentKey?: string };
 
 export interface MatchResult {
+  /** Reproduction fidèle possible par overrides seuls. */
   ok: boolean;
   overrides: OverrideOp[];
-  /** Motifs d'échec (codes stables) : added:<name>, type:<name>, mixed-font:<name>, swap-remote:<name>. */
+  /** Calques du détaché sans équivalent dans le composant (chemins dans l'arbre détaché) : conservés au-dessus de l'instance en mode forcé. */
+  extras: number[][];
+  /** Motifs d'échec (codes stables) : added:<name>, mixed-font:<name>, mixed-paint:<name>, swap-remote:<name>. */
   reasons: string[];
   stats: { matched: number; hidden: number; texts: number; added: number };
 }
@@ -61,7 +66,7 @@ const norm = (s: string) => s.trim().toLowerCase();
  * Un enfant du composant absent du détaché sera masqué ; un enfant du détaché absent
  * du composant est un ajout : impossible dans une instance.
  */
-function matchChildren(detached: TreeNode[], component: TreeNode[], path: number[], out: MatchResult): void {
+function matchChildren(detached: TreeNode[], component: TreeNode[], path: number[], dPath: number[], out: MatchResult): void {
   const used = new Set<number>();
   let cursor = 0;
   for (let ci = 0; ci < component.length; ci++) {
@@ -95,23 +100,29 @@ function matchChildren(detached: TreeNode[], component: TreeNode[], path: number
     }
     used.add(dj);
     cursor = dj + 1;
-    matchNode(detached[dj], c, childPath, out);
+    matchNode(detached[dj], c, childPath, [...dPath, dj], out);
   }
   for (let j = 0; j < detached.length; j++) {
     if (used.has(j)) continue;
     out.stats.added++;
     out.reasons.push(`added:${detached[j].name}`);
+    out.extras.push([...dPath, j]);
   }
 }
 
-function matchNode(d: TreeNode, c: TreeNode, path: number[], out: MatchResult): void {
+function matchNode(d: TreeNode, c: TreeNode, path: number[], dPath: number[], out: MatchResult): void {
   out.stats.matched++;
   if (norm(d.name) !== norm(c.name)) out.overrides.push({ path, op: 'name', value: d.name });
   if (d.visible !== c.visible) out.overrides.push({ path, op: 'visible', value: d.visible });
   if (Math.abs(d.opacity - c.opacity) > 0.001) out.overrides.push({ path, op: 'opacity', value: d.opacity });
   if (d.type === 'TEXT') {
     if (d.fontName === 'mixed' || d.fontSize === 'mixed' || d.textStyleId === 'mixed') {
+      // Styles mixtes non reproductibles ; en mode forcé le texte seul est reporté.
       out.reasons.push(`mixed-font:${d.name}`);
+      if ((d.text ?? '') !== (c.text ?? '')) {
+        out.overrides.push({ path, op: 'text', value: d.text ?? '' });
+        out.stats.texts++;
+      }
     } else {
       if ((d.text ?? '') !== (c.text ?? '')) {
         out.overrides.push({ path, op: 'text', value: d.text ?? '' });
@@ -133,9 +144,10 @@ function matchNode(d: TreeNode, c: TreeNode, path: number[], out: MatchResult): 
   }
   if (d.type === 'INSTANCE' && c.type === 'INSTANCE' && d.mainId !== undefined && c.mainId !== undefined && d.mainId !== c.mainId) {
     if (d.mainId && !d.mainRemote) out.overrides.push({ path, op: 'swap', componentId: d.mainId });
+    else if (d.mainKey) out.overrides.push({ path, op: 'swap', componentKey: d.mainKey });
     else out.reasons.push(`swap-remote:${d.name}`);
   }
-  if (d.children.length || c.children.length) matchChildren(d.children, c.children, path, out);
+  if (d.children.length || c.children.length) matchChildren(d.children, c.children, path, dPath, out);
 }
 
 const fontKey = (f: TreeNode['fontName']) => (f && f !== 'mixed' ? `${f.family}|${f.style}` : String(f));
@@ -146,7 +158,7 @@ const fontKey = (f: TreeNode['fontName']) => (f && f !== 'mixed' ? `${f.family}|
  * géométrie sont recopiés sur l'instance au rattachement).
  */
 export function matchTrees(detached: TreeNode, component: TreeNode): MatchResult {
-  const out: MatchResult = { ok: true, overrides: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
+  const out: MatchResult = { ok: true, overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
   if (Math.abs(detached.opacity - component.opacity) > 0.001) out.overrides.push({ path: [], op: 'opacity', value: detached.opacity });
   if (detached.fillsKey !== undefined && component.fillsKey !== undefined && detached.fillsKey !== component.fillsKey) {
     if (detached.fillsKey === 'mixed' || !detached.fills) out.reasons.push(`mixed-paint:${detached.name}`);
@@ -156,9 +168,17 @@ export function matchTrees(detached: TreeNode, component: TreeNode): MatchResult
     if (detached.strokesKey === 'mixed' || !detached.strokes) out.reasons.push(`mixed-paint:${detached.name}`);
     else out.overrides.push({ path: [], op: 'strokes', value: detached.strokes });
   }
-  matchChildren(detached.children, component.children, [], out);
+  matchChildren(detached.children, component.children, [], [], out);
   out.ok = out.reasons.length === 0;
   return out;
+}
+
+/**
+ * Coût d'un rattachement forcé (plus petit = plus fidèle) : les calques à conserver au-dessus
+ * pèsent plus que les motifs, qui pèsent plus que les overrides.
+ */
+export function forcedCost(result: MatchResult): number {
+  return result.extras.length * 5 + result.reasons.length * 3 + result.overrides.length;
 }
 
 /** Résumé lisible d'un résultat pour les messages : compte par type d'override. */

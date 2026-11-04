@@ -111,11 +111,38 @@ async function applyOverride(target: SceneNode, op: OverrideOp): Promise<void> {
     }
     case 'swap': {
       if (target.type !== 'INSTANCE') return;
-      const comp = await figma.getNodeByIdAsync(op.componentId);
+      const comp = op.componentKey ? await figma.importComponentByKeyAsync(op.componentKey) : op.componentId ? await figma.getNodeByIdAsync(op.componentId) : null;
       if (comp && comp.type === 'COMPONENT') target.swapComponent(comp);
       return;
     }
   }
+}
+
+// Transformations 2D (matrices 2×3 de Figma) : pour replacer un calque dans un nouveau parent sans bouger à l'écran.
+type M = Transform;
+const mul = (a: M, b: M): M => [
+  [a[0][0] * b[0][0] + a[0][1] * b[1][0], a[0][0] * b[0][1] + a[0][1] * b[1][1], a[0][0] * b[0][2] + a[0][1] * b[1][2] + a[0][2]],
+  [a[1][0] * b[0][0] + a[1][1] * b[1][0], a[1][0] * b[0][1] + a[1][1] * b[1][1], a[1][0] * b[0][2] + a[1][1] * b[1][2] + a[1][2]],
+];
+function invert(m: M): M {
+  const [[a, b, tx], [c, d, ty]] = m;
+  const det = a * d - b * c || 1e-9;
+  const ia = d / det;
+  const ib = -b / det;
+  const ic = -c / det;
+  const id = a / det;
+  return [
+    [ia, ib, -(ia * tx + ib * ty)],
+    [ic, id, -(ic * tx + id * ty)],
+  ];
+}
+
+/** Déplace `node` dans `parent` en conservant sa position absolue. */
+function reparentKeepingPlace(node: SceneNode, parent: BaseNode & ChildrenMixin) {
+  const abs = node.absoluteTransform;
+  parent.appendChild(node);
+  const parentAbs = 'absoluteTransform' in parent ? (parent as SceneNode).absoluteTransform : ([[1, 0, 0], [0, 1, 0]] as M);
+  node.relativeTransform = mul(invert(parentAbs), abs);
 }
 
 /** Applique un plan et retourne l'opération inverse. */
@@ -129,30 +156,45 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
       for (let p: BaseNode | null = parent; p && p.type !== 'PAGE' && p.type !== 'DOCUMENT'; p = p.parent) if (p.type === 'INSTANCE') throw new FixError('inside-instance');
       const component = await resolveComponent(plan);
       const host = parent as BaseNode & ChildrenMixin;
+      // Calques à conserver au-dessus de l'instance (mode forcé), résolus avant tout déplacement.
+      const extras = (plan.extras ?? []).map((path) => followPath(frame, path)).filter((n): n is SceneNode => Boolean(n));
       const instance = component.createInstance();
-      host.insertChild(host.children.indexOf(frame), instance);
-      // Géométrie et propriétés de calque du détaché, recopiées sur l'instance.
-      instance.name = frame.name;
-      instance.visible = frame.visible;
-      instance.locked = frame.locked;
-      instance.opacity = frame.opacity;
-      instance.blendMode = frame.blendMode;
-      instance.x = frame.x;
-      instance.y = frame.y;
-      instance.rotation = frame.rotation;
+      // Avec des calques conservés, un cadre transparent de la taille du détaché tient lieu d'objet unique.
+      const wrapper = extras.length ? figma.createFrame() : null;
+      const placed: SceneNode = wrapper ?? instance;
+      host.insertChild(host.children.indexOf(frame), placed);
+      if (wrapper) {
+        wrapper.layoutMode = 'NONE';
+        wrapper.clipsContent = false;
+        wrapper.fills = [];
+        wrapper.strokes = [];
+        wrapper.resizeWithoutConstraints(frame.width, frame.height);
+        wrapper.appendChild(instance);
+        instance.x = 0;
+        instance.y = 0;
+      }
+      // Géométrie et propriétés de calque du détaché, recopiées sur l'objet placé.
+      placed.name = frame.name;
+      placed.visible = frame.visible;
+      placed.locked = frame.locked;
+      placed.opacity = frame.opacity;
+      placed.blendMode = frame.blendMode;
+      placed.x = frame.x;
+      placed.y = frame.y;
+      placed.rotation = frame.rotation;
       if (Math.abs(instance.width - frame.width) > 0.5 || Math.abs(instance.height - frame.height) > 0.5) instance.resize(frame.width, frame.height);
       try {
-        instance.constraints = frame.constraints;
+        placed.constraints = frame.constraints;
       } catch {
         /* parent sans contraintes */
       }
       try {
-        instance.layoutPositioning = frame.layoutPositioning;
-        instance.layoutAlign = frame.layoutAlign;
-        instance.layoutGrow = frame.layoutGrow;
+        placed.layoutPositioning = frame.layoutPositioning;
+        placed.layoutAlign = frame.layoutAlign;
+        placed.layoutGrow = frame.layoutGrow;
         if ('layoutMode' in host && (host as FrameNode).layoutMode !== 'NONE') {
-          instance.layoutSizingHorizontal = frame.layoutSizingHorizontal;
-          instance.layoutSizingVertical = frame.layoutSizingVertical;
+          placed.layoutSizingHorizontal = frame.layoutSizingHorizontal;
+          placed.layoutSizingVertical = frame.layoutSizingVertical;
         }
       } catch {
         /* valeur de sizing non applicable dans ce contexte */
@@ -168,6 +210,8 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
           /* override non applicable : l'instance reste cohérente, le reste est reporté */
         }
       }
+      // Calques conservés : déplacés dans le cadre sans bouger à l'écran, au-dessus de l'instance.
+      if (wrapper) for (const extra of extras) if (!extra.removed) reparentKeepingPlace(extra, wrapper);
       frame.remove();
       return {
         issueId,
@@ -176,7 +220,7 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
           const inst = await getNode(instance.id);
           if (inst.type !== 'INSTANCE') return;
           const back = inst.detachInstance();
-          back.name = plan.name;
+          if (!wrapper) back.name = plan.name;
         },
       };
     }

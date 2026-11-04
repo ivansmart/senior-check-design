@@ -316,6 +316,7 @@ module.exports = {
     enabledRules: [],
     autoApply: "exact",
     compareFollowsSelection: true,
+    reattachDivergent: false,
     window: { width: 680, height: 640 }
   };
 
@@ -519,14 +520,36 @@ module.exports = {
       }
       case "swap": {
         if (target.type !== "INSTANCE") return;
-        const comp = await figma.getNodeByIdAsync(op.componentId);
+        const comp = op.componentKey ? await figma.importComponentByKeyAsync(op.componentKey) : op.componentId ? await figma.getNodeByIdAsync(op.componentId) : null;
         if (comp && comp.type === "COMPONENT") target.swapComponent(comp);
         return;
       }
     }
   }
+  var mul = (a, b) => [
+    [a[0][0] * b[0][0] + a[0][1] * b[1][0], a[0][0] * b[0][1] + a[0][1] * b[1][1], a[0][0] * b[0][2] + a[0][1] * b[1][2] + a[0][2]],
+    [a[1][0] * b[0][0] + a[1][1] * b[1][0], a[1][0] * b[0][1] + a[1][1] * b[1][1], a[1][0] * b[0][2] + a[1][1] * b[1][2] + a[1][2]]
+  ];
+  function invert(m) {
+    const [[a, b, tx], [c, d, ty]] = m;
+    const det = a * d - b * c || 1e-9;
+    const ia = d / det;
+    const ib = -b / det;
+    const ic = -c / det;
+    const id = a / det;
+    return [
+      [ia, ib, -(ia * tx + ib * ty)],
+      [ic, id, -(ic * tx + id * ty)]
+    ];
+  }
+  function reparentKeepingPlace(node, parent) {
+    const abs = node.absoluteTransform;
+    parent.appendChild(node);
+    const parentAbs = "absoluteTransform" in parent ? parent.absoluteTransform : [[1, 0, 0], [0, 1, 0]];
+    node.relativeTransform = mul(invert(parentAbs), abs);
+  }
   async function applyPlan(issueId, plan) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     switch (plan.kind) {
       case "reattach-instance": {
         const frame = await getNode(plan.nodeId);
@@ -536,28 +559,41 @@ module.exports = {
         for (let p = parent; p && p.type !== "PAGE" && p.type !== "DOCUMENT"; p = p.parent) if (p.type === "INSTANCE") throw new FixError("inside-instance");
         const component = await resolveComponent(plan);
         const host = parent;
+        const extras = ((_a = plan.extras) != null ? _a : []).map((path) => followPath(frame, path)).filter((n) => Boolean(n));
         const instance = component.createInstance();
-        host.insertChild(host.children.indexOf(frame), instance);
-        instance.name = frame.name;
-        instance.visible = frame.visible;
-        instance.locked = frame.locked;
-        instance.opacity = frame.opacity;
-        instance.blendMode = frame.blendMode;
-        instance.x = frame.x;
-        instance.y = frame.y;
-        instance.rotation = frame.rotation;
+        const wrapper = extras.length ? figma.createFrame() : null;
+        const placed = wrapper != null ? wrapper : instance;
+        host.insertChild(host.children.indexOf(frame), placed);
+        if (wrapper) {
+          wrapper.layoutMode = "NONE";
+          wrapper.clipsContent = false;
+          wrapper.fills = [];
+          wrapper.strokes = [];
+          wrapper.resizeWithoutConstraints(frame.width, frame.height);
+          wrapper.appendChild(instance);
+          instance.x = 0;
+          instance.y = 0;
+        }
+        placed.name = frame.name;
+        placed.visible = frame.visible;
+        placed.locked = frame.locked;
+        placed.opacity = frame.opacity;
+        placed.blendMode = frame.blendMode;
+        placed.x = frame.x;
+        placed.y = frame.y;
+        placed.rotation = frame.rotation;
         if (Math.abs(instance.width - frame.width) > 0.5 || Math.abs(instance.height - frame.height) > 0.5) instance.resize(frame.width, frame.height);
         try {
-          instance.constraints = frame.constraints;
+          placed.constraints = frame.constraints;
         } catch {
         }
         try {
-          instance.layoutPositioning = frame.layoutPositioning;
-          instance.layoutAlign = frame.layoutAlign;
-          instance.layoutGrow = frame.layoutGrow;
+          placed.layoutPositioning = frame.layoutPositioning;
+          placed.layoutAlign = frame.layoutAlign;
+          placed.layoutGrow = frame.layoutGrow;
           if ("layoutMode" in host && host.layoutMode !== "NONE") {
-            instance.layoutSizingHorizontal = frame.layoutSizingHorizontal;
-            instance.layoutSizingVertical = frame.layoutSizingVertical;
+            placed.layoutSizingHorizontal = frame.layoutSizingHorizontal;
+            placed.layoutSizingVertical = frame.layoutSizingVertical;
           }
         } catch {
         }
@@ -570,6 +606,9 @@ module.exports = {
           } catch {
           }
         }
+        if (wrapper) {
+          for (const extra of extras) if (!extra.removed) reparentKeepingPlace(extra, wrapper);
+        }
         frame.remove();
         return {
           issueId,
@@ -577,7 +616,7 @@ module.exports = {
             const inst = await getNode(instance.id);
             if (inst.type !== "INSTANCE") return;
             const back = inst.detachInstance();
-            back.name = plan.name;
+            if (!wrapper) back.name = plan.name;
           }
         };
       }
@@ -706,9 +745,9 @@ module.exports = {
         const next = clone(before);
         let touched = false;
         for (const r of next) {
-          const t = (_a = r.trigger) == null ? void 0 : _a.type;
+          const t = (_b = r.trigger) == null ? void 0 : _b.type;
           if (t !== "ON_HOVER" && t !== "MOUSE_ENTER") continue;
-          const actions = (_b = r.actions) != null ? _b : r.action ? [r.action] : [];
+          const actions = (_c = r.actions) != null ? _c : r.action ? [r.action] : [];
           for (const a of actions) {
             if (a.type === "NODE" && a.transition && "duration" in a.transition) {
               const current = a.transition.duration;
@@ -804,10 +843,10 @@ module.exports = {
         const next = clone(before);
         let touched = false;
         for (const r of next) {
-          const t = (_c = r.trigger) == null ? void 0 : _c.type;
+          const t = (_d = r.trigger) == null ? void 0 : _d.type;
           const hoverOnly = plan.kind === "set-hover-easing";
           if (hoverOnly && t !== "ON_HOVER" && t !== "MOUSE_ENTER") continue;
-          const actions = (_d = r.actions) != null ? _d : r.action ? [r.action] : [];
+          const actions = (_e = r.actions) != null ? _e : r.action ? [r.action] : [];
           for (const a of actions) {
             if (a.type !== "NODE" || !a.transition || !("duration" in a.transition)) continue;
             const tr = a.transition;
@@ -1955,7 +1994,7 @@ module.exports = {
 
   // src/shared/reattach.ts
   var norm = (s) => s.trim().toLowerCase();
-  function matchChildren(detached, component, path, out) {
+  function matchChildren(detached, component, path, dPath, out) {
     const used = /* @__PURE__ */ new Set();
     let cursor = 0;
     for (let ci = 0; ci < component.length; ci++) {
@@ -1986,16 +2025,17 @@ module.exports = {
       }
       used.add(dj);
       cursor = dj + 1;
-      matchNode(detached[dj], c, childPath, out);
+      matchNode(detached[dj], c, childPath, [...dPath, dj], out);
     }
     for (let j = 0; j < detached.length; j++) {
       if (used.has(j)) continue;
       out.stats.added++;
       out.reasons.push(`added:${detached[j].name}`);
+      out.extras.push([...dPath, j]);
     }
   }
-  function matchNode(d, c, path, out) {
-    var _a, _b, _c;
+  function matchNode(d, c, path, dPath, out) {
+    var _a, _b, _c, _d, _e, _f;
     out.stats.matched++;
     if (norm(d.name) !== norm(c.name)) out.overrides.push({ path, op: "name", value: d.name });
     if (d.visible !== c.visible) out.overrides.push({ path, op: "visible", value: d.visible });
@@ -2003,9 +2043,13 @@ module.exports = {
     if (d.type === "TEXT") {
       if (d.fontName === "mixed" || d.fontSize === "mixed" || d.textStyleId === "mixed") {
         out.reasons.push(`mixed-font:${d.name}`);
-      } else {
         if (((_a = d.text) != null ? _a : "") !== ((_b = c.text) != null ? _b : "")) {
           out.overrides.push({ path, op: "text", value: (_c = d.text) != null ? _c : "" });
+          out.stats.texts++;
+        }
+      } else {
+        if (((_d = d.text) != null ? _d : "") !== ((_e = c.text) != null ? _e : "")) {
+          out.overrides.push({ path, op: "text", value: (_f = d.text) != null ? _f : "" });
           out.stats.texts++;
         }
         if (d.textStyleId && d.textStyleId !== c.textStyleId) out.overrides.push({ path, op: "textStyle", styleId: d.textStyleId });
@@ -2024,13 +2068,14 @@ module.exports = {
     }
     if (d.type === "INSTANCE" && c.type === "INSTANCE" && d.mainId !== void 0 && c.mainId !== void 0 && d.mainId !== c.mainId) {
       if (d.mainId && !d.mainRemote) out.overrides.push({ path, op: "swap", componentId: d.mainId });
+      else if (d.mainKey) out.overrides.push({ path, op: "swap", componentKey: d.mainKey });
       else out.reasons.push(`swap-remote:${d.name}`);
     }
-    if (d.children.length || c.children.length) matchChildren(d.children, c.children, path, out);
+    if (d.children.length || c.children.length) matchChildren(d.children, c.children, path, dPath, out);
   }
   var fontKey = (f) => f && f !== "mixed" ? `${f.family}|${f.style}` : String(f);
   function matchTrees(detached, component) {
-    const out = { ok: true, overrides: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
+    const out = { ok: true, overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
     if (Math.abs(detached.opacity - component.opacity) > 1e-3) out.overrides.push({ path: [], op: "opacity", value: detached.opacity });
     if (detached.fillsKey !== void 0 && component.fillsKey !== void 0 && detached.fillsKey !== component.fillsKey) {
       if (detached.fillsKey === "mixed" || !detached.fills) out.reasons.push(`mixed-paint:${detached.name}`);
@@ -2040,9 +2085,12 @@ module.exports = {
       if (detached.strokesKey === "mixed" || !detached.strokes) out.reasons.push(`mixed-paint:${detached.name}`);
       else out.overrides.push({ path: [], op: "strokes", value: detached.strokes });
     }
-    matchChildren(detached.children, component.children, [], out);
+    matchChildren(detached.children, component.children, [], [], out);
     out.ok = out.reasons.length === 0;
     return out;
+  }
+  function forcedCost(result) {
+    return result.extras.length * 5 + result.reasons.length * 3 + result.overrides.length;
   }
   function summarizeOverrides(result) {
     let texts = 0;
@@ -2062,6 +2110,7 @@ module.exports = {
   var TREE_MAX_DEPTH = 6;
   var TREE_MAX_NODES = 400;
   var MAX_VARIANT_CANDIDATES = 12;
+  var MAX_FORCED_EXTRAS = 12;
   var cloneJson = (v) => JSON.parse(JSON.stringify(v));
   async function toTree(node, depth, budget) {
     var _a, _b;
@@ -2091,6 +2140,7 @@ module.exports = {
         const main = await node.getMainComponentAsync();
         t.mainId = (_a = main == null ? void 0 : main.id) != null ? _a : null;
         t.mainRemote = (_b = main == null ? void 0 : main.remote) != null ? _b : false;
+        if (main == null ? void 0 : main.remote) t.mainKey = main.key;
       } catch {
         t.mainId = null;
       }
@@ -2123,9 +2173,19 @@ module.exports = {
     var _a, _b;
     return { ruleId: "components/reattach-instance", node: frame, currentValue: frame.name, fixSafety: "none", params: { confidence: "none", reason, detail, origin: (_b = (_a = frame.detachedInfo) == null ? void 0 : _a.type) != null ? _b : "local" } };
   }
-  function reattachPlan(frame, comp, result) {
-    return { kind: "reattach-instance", nodeId: frame.id, name: frame.name, componentId: comp.remote ? void 0 : comp.id, componentKey: comp.remote ? comp.key : void 0, overrides: result.overrides };
+  function reattachPlan(frame, comp, result, forced = false) {
+    return {
+      kind: "reattach-instance",
+      nodeId: frame.id,
+      name: frame.name,
+      componentId: comp.remote ? void 0 : comp.id,
+      componentKey: comp.remote ? comp.key : void 0,
+      overrides: result.overrides,
+      extras: forced && result.extras.length ? result.extras : void 0,
+      forced: forced || void 0
+    };
   }
+  var reasonDetail = (reasons) => reasons.map((r) => r.slice(r.indexOf(":") + 1)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(", ");
   async function checkReattach(frame, ctx) {
     var _a, _b;
     const info = frame.detachedInfo;
@@ -2137,16 +2197,39 @@ module.exports = {
     const candidates = [origin, ...set ? set.children.filter((c) => c.type === "COMPONENT" && c.id !== origin.id) : []].slice(0, MAX_VARIANT_CANDIDATES);
     const detachedTree = await toTree(frame, 0, { left: TREE_MAX_NODES });
     const matches = [];
-    let originResult = null;
+    const all = [];
     for (const comp of candidates) {
       const result = matchTrees(detachedTree, await toTree(comp, 0, { left: TREE_MAX_NODES }));
-      if (comp === origin) originResult = result;
+      all.push({ comp, result });
       if (result.ok) matches.push({ comp, result });
     }
     if (!matches.length) {
-      const reasons = (_b = originResult == null ? void 0 : originResult.reasons) != null ? _b : [];
-      const detail = reasons.map((r) => r.slice(r.indexOf(":") + 1)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(", ");
-      return [manualReattach(frame, "structure", detail)];
+      all.sort((a, b) => forcedCost(a.result) - forcedCost(b.result) || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
+      const best2 = all[0];
+      if (!best2 || best2.result.extras.length > MAX_FORCED_EXTRAS) return [manualReattach(frame, "structure", reasonDetail((_b = best2 == null ? void 0 : best2.result.reasons) != null ? _b : []))];
+      const sum2 = summarizeOverrides(best2.result);
+      const label2 = variantLabel(best2.comp);
+      return [
+        {
+          ruleId: "components/reattach-instance",
+          node: frame,
+          currentValue: frame.name,
+          suggestion: { kind: "component", id: best2.comp.id, label: label2, confidence: "ambiguous", source: best2.comp.remote ? "Library" : "Local" },
+          fixSafety: "review",
+          params: {
+            confidence: "forced",
+            component: label2,
+            detail: reasonDetail(best2.result.reasons),
+            extras: best2.result.extras.length,
+            total: best2.result.overrides.length,
+            texts: sum2.texts,
+            visibility: sum2.visibility,
+            paints: sum2.paints,
+            origin: info.type
+          },
+          plan: reattachPlan(frame, best2.comp, best2.result, true)
+        }
+      ];
     }
     matches.sort((a, b) => a.result.overrides.length - b.result.overrides.length || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
     const best = matches[0];

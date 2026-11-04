@@ -361,9 +361,12 @@ function suggestionLabel(sug: { label: string; kind?: string }): (Node | string)
 }
 /** Ligne « proche » : corrigeable, non exacte, suggestion à distance tolérée. */
 const rowIsClose = (row: Row) => rowHasPlan(row) && row.first.fixSafety !== 'safe' && row.first.suggestion?.confidence === 'close' && !state.chosen.has(row.key);
+/** Ligne « divergente » (Pro) : instance détachée rattachable seulement avec consentement, rendu conservé. */
+const rowIsForced = (row: Row) => rowHasPlan(row) && row.first.params?.confidence === 'forced';
 /** Ligne incluse dans « Appliquer » sans sélection, selon le réglage `autoApply`. */
 function rowAutoIncluded(row: Row): boolean {
   if (!rowHasPlan(row) || state.chosen.has(row.key)) return false;
+  if (rowIsForced(row)) return state.settings.reattachDivergent;
   if (row.first.fixSafety === 'safe') return true;
   const level = state.settings.autoApply;
   if (level === 'exact') return false;
@@ -741,7 +744,7 @@ function badgeFor(row: Row, sug: ReturnType<typeof effectiveSuggestion>): HTMLEl
     case 'close':
       return el('span', { class: 'badge badge-close' }, t('badgeClose'));
     case 'ambiguous':
-      return el('span', { class: 'badge badge-close' }, t('badgeAmbiguous'));
+      return el('span', { class: 'badge badge-close' }, rowIsForced(row) ? t('badgeDivergent') : t('badgeAmbiguous'));
     default:
       return el('span', { class: 'badge badge-muted' }, t('badgeManual'));
   }
@@ -873,6 +876,9 @@ function renderRowDetail(row: Row): HTMLElement {
       'div',
       { class: 'detail-actions' },
       el('button', { class: 'btn btn-sm btn-secondary', onclick: (e) => (e.stopPropagation(), viewRow(row)) }, svgIcon('target'), t('viewLayers')),
+      row.status === 'open' && rowIsForced(row)
+        ? el('button', { class: 'btn btn-sm btn-primary', 'data-act': 'fix-anyway', title: t('fixAnywayHint'), onclick: (e) => (e.stopPropagation(), applyRows([row])) }, svgIcon('wand'), t('fixAnyway'))
+        : null,
       row.status === 'open'
         ? el('button', { class: 'btn btn-sm btn-secondary', onclick: (e) => (e.stopPropagation(), setRowIgnored(row, true)) }, svgIcon('eye-off'), t('ignoreIssue'))
         : row.status === 'ignored'
@@ -908,6 +914,7 @@ function renderFooter(): HTMLElement {
   }
   const { rows, mode } = applicableRows();
   const closeRows = openRowsOf(state.tab).filter(rowIsClose);
+  const forcedRows = openRowsOf(state.tab).filter(rowIsForced);
   const layers = rows.reduce((n, r) => n + rowLayerCount(r), 0);
   let text: string;
   const layersLabel = layers === 1 ? t('rowItemOne') : t('rowItems', { n: layers });
@@ -921,15 +928,22 @@ function renderFooter(): HTMLElement {
     const unit = rows.length === 1 ? t(`${unitKey}One`) : t(`${unitKey}Many`);
     text = t('footerUpdateTpl', { n: rows.length, unit, layers: layersLabel });
     if (state.settings.autoApply !== 'exact' && closeRows.length) text += ` · ${closeRows.length === 1 ? t('inclCloseOne') : t('inclClose', { n: closeRows.length })}`;
+    if (state.settings.reattachDivergent && forcedRows.length) text += ` · ${forcedRows.length === 1 ? t('inclDivergentOne') : t('inclDivergent', { n: forcedRows.length })}`;
   }
   // Proches exclues du mode automatique : un lien les inclut en un clic (réglage mémorisé).
   const includeLink =
     mode === 'safe' && state.settings.autoApply === 'exact' && closeRows.length
       ? el('button', { class: 'link-btn inline', 'data-act': 'include-close', onclick: () => setAutoApply('close') }, closeRows.length === 1 ? t('includeCloseOne') : t('includeClose', { n: closeRows.length }))
       : null;
+  // Divergentes (rattachement forcé) : consentement explicite, mémorisé, révocable dans les réglages.
+  const includeForced =
+    mode === 'safe' && !state.settings.reattachDivergent && forcedRows.length
+      ? el('button', { class: 'link-btn inline', 'data-act': 'include-divergent', title: t('setReattachDivergent'), onclick: () => setReattachDivergent(true) }, forcedRows.length === 1 ? t('includeDivergentOne') : t('includeDivergent', { n: forcedRows.length }))
+      : null;
   append(footer, [
     el('span', { class: 'foot-text num' }, text),
     includeLink,
+    includeForced,
     el('button', { class: 'btn btn-primary', disabled: !rows.length, onclick: () => applyRows(rows) }, t('applyBtn'), el('span', { class: 'count-pill num' }, String(rows.length))),
   ]);
   return footer;
@@ -1273,6 +1287,7 @@ function renderSettings(): HTMLElement {
       checkbox(t('setRowCounts'), s.showRowCounts, (v) => update(() => (s.showRowCounts = v), false)),
       checkbox(t('optIncludeLibraries'), o.includeLibraries, (v) => update(() => (o.includeLibraries = v))),
       checkbox(t('setCompareFollow'), s.compareFollowsSelection, (v) => update(() => ((s.compareFollowsSelection = v), (state.compare.explicitRootId = null)), false)),
+      s.mode === 'pro' ? checkbox(t('setReattachDivergent'), s.reattachDivergent, (v) => update(() => (s.reattachDivergent = v), false)) : null,
     ),
     el(
       'details',
@@ -1467,11 +1482,12 @@ interface TeamRulesFile {
   enabledRules: string[];
   options: Settings['options'];
   autoApply: Settings['autoApply'];
+  reattachDivergent?: boolean;
 }
 
 function exportTeamRules() {
   const s = state.settings;
-  const file: TeamRulesFile = { app: 'senior-check-design', version: 1, mode: s.mode, preset: s.preset, disabledRules: s.disabledRules, enabledRules: s.enabledRules, options: s.options, autoApply: s.autoApply };
+  const file: TeamRulesFile = { app: 'senior-check-design', version: 1, mode: s.mode, preset: s.preset, disabledRules: s.disabledRules, enabledRules: s.enabledRules, options: s.options, autoApply: s.autoApply, reattachDivergent: s.reattachDivergent };
   download('senior-check-rules.json', JSON.stringify(file, null, 2), 'application/json;charset=utf-8');
   toast({ message: t('downloaded'), timeout: 3000 });
 }
@@ -1492,6 +1508,7 @@ function importTeamRules() {
       s.enabledRules = data.enabledRules.filter((id) => RULE_BY_ID[id]);
       if (data.mode === 'classic' || data.mode === 'pro') s.mode = data.mode;
       if (data.autoApply === 'exact' || data.autoApply === 'close' || data.autoApply === 'all') s.autoApply = data.autoApply;
+      if (typeof data.reattachDivergent === 'boolean') s.reattachDivergent = data.reattachDivergent;
       if (data.options && typeof data.options === 'object') s.options = { ...DEFAULT_SETTINGS.options, ...s.options, ...data.options };
       if (!visibleTabs().includes(state.tab)) state.tab = 'colors';
       persistSettings();
@@ -1661,6 +1678,12 @@ let lastPreviewSig: string | null = null;
 
 function setAutoApply(level: Settings['autoApply']) {
   state.settings.autoApply = level;
+  persistSettings();
+  render();
+}
+
+function setReattachDivergent(on: boolean) {
+  state.settings.reattachDivergent = on;
   persistSettings();
   render();
 }

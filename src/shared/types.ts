@@ -135,6 +135,8 @@ export interface Settings {
   autoApply: AutoApplyLevel;
   /** Volet Comparer : rendre l'élément sélectionné sur le canvas (sinon les cadres concernés). */
   compareFollowsSelection: boolean;
+  /** Pro : inclure dans « Appliquer » les rattachements d'instances détachées divergentes (consentement explicite). */
+  reattachDivergent: boolean;
   /** Taille de la colonne principale (hors volet Comparer). */
   window: { width: number; height: number };
 }
@@ -163,6 +165,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enabledRules: [],
   autoApply: 'exact',
   compareFollowsSelection: true,
+  reattachDivergent: false,
   window: { width: 680, height: 640 },
 };
 

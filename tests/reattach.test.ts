@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { matchTrees, summarizeOverrides, type TreeNode } from '../src/shared/reattach';
+import { forcedCost, matchTrees, summarizeOverrides, type TreeNode } from '../src/shared/reattach';
 
 const n = (type: string, name: string, extra: Partial<TreeNode> = {}, children: TreeNode[] = []): TreeNode => ({
   type,
@@ -60,6 +60,8 @@ test('calque ajouté à la main ou type différent : rattachement impossible', (
   const r1 = matchTrees(added, component());
   assert.equal(r1.ok, false);
   assert.ok(r1.reasons.includes('added:Extra'));
+  assert.deepEqual(r1.extras, [[3]]);
+  assert.ok(forcedCost(r1) > 0);
 
   const retyped = n('FRAME', 'Button / Pay', {}, [n('RECTANGLE', 'Icon'), text('Label', 'Payer'), n('FRAME', 'Badge', { fillsKey: 'f2', fills: [] }, [text('Count', '1')])]);
   const r2 = matchTrees(retyped, component());
@@ -79,5 +81,26 @@ test('calque renommé : override de nom ; police mixte : impossible ; échange d
   const mixed = component();
   mixed.type = 'FRAME';
   mixed.children[1].fontName = 'mixed';
-  assert.equal(matchTrees(mixed, component()).ok, false);
+  mixed.children[1].text = 'Régler';
+  const rm = matchTrees(mixed, component());
+  assert.equal(rm.ok, false);
+  assert.ok(rm.overrides.some((o) => o.op === 'text' && o.value === 'Régler'), 'le texte seul est reporté en mode forcé');
+
+  const remote = component();
+  remote.type = 'FRAME';
+  remote.children[0].mainId = 'c:lib';
+  remote.children[0].mainRemote = true;
+  remote.children[0].mainKey = 'KEY-LIB';
+  const rr = matchTrees(remote, component());
+  assert.equal(rr.ok, true);
+  assert.ok(rr.overrides.some((o) => o.op === 'swap' && o.componentKey === 'KEY-LIB'));
+});
+
+test('calque ajouté dans un enfant : chemin détaché précis pour le mode forcé', () => {
+  const detached = component();
+  detached.type = 'FRAME';
+  detached.children[2].children.push(n('VECTOR', 'Sparkle'));
+  const r = matchTrees(detached, component());
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.extras, [[2, 1]]);
 });
