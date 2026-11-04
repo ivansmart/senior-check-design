@@ -1240,13 +1240,28 @@ function renderSettings(): HTMLElement {
     if (rescan) scheduleRescan();
   };
   const active = resolveActiveRules(s.preset, s.disabledRules, s.enabledRules, s.mode);
+  const visibleRules = RULES.filter((r) => s.mode === 'pro' || !r.tier);
+  const presetRules = resolveActiveRules(s.preset, [], [], s.mode);
+  const allOn = visibleRules.every((r) => active.has(r.id));
+  // « Tout cocher » : toutes les règles du mode ; décoché, on revient aux règles du preset (le minimum utile par défaut).
+  const allBox = checkbox(t('rulesAll'), allOn, (on) =>
+    update(() => {
+      s.disabledRules = [];
+      s.enabledRules = on ? visibleRules.filter((r) => !presetRules.has(r.id)).map((r) => r.id) : [];
+    }),
+  );
+  allBox.classList.add('all');
+  allBox.title = t('rulesAllHint');
+  const allInput = allBox.querySelector('input');
+  if (allInput) allInput.indeterminate = !allOn && visibleRules.some((r) => active.has(r.id) && !presetRules.has(r.id));
   const rulesList = el(
     'div',
     { class: 'rule-list' },
-    ...RULES.filter((r) => s.mode === 'pro' || !r.tier).map((r) =>
+    allBox,
+    ...visibleRules.map((r) =>
       checkbox(`${state.i18n.ruleTitle(r.id)}`, active.has(r.id), (on) =>
         update(() => {
-          const inPreset = resolveActiveRules(s.preset, [], [], s.mode).has(r.id);
+          const inPreset = presetRules.has(r.id);
           s.disabledRules = s.disabledRules.filter((x) => x !== r.id);
           s.enabledRules = s.enabledRules.filter((x) => x !== r.id);
           if (inPreset && !on) s.disabledRules.push(r.id);

@@ -1268,6 +1268,17 @@ details.accordion .body {
   max-height: 200px;
   overflow: auto;
 }
+/* « Tout cocher » : en tête de liste, collé en haut au défilement. */
+.rule-list .check.all {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  font-weight: 600;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
 .dialog {
   background: var(--bg);
   border-radius: var(--radius);
