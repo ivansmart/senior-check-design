@@ -145,7 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showContrast: true,
   disabledRules: [],
   enabledRules: [],
-  window: { width: 600, height: 640 },
+  window: { width: 660, height: 640 },
 };
 
 export interface CategoryCount {

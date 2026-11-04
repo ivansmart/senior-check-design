@@ -111,6 +111,10 @@ src/ui/                      iframe (dist/ui.html, tout inliné)
 - **Undo** : chaque fix retourne une closure de restauration exacte (fills, bindings, style + propriétés texte, taille, position, réactions) ; `commitUndo()` avant chaque lot.
 - **UI** : vanilla TypeScript, thème Figma (`themeColors: true`), chiffres tabulaires, navigation clavier (`↑↓`, `↵`, `F`, `V`, `/`, `Esc`), `prefers-reduced-motion` respecté.
 
+### Fidélité visuelle
+
+Les métriques de l'interface sont relevées sur la capture officielle de Check designs (image 2x de la doc Figma) : header 40 px, barre d'onglets 40 px, onglets 24 px à rayon 5 px avec pastille de compteur 16 px, lignes de 24 px espacées de 8 px, cellules à rayon 5 px et padding 6 px, pastille couleur 14 px à rayon 2 px avec bordure `rgba(0,0,0,.1)`, flèche 9 px `#B2B2B2` centrée dans un espace de 32 px, badge Match 14 px (`#009951` sur bordure `#B9EBC6`), chevron 16 px, footer 40 px avec bouton 24 px et compteur sur fond `rgba(0,0,0,.2)`, texte Inter 11 px (titre et onglet actif en 600). Les couleurs passent par les variables de thème Figma (`themeColors: true`) avec ces valeurs en repli, d'où un rendu identique en clair et correct en sombre. La fenêtre fait 660 px par défaut pour loger les sept onglets (la modale de Figma en a quatre sur 480 px).
+
 ## Test d'intégration sur un vrai fichier
 
 `src/plugin/headless.ts` expose le moteur (sans UI) sur un global `SCD`. `npm run build:headless` produit `dist/headless.min.js`, exécutable dans le contexte Plugin API d'un fichier Figma (par exemple via le MCP Figma `use_figma`) :

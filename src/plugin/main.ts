@@ -8,7 +8,7 @@ import { runScan, type IssuePlans } from './scan/engine';
 
 const SETTINGS_KEY = 'scd:settings:v1';
 const IGNORED_KEY = 'scd:ignored';
-const MIN_W = 480;
+const MIN_W = 560;
 const MIN_H = 480;
 const MAX_W = 900;
 const MAX_H = 1200;

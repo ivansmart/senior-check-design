@@ -234,8 +234,28 @@ function effectiveSuggestion(row: Row): { id?: string; label: string; swatch?: s
 }
 
 const rowHasPlan = (row: Row) => row.first.fixSafety !== 'none';
+
+/** Libellé d'une suggestion : les variables sont préfixées de « ✦/ » comme dans Check designs. */
+function suggestionLabel(sug: { label: string; kind?: string }): (Node | string)[] {
+  if (sug.kind === 'variable') {
+    const star = svgIcon('star', 9);
+    star.setAttribute('class', 'var-glyph');
+    return [star, `/${sug.label}`];
+  }
+  return [sug.label];
+}
 const rowIsSafe = (row: Row) => row.first.fixSafety === 'safe' && !state.chosen.has(row.key);
 const rowLayerCount = (row: Row) => row.issues.filter((i) => i.status === 'open').length;
+
+/** « #FF6633 » → « FF6633 », « #CCCBFF99 » → « CCCBFF · 60% » (format de Check designs). */
+function formatHex(value: string): string {
+  const m = /^#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?$/.exec(value.trim());
+  if (!m) return value;
+  const hex = m[1].toUpperCase();
+  if (!m[2]) return hex;
+  const pct = Math.round((parseInt(m[2], 16) / 255) * 100);
+  return `${hex} · ${pct}%`;
+}
 
 // ---------------------------------------------------------------------------
 // Rendu
@@ -287,14 +307,14 @@ function renderHeader(): HTMLElement {
     state.lastScore = score;
   }
   const sev = countBySeverity([...state.issues.values()]);
-  const sub =
-    state.phase === 'results' && state.result
-      ? el('span', { class: 'sub num', title: t('scanLayers', { n: state.result.stats.nodesScanned }) }, t('counts', { e: sev.error, w: sev.warning, i: sev.info }))
-      : null;
+  const scoreTitle = state.result
+    ? `${t('health')} ${score ?? ''} · ${t('counts', { e: sev.error, w: sev.warning, i: sev.info })} · ${t('scanLayers', { n: state.result.stats.nodesScanned })}`
+    : t('health');
+  scoreEl.title = scoreTitle;
   return el(
     'header',
     { class: 'header' },
-    el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? el('span', { class: 'score-wrap', title: t('health') }, scoreEl) : null, sub),
+    el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null),
     el('button', { class: 'icon-btn', title: t('export'), 'aria-label': t('export'), disabled: state.phase !== 'results', onclick: () => toggleMenu('export') }, svgIcon('export')),
     el('button', { class: 'icon-btn', title: t('reload'), 'aria-label': t('reload'), disabled: state.phase === 'scanning', onclick: () => startScan() }, svgIcon('refresh')),
   );
@@ -375,9 +395,9 @@ function renderTabs(): HTMLElement {
 function renderSelectionNotice(): HTMLElement {
   return el(
     'div',
-    { class: 'notice' },
+    { class: 'notice notice-bar' },
     svgIcon('info'),
-    el('span', { class: 'grow' }, el('b', {}, t('selectionChanged')), ' ', state.selectionCount ? t('selectionChangedBody', { n: state.selectionCount }) : ''),
+    el('span', { class: 'grow ellipsis' }, el('b', {}, t('selectionChanged')), ' ', state.selectionCount ? t('selectionChangedBody', { n: state.selectionCount }) : ''),
     el('button', { class: 'btn btn-sm btn-secondary', onclick: () => startScan() }, svgIcon('refresh'), t('reload')),
   );
 }
@@ -399,7 +419,7 @@ function renderScanning(): HTMLElement {
   const p = state.progress ?? { phase: 'indexing', scanned: 0, total: 0, found: {} };
   const pct = p.phase === 'scanning' && p.total ? (p.scanned / p.total) * 100 : p.phase === 'finalizing' ? 100 : 0;
   const skeleton = el('div', { class: 'skeleton' });
-  for (let i = 0; i < 6; i++) skeleton.appendChild(el('div', { class: 'sk-row' }, el('span', { class: 'sk-cell' }), el('span', { class: 'sk-arrow' }), el('span', { class: 'sk-cell' })));
+  for (let i = 0; i < 8; i++) skeleton.appendChild(el('div', { class: 'sk-row' }, el('span', { class: 'sk-cell' }), el('span', { class: 'sk-arrow' }), el('span', { class: 'sk-cell' })));
   return el(
     'div',
     { class: 'scanning' },
@@ -499,11 +519,10 @@ function renderSectionHead(row: Row, sectionRows: Row[]): HTMLElement {
         render();
       },
     },
-    svgIcon(KIND_ICON[row.kind]),
+    el('span', { class: 'kind-icon' }, svgIcon(KIND_ICON[row.kind])),
     el('span', { class: 'sec-kind' }, kindLabel(row.kind)),
-    el('span', { class: 'sec-sep' }, '›'),
+    el('span', { class: 'sec-sep' }, svgIcon('chevron-right')),
     el('span', { class: 'sec-prop' }, t(row.prop)),
-    el('span', { class: 'sec-count num' }, String(sectionRows.filter((r) => r.status === 'open').length)),
   );
 }
 
@@ -549,10 +568,9 @@ function renderRow(row: Row): HTMLElement {
 
   const current = el(
     'div',
-    { class: 'cell cur' },
-    el('span', { class: 'sev-dot', 'data-sev': row.severity, title: state.i18n.severity(row.severity) }),
-    swatchEl(first.swatch) ?? el('span', { class: 'cell-icon' }, svgIcon(KIND_ICON[row.kind], 12)),
-    el('span', { class: 'val', title: first.swatch ? first.currentValue : `${first.nodeName} — ${first.currentValue}` }, first.swatch ? first.currentValue.replace(/^#/, '') : row.kind === 'componentSet' || row.kind === 'component' || row.prop === 'propName' || row.prop === 'propDetached' ? first.nodeName : first.currentValue),
+    { class: 'cell cur', title: state.i18n.severity(row.severity) },
+    swatchEl(first.swatch) ?? el('span', { class: 'cell-icon' }, svgIcon(KIND_ICON[row.kind])),
+    el('span', { class: 'val', title: first.swatch ? first.currentValue : `${first.nodeName} — ${first.currentValue}` }, first.swatch ? formatHex(first.currentValue) : row.kind === 'componentSet' || row.kind === 'component' || row.prop === 'propName' || row.prop === 'propDetached' ? first.nodeName : first.currentValue),
     state.settings.showRowCounts && count > 1 ? el('span', { class: 'cnt num', title: t('rowItems', { n: count }) }, String(count)) : null,
   );
 
@@ -576,21 +594,20 @@ function renderRow(row: Row): HTMLElement {
             render();
           },
         },
-        swatchEl(sug.swatch) ?? (sug.kind === 'style' ? el('span', { class: 'cell-icon' }, svgIcon('style', 12)) : sug.kind === 'variable' ? el('span', { class: 'cell-icon' }, svgIcon('variable', 12)) : null),
-        sug.kind === 'variable' && sug.swatch ? el('span', { class: 'cell-icon' }, svgIcon('variable', 11)) : null,
-        el('span', { class: 'name' }, sug.label),
+        swatchEl(sug.swatch) ?? (sug.kind === 'style' ? el('span', { class: 'cell-icon' }, svgIcon('style')) : null),
+        el('span', { class: 'name' }, ...suggestionLabel(sug)),
         badgeFor(row, sug),
-        hasAlternatives ? el('span', { class: 'chev' }, svgIcon('chevron', 12)) : null,
+        hasAlternatives ? el('span', { class: 'chev' }, svgIcon('chevron')) : null,
       )
     : el('div', { class: 'cell sug is-empty' }, el('span', { class: 'name muted' }, rowHasPlan(row) ? '' : t(first.ruleId.startsWith('colors/') || first.ruleId.startsWith('spacing/') || first.ruleId.startsWith('radius/') || first.ruleId === 'typography/no-text-style' ? 'badgeNone' : 'badgeManual')), badgeFor(row, null));
 
   const info = el(
     'button',
     { class: 'row-info', title: t('details'), 'aria-label': t('details'), 'aria-expanded': String(state.expanded === row.key), onclick: (e) => (e.stopPropagation(), toggleExpanded(row.key)) },
-    svgIcon('info', 13),
+    svgIcon('info'),
   );
 
-  rowEl.append(current, el('span', { class: 'arrow', 'aria-hidden': 'true' }, '→'), suggestionCell, info);
+  rowEl.append(current, el('div', { class: 'gap' }, el('span', { class: 'arrow', 'aria-hidden': 'true' }, svgIcon('arrow-right')), info), suggestionCell);
   if (state.dropdown === row.key && first.suggestion?.alternatives?.length) rowEl.appendChild(renderDropdown(row));
   return rowEl;
 }
@@ -614,8 +631,8 @@ function renderDropdown(row: Row): HTMLElement {
           render();
         },
       },
-      swatchEl(swatch) ?? el('span', { class: 'cell-icon' }, svgIcon(s.kind === 'style' ? 'style' : 'variable', 12)),
-      el('span', { class: 'dd-label' }, label),
+      swatchEl(swatch) ?? (s.kind === 'style' ? el('span', { class: 'cell-icon' }, svgIcon('style')) : null),
+      el('span', { class: 'dd-label' }, ...suggestionLabel({ label, kind: s.kind })),
       value ? el('span', { class: 'dd-sub' }, value) : null,
       confidence === 'exact' ? el('span', { class: 'badge badge-match' }, t('badgeMatch')) : null,
       (chosen ?? undefined) === id ? svgIcon('check', 12) : null,

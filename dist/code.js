@@ -104,7 +104,7 @@
     showContrast: true,
     disabledRules: [],
     enabledRules: [],
-    window: { width: 600, height: 640 }
+    window: { width: 660, height: 640 }
   };
 
   // src/plugin/fix/apply.ts
@@ -2151,7 +2151,7 @@
   // src/plugin/main.ts
   var SETTINGS_KEY = "scd:settings:v1";
   var IGNORED_KEY = "scd:ignored";
-  var MIN_W = 480;
+  var MIN_W = 560;
   var MIN_H = 480;
   var MAX_W = 900;
   var MAX_H = 1200;
