@@ -1,0 +1,22 @@
+{
+  "name": "senior-check-design",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Senior Check Design — audit local, déterministe et gratuit de vos fichiers Figma : tokens, typographie, espacement, composants, accessibilité, craft et handoff.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p src/ui/tsconfig.json --noEmit",
+    "test": "node --test --import tsx \"tests/*.test.ts\"",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "build:headless": "esbuild src/plugin/headless.ts --bundle --format=iife --target=es2020 --platform=neutral --minify --legal-comments=none --line-limit=800 --outfile=dist/headless.min.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.142.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

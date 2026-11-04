@@ -1,0 +1,924 @@
+import type { Category, Issue, Locale, PresetId, Severity } from '../shared/types';
+
+type Tpl = string | Record<string, string>;
+
+export interface RuleCopy {
+  title: string;
+  message: Tpl;
+  why: Tpl;
+  suggestion: Tpl;
+}
+
+export interface Dictionary {
+  ui: Record<string, string>;
+  categories: Record<Category, string>;
+  categoriesShort: Record<Category, string>;
+  severity: Record<Severity, string>;
+  presets: Record<PresetId, { name: string; hint: string }>;
+  rules: Record<string, RuleCopy>;
+  fixReasons: Record<string, string>;
+}
+
+const fr: Dictionary = {
+  ui: {
+    appName: 'Senior Check Design',
+    tagline: 'Audit local, déterministe et gratuit.',
+    preset: 'Preset',
+    scope: 'Périmètre',
+    scopeSelection: 'Sélection',
+    scopePage: 'Page active',
+    scopeFile: 'Tout le fichier',
+    selectionCount: '{n} calques sélectionnés',
+    selectionOne: '1 calque sélectionné',
+    selectionNone: 'Aucun calque sélectionné',
+    options: 'Options',
+    optIgnoreHidden: 'Ignorer les calques masqués',
+    optIgnoreLocked: 'Ignorer les calques verrouillés',
+    optInsideInstances: 'Analyser l’intérieur des instances',
+    optIncludeLibraries: 'Lire les variables des librairies activées',
+    optBaseGrid: 'Grille de base (sans tokens)',
+    optTolerance: 'Tolérance d’espacement',
+    optTouch: 'Zone tactile minimale',
+    optMinFont: 'Taille de texte minimale',
+    rulesTitle: 'Règles du preset',
+    rulesHint: 'Désactive une règle pour ce preset, ou active-en d’autres.',
+    analyzeSelection: 'Analyser la sélection',
+    analyzePage: 'Analyser la page',
+    analyzeFile: 'Analyser tout le fichier',
+    fileWarningTitle: 'Analyser tout le fichier ?',
+    fileWarningBody: 'Les {pages} pages seront chargées. Sur un fichier volumineux, cela peut prendre plusieurs secondes. Tu pourras annuler à tout moment.',
+    confirm: 'Lancer',
+    cancel: 'Annuler',
+    back: 'Retour',
+    settings: 'Réglages',
+    language: 'Langue',
+    scanning: 'Analyse en cours…',
+    phaseIndexing: 'Lecture des variables et styles',
+    phaseIndexingLib: 'Lecture de la librairie « {name} »',
+    phaseCollecting: 'Collecte des calques',
+    phaseScanning: '{scanned} / {total} calques analysés',
+    phaseFinalizing: 'Vérifications croisées',
+    cancelScan: 'Arrêter l’analyse',
+    cancelled: 'Analyse arrêtée',
+    cancelledBody: 'Les résultats partiels restent exploitables.',
+    done: 'Analyse terminée en {s} s',
+    health: 'Design Health',
+    nodesScanned: '{n} calques',
+    counts: '{e} erreurs · {w} warnings · {i} infos',
+    safeFixes: '{n} corrections rapides',
+    safeFixesOne: '1 correction rapide',
+    reviewItems: '{n} points à examiner',
+    reviewOne: '1 point à examiner',
+    fixAllSafe: 'Corriger les {n} fixes sûrs',
+    fixAllSafeOne: 'Corriger le fix sûr',
+    fixAllConfirm: 'Appliquer {n} corrections sûres ? Chaque changement reste annulable.',
+    apply: 'Appliquer',
+    fixing: 'Correction {done} / {total}',
+    search: 'Rechercher…',
+    searchTitle: 'Règle, valeur, nom de calque, token',
+    searchShortcut: 'Appuie sur / pour rechercher',
+    filterSeverity: 'Sévérité',
+    sevAll: 'Toutes',
+    sevErrors: 'Erreurs',
+    sevErrorsWarnings: 'Erreurs + warnings',
+    filterStatus: 'Statut',
+    statusOpen: 'Ouvertes',
+    statusFixed: 'Corrigées',
+    statusIgnored: 'Ignorées',
+    all: 'Tout',
+    occurrences: '{n} occurrences',
+    occurrenceOne: '1 occurrence',
+    view: 'Voir',
+    fix: 'Corriger',
+    review: 'Examiner',
+    ignore: 'Ignorer',
+    unignore: 'Réactiver',
+    fixed: 'Corrigée',
+    ignored: 'Ignorée',
+    safeFix: 'Fix sûr',
+    reviewFix: 'À valider',
+    noFix: 'Manuel',
+    current: 'Valeur actuelle',
+    suggested: 'Suggestion',
+    alternatives: 'Autres correspondances',
+    where: 'Où',
+    why: 'Pourquoi',
+    whatToDo: 'Que faire',
+    applySuggestion: 'Appliquer la suggestion',
+    applyTo: 'Appliquer aux {n} occurrences identiques',
+    ignoreIssue: 'Ignorer cette issue',
+    ignoreRule: 'Désactiver cette règle',
+    openDoc: 'Documentation',
+    export: 'Exporter',
+    exportMd: 'Rapport Markdown',
+    exportCsv: 'Export CSV',
+    copyMd: 'Copier le Markdown',
+    copied: 'Rapport copié dans le presse-papiers',
+    downloaded: 'Fichier téléchargé',
+    rescan: 'Relancer',
+    newScan: 'Nouvelle analyse',
+    emptyTitle: 'Aucun problème détecté',
+    emptyBody: 'Ton périmètre « {scope} » respecte les règles du preset {preset}.',
+    emptyStrict: 'Passer en mode Strict',
+    emptyFiltered: 'Aucune issue ne correspond aux filtres.',
+    resetFilters: 'Réinitialiser les filtres',
+    noMatchHint: 'Aucun token ne correspond : rien à lier automatiquement.',
+    undo: 'Annuler',
+    toastFixed: '{n} corrections appliquées · Design Health {before} → {after}',
+    toastFixedOne: 'Correction appliquée : {label}',
+    toastFixFailed: '{n} corrections n’ont pas pu être appliquées',
+    toastUndone: '{n} corrections annulées',
+    toastUndoneOne: 'Correction annulée',
+    toastIgnored: 'Issue ignorée pour ce fichier',
+    toastUnignored: 'Issue réactivée',
+    toastRuleDisabled: 'Règle désactivée : relance l’analyse pour l’appliquer',
+    errorTitle: 'L’analyse s’est arrêtée',
+    errorBody: 'Ce qui a fonctionné reste affiché. Détail technique : {message}',
+    retry: 'Réessayer',
+    retrySelection: 'Analyser la sélection',
+    warnLibraryCap: 'Librairies très volumineuses : seules les 800 premières variables ont été lues.',
+    warnLibrary: 'Variables de la librairie « {name} » illisibles.',
+    warnLibrariesUnavailable: 'Les variables des librairies n’ont pas pu être lues : seules les variables locales sont utilisées.',
+    warnRule: 'La règle {rule} a rencontré une erreur sur certains calques.',
+    tokensSummary: '{colors} couleurs · {floats} nombres · {text} styles de texte',
+    librariesSummary: '{n} librairies lues',
+    noTokens: 'Aucune variable détectée : les suggestions de liaison sont désactivées.',
+    keyboardHint: '↑↓ naviguer · ↵ ouvrir · F corriger · / rechercher · Esc retour',
+    resizeHandle: 'Redimensionner',
+    pageChanged: 'Page changée : {name}',
+    scopeBadgePage: 'Page',
+    scopeBadgeFile: 'Fichier',
+    scopeBadgeSelection: 'Sélection',
+    scoreHint: 'Densité d’issues ouvertes par calque analysé, pondérée par sévérité.',
+    sourceLocal: 'Local',
+    byCategory: 'Par catégorie',
+    aboutTitle: 'Comment ça marche',
+    aboutBody: 'Toutes les règles s’exécutent localement, sans IA ni réseau. Les corrections « sûres » lient une valeur à un token identique ; les autres demandent ta validation. Tout est annulable.',
+    version: 'v0.1.0',
+  },
+  categories: {
+    colors: 'Couleurs',
+    typography: 'Typographie',
+    spacing: 'Espacement',
+    radius: 'Radius',
+    components: 'Composants',
+    craft: 'Craft & interaction',
+    a11y: 'Accessibilité',
+    handoff: 'Handoff',
+  },
+  categoriesShort: {
+    colors: 'Couleurs',
+    typography: 'Typo',
+    spacing: 'Spacing',
+    radius: 'Radius',
+    components: 'Composants',
+    craft: 'Craft',
+    a11y: 'A11y',
+    handoff: 'Handoff',
+  },
+  severity: { error: 'Erreur', warning: 'Warning', info: 'Info' },
+  presets: {
+    quick: { name: 'Quick check', hint: 'Nettoyage rapide avant review' },
+    handoff: { name: 'Handoff', hint: 'Fichier prêt pour le développement' },
+    'design-system': { name: 'Design system', hint: 'Santé de la librairie' },
+    a11y: { name: 'Accessibilité', hint: 'Contraste, cibles tactiles, états' },
+    craft: { name: 'Product Craft', hint: 'États, feedback, motion' },
+    strict: { name: 'Strict', hint: 'Audit senior complet' },
+  },
+  rules: {
+    'colors/hardcoded-fill': {
+      title: 'Couleur de fond codée en dur',
+      message: {
+        exact: '{value} n’est pas liée à une variable. « {suggestion} » correspond exactement.',
+        close: '{value} n’est pas liée à une variable. « {suggestion} » est très proche.',
+        ambiguous: '{value} n’est pas liée à une variable. Plusieurs tokens sont proches : à toi de choisir.',
+        none: '{value} n’est pas liée à une variable et aucun token ne correspond.',
+        noTokens: '{value} est codée en dur. Ce fichier n’a pas encore de variables de couleur.',
+      },
+      why: 'Une couleur non liée ne suivra pas les changements de thème ou de marque, et les développeurs ne sauront pas quel token utiliser.',
+      suggestion: {
+        default: 'Lier la couleur à la variable correspondante.',
+        none: 'Créer un token si cette couleur est légitime, ou la remplacer par un token existant.',
+        noTokens: 'Créer une collection de variables de couleur, puis relancer l’analyse.',
+      },
+    },
+    'colors/hardcoded-stroke': {
+      title: 'Couleur de contour codée en dur',
+      message: {
+        exact: '{value} n’est pas liée à une variable. « {suggestion} » correspond exactement.',
+        close: '{value} n’est pas liée à une variable. « {suggestion} » est très proche.',
+        ambiguous: '{value} n’est pas liée à une variable. Plusieurs tokens sont proches : à toi de choisir.',
+        none: '{value} n’est pas liée à une variable et aucun token ne correspond.',
+        noTokens: '{value} est codée en dur. Ce fichier n’a pas encore de variables de couleur.',
+      },
+      why: 'Les contours codés en dur dérivent avec le temps : une bordure légèrement différente par composant finit par rendre l’interface « sale ».',
+      suggestion: {
+        default: 'Lier le contour à la variable correspondante.',
+        none: 'Créer un token de bordure ou réutiliser un token existant.',
+        noTokens: 'Créer une collection de variables de couleur, puis relancer l’analyse.',
+      },
+    },
+    'typography/no-text-style': {
+      title: 'Texte sans style',
+      message: {
+        exact: '« {value} » n’utilise aucun Text Style. « {suggestion} » correspond exactement.',
+        close: '« {value} » n’utilise aucun Text Style. « {suggestion} » partage la même famille et la même taille.',
+        none: '« {value} » n’utilise aucun Text Style et aucun style ne correspond.',
+        noStyles: '« {value} » n’utilise aucun Text Style. Ce fichier n’a pas encore de styles de texte.',
+      },
+      why: 'Sans style, chaque texte est une exception : impossible de faire évoluer la typographie globalement, et le handoff perd le nom du style.',
+      suggestion: {
+        default: 'Appliquer le Text Style correspondant.',
+        none: 'Choisir un style existant ou créer un style si cette combinaison est légitime.',
+        noStyles: 'Créer les Text Styles de l’échelle typographique, puis relancer l’analyse.',
+      },
+    },
+    'typography/mixed-styles': {
+      title: 'Styles mélangés dans un texte',
+      message: 'Ce bloc contient {segments} styles typographiques différents.',
+      why: 'Des styles mélangés dans un même calque sont difficiles à implémenter proprement et fragiles à maintenir.',
+      suggestion: 'Séparer les textes ou n’utiliser qu’un style par calque.',
+    },
+    'typography/off-scale-size': {
+      title: 'Taille hors échelle',
+      message: '{value} ne fait pas partie de l’échelle du fichier ({scale}). Valeur la plus proche : {nearest} px.',
+      why: 'Une taille isolée casse le rythme typographique et multiplie les exceptions côté code.',
+      suggestion: 'Utiliser une taille de l’échelle ou appliquer un Text Style.',
+    },
+    'spacing/off-scale-padding': {
+      title: 'Padding hors échelle',
+      message: {
+        exact: 'Padding {fields} = {value}, non lié. « {suggestion} » correspond exactement.',
+        close: 'Padding {fields} = {value}, non lié. « {suggestion} » est la valeur la plus proche.',
+        ambiguous: 'Padding {fields} = {value}, non lié. Deux tokens sont à distance égale : choisis.',
+        grid: 'Padding {fields} = {value} : pas un multiple de la grille de {grid} px.',
+        none: 'Padding {fields} = {value}, non lié et sans token d’espacement correspondant.',
+      },
+      why: 'Les espacements hors échelle créent des rythmes « presque » identiques (16 vs 18) qui paraissent incohérents et compliquent l’implémentation.',
+      suggestion: {
+        default: 'Lier à un token d’espacement.',
+        grid: 'Arrondir à un multiple de {grid} px.',
+        none: 'Choisir une valeur de l’échelle ou créer un token.',
+      },
+    },
+    'spacing/off-scale-gap': {
+      title: 'Gap hors échelle',
+      message: {
+        exact: 'Gap = {value}, non lié. « {suggestion} » correspond exactement.',
+        close: 'Gap = {value}, non lié. « {suggestion} » est la valeur la plus proche.',
+        ambiguous: 'Gap = {value}, non lié. Deux tokens sont à distance égale : choisis.',
+        grid: 'Gap = {value} : pas un multiple de la grille de {grid} px.',
+        none: 'Gap = {value}, non lié et sans token d’espacement correspondant.',
+      },
+      why: 'Le gap définit le rythme d’une liste ou d’une grille : une valeur isolée se voit immédiatement.',
+      suggestion: {
+        default: 'Lier à un token d’espacement.',
+        grid: 'Arrondir à un multiple de {grid} px.',
+        none: 'Choisir une valeur de l’échelle ou créer un token.',
+      },
+    },
+    'radius/not-tokenized': {
+      title: 'Rayon non tokenisé',
+      message: {
+        exact: 'Rayon {fields} = {value}, non lié. « {suggestion} » correspond exactement.',
+        close: 'Rayon {fields} = {value}, non lié. « {suggestion} » est proche.',
+        ambiguous: 'Rayon {fields} = {value}, non lié. Plusieurs tokens sont proches.',
+        none: 'Rayon {fields} = {value}, non lié et sans token de radius correspondant.',
+      },
+      why: 'Les rayons sont une signature visuelle : un rayon isolé casse la cohérence des composants.',
+      suggestion: { default: 'Lier au token de radius.', none: 'Utiliser une valeur de l’échelle de radius.' },
+    },
+    'components/detached-instance': {
+      title: 'Instance détachée',
+      message: '« {node} » a été détaché d’un composant ({origin}).',
+      why: 'Un calque détaché ne reçoit plus les mises à jour du composant et dérive silencieusement.',
+      suggestion: 'Reprendre une instance du composant, ou documenter l’exception si elle est volontaire.',
+    },
+    'components/default-name': {
+      title: 'Nom de calque par défaut',
+      message: '« {node} » garde son nom par défaut.',
+      why: 'Les noms par défaut (Frame 47, Group 3) n’aident ni la navigation, ni le handoff, ni les exports.',
+      suggestion: 'Nommer le calque selon son rôle : « Card / Header », « Price badge ».',
+    },
+    'components/heavy-overrides': {
+      title: 'Instance très modifiée',
+      message: '{count} propriétés de style surchargées sur cette instance ({fields}).',
+      why: 'Beaucoup d’overrides signalent un composant qui ne couvre pas ce besoin : il manque une variante, ou l’instance devrait être un autre composant.',
+      suggestion: 'Ajouter une variante ou une propriété au composant, puis réinitialiser les overrides.',
+    },
+    'components/duplicate-component': {
+      title: 'Composants en doublon',
+      message: '« {node} » existe en {count} exemplaires : {others}.',
+      why: 'Deux composants quasi identiques se désynchronisent et doublent le travail de maintenance.',
+      suggestion: 'Fusionner en un seul composant avec des variantes.',
+    },
+    'components/no-description': {
+      title: 'Composant sans description',
+      message: '« {node} » n’a pas de description.',
+      why: 'La description explique l’usage, les props et les limites : c’est la documentation minimale pour l’équipe et les devs.',
+      suggestion: 'Ajouter une description courte : usage, variantes, lien vers la doc.',
+    },
+    'craft/missing-state': {
+      title: 'État interactif manquant',
+      message: '« {component} » n’a pas d’état {state} (propriété {prop}).',
+      why: {
+        focus: 'Un utilisateur clavier ne pourra pas voir où se trouve le focus.',
+        hover: 'L’utilisateur ne saura pas que l’élément est interactif avant de cliquer.',
+        pressed: 'Aucun retour visuel ne confirme que l’action est en cours.',
+        disabled: 'Impossible de montrer qu’une action est temporairement indisponible.',
+        error: 'L’utilisateur ne saura pas qu’une saisie est invalide, ni pourquoi.',
+        selected: 'L’état sélectionné ou coché n’est pas différencié : l’utilisateur ne sait pas ce qu’il a choisi.',
+        default: 'Un état manquant devra être inventé par les développeurs, souvent sans cohérence.',
+      },
+      suggestion: 'Ajouter une variante {prop}={state} au composant.',
+    },
+    'craft/missing-loading-state': {
+      title: 'État de chargement manquant',
+      message: '« {component} » déclenche une action longue mais n’a pas d’état loading.',
+      why: 'Après le clic, l’utilisateur ne saura pas si l’action est en cours et risquera de cliquer deux fois.',
+      suggestion: 'Ajouter une variante {prop}=Loading avec spinner et label conservé.',
+    },
+    'craft/missing-empty-state': {
+      title: 'État vide manquant',
+      message: '« {component} » n’a pas d’état vide.',
+      why: 'Sans état vide, l’utilisateur face à une liste sans résultat n’a aucune orientation.',
+      suggestion: 'Ajouter un état Empty avec message et action (ex. « Réinitialiser les filtres »).',
+    },
+    'craft/state-naming': {
+      title: 'Nomenclature d’états incohérente',
+      message: '« {component} » utilise une orthographe minoritaire : {changes}.',
+      why: 'Des variantes nommées différemment (Hover, hover, :hover) compliquent le swap d’instances et le mapping avec le code.',
+      suggestion: 'Harmoniser les noms de propriétés et de valeurs sur l’ensemble des composants.',
+    },
+    'craft/missing-hover-transition': {
+      title: 'Transition hover manquante',
+      message: '« {component} » a un état hover mais aucune interaction Default → Hover.',
+      why: 'Les autres composants du fichier sont interactifs : celui-ci paraîtra figé dans le prototype.',
+      suggestion: 'Ajouter une interaction « While hovering → Change to Hover ».',
+    },
+    'craft/inconsistent-motion': {
+      title: 'Durée de transition incohérente',
+      message: 'Hover en {duration} ms sur « {component} » ; les autres {kind} utilisent {mode} ms.',
+      why: 'Même action = même durée : une transition différente paraît cassée ou lente.',
+      suggestion: 'Harmoniser à {mode} ms.',
+    },
+    'a11y/text-contrast': {
+      title: 'Contraste insuffisant',
+      message: 'Contraste {ratio} entre {fg} et {bg} ; minimum requis : {required} pour {size} px.',
+      why: 'Sous le seuil WCAG AA, une partie des utilisateurs ne peut pas lire ce texte, notamment en plein soleil ou avec une basse vision.',
+      suggestion: {
+        default: 'Assombrir ou éclaircir le texte ou le fond. Token conforme le plus proche : « {suggestion} ».',
+        none: 'Assombrir ou éclaircir le texte ou le fond jusqu’à atteindre {required}.',
+      },
+    },
+    'a11y/contrast-not-verifiable': {
+      title: 'Contraste non vérifiable',
+      message: {
+        image: 'Le texte repose sur une image : le contraste n’est pas calculable automatiquement.',
+        gradient: 'Le texte repose sur un dégradé : le contraste n’est pas calculable automatiquement.',
+        opacity: 'Un parent semi-transparent empêche de connaître le fond réel.',
+        mixed: 'Ce texte mélange plusieurs couleurs.',
+        default: 'Le fond réel ne peut pas être déterminé.',
+      },
+      why: 'Le plugin n’invente pas de résultat : vérifie ce texte manuellement.',
+      suggestion: 'Ajouter un voile ou un fond uni derrière le texte, puis relancer l’analyse.',
+    },
+    'a11y/touch-target': {
+      title: 'Zone tactile trop petite',
+      message: '{width} × {height} px : la cible interactive fait moins de {min} px.',
+      why: 'Les cibles trop petites provoquent des erreurs de clic, surtout sur mobile et pour les personnes avec des troubles moteurs (WCAG 2.5.8).',
+      suggestion: 'Agrandir la zone cliquable à au moins {min} × {min} px, même si l’icône reste petite.',
+    },
+    'a11y/text-too-small': {
+      title: 'Texte trop petit',
+      message: '{value} : en dessous du minimum recommandé de {min} px.',
+      why: 'Les petits textes sont les premiers illisibles sur mobile et pour les personnes avec une basse vision.',
+      suggestion: 'Monter à {min} px minimum, ou réserver cette taille aux mentions secondaires.',
+    },
+    'handoff/fractional-size': {
+      title: 'Dimension non arrondie',
+      message: '{value} : des fractions de pixel qui n’existent pas en CSS.',
+      why: 'Les valeurs décimales produisent du flou, des arrondis incohérents et des specs illisibles.',
+      suggestion: 'Arrondir à l’entier le plus proche.',
+    },
+    'handoff/fractional-position': {
+      title: 'Position non arrondie',
+      message: '{value} : le calque n’est pas sur la grille de pixels.',
+      why: 'Un calque à mi-pixel se rend flou et décale les mesures dans le mode Dev.',
+      suggestion: 'Arrondir la position à l’entier le plus proche.',
+    },
+    'handoff/stackable-without-autolayout': {
+      title: 'Pile sans auto layout',
+      message: '{count} enfants alignés en {direction} sans auto layout.',
+      why: 'Un empilement manuel ne s’adapte ni au contenu ni aux largeurs : les devs devront deviner le flex.',
+      suggestion: 'Activer l’auto layout (⇧ A) et vérifier le gap.',
+    },
+  },
+  fixReasons: {
+    'no-plan': 'Aucune correction automatique pour cette issue.',
+    'node-missing': 'Le calque n’existe plus.',
+    'variable-missing': 'La variable n’est plus accessible.',
+    'mixed-paints': 'Les remplissages sont mixtes.',
+    'paint-changed': 'Le remplissage a changé depuis l’analyse.',
+    'mixed-text': 'Le texte a des styles mixtes.',
+    'style-missing': 'Le style n’existe plus.',
+    'node-type': 'Type de calque incompatible.',
+    'no-transition': 'Aucune transition à harmoniser.',
+    unknown: 'Erreur inattendue.',
+  },
+};
+
+const en: Dictionary = {
+  ui: {
+    appName: 'Senior Check Design',
+    tagline: 'Local, deterministic, free design QA.',
+    preset: 'Preset',
+    scope: 'Scope',
+    scopeSelection: 'Selection',
+    scopePage: 'Current page',
+    scopeFile: 'Whole file',
+    selectionCount: '{n} layers selected',
+    selectionOne: '1 layer selected',
+    selectionNone: 'No layer selected',
+    options: 'Options',
+    optIgnoreHidden: 'Ignore hidden layers',
+    optIgnoreLocked: 'Ignore locked layers',
+    optInsideInstances: 'Scan inside instances',
+    optIncludeLibraries: 'Read variables from enabled libraries',
+    optBaseGrid: 'Base grid (when no tokens)',
+    optTolerance: 'Spacing tolerance',
+    optTouch: 'Minimum touch target',
+    optMinFont: 'Minimum text size',
+    rulesTitle: 'Preset rules',
+    rulesHint: 'Disable a rule for this preset, or enable extra ones.',
+    analyzeSelection: 'Check selection',
+    analyzePage: 'Check page',
+    analyzeFile: 'Check whole file',
+    fileWarningTitle: 'Check the whole file?',
+    fileWarningBody: 'All {pages} pages will be loaded. On large files this can take several seconds. You can cancel anytime.',
+    confirm: 'Run',
+    cancel: 'Cancel',
+    back: 'Back',
+    settings: 'Settings',
+    language: 'Language',
+    scanning: 'Checking…',
+    phaseIndexing: 'Reading variables and styles',
+    phaseIndexingLib: 'Reading library “{name}”',
+    phaseCollecting: 'Collecting layers',
+    phaseScanning: '{scanned} / {total} layers checked',
+    phaseFinalizing: 'Cross-checks',
+    cancelScan: 'Stop',
+    cancelled: 'Check stopped',
+    cancelledBody: 'Partial results are still usable.',
+    done: 'Checked in {s} s',
+    health: 'Design Health',
+    nodesScanned: '{n} layers',
+    counts: '{e} errors · {w} warnings · {i} infos',
+    safeFixes: '{n} quick fixes',
+    safeFixesOne: '1 quick fix',
+    reviewItems: '{n} items to review',
+    reviewOne: '1 item to review',
+    fixAllSafe: 'Apply {n} safe fixes',
+    fixAllSafeOne: 'Apply the safe fix',
+    fixAllConfirm: 'Apply {n} safe fixes? Every change stays undoable.',
+    apply: 'Apply',
+    fixing: 'Fixing {done} / {total}',
+    search: 'Search…',
+    searchTitle: 'Rule, value, layer name, token',
+    searchShortcut: 'Press / to search',
+    filterSeverity: 'Severity',
+    sevAll: 'All',
+    sevErrors: 'Errors',
+    sevErrorsWarnings: 'Errors + warnings',
+    filterStatus: 'Status',
+    statusOpen: 'Open',
+    statusFixed: 'Fixed',
+    statusIgnored: 'Ignored',
+    all: 'All',
+    occurrences: '{n} occurrences',
+    occurrenceOne: '1 occurrence',
+    view: 'View',
+    fix: 'Fix',
+    review: 'Review',
+    ignore: 'Ignore',
+    unignore: 'Restore',
+    fixed: 'Fixed',
+    ignored: 'Ignored',
+    safeFix: 'Safe fix',
+    reviewFix: 'Review',
+    noFix: 'Manual',
+    current: 'Current value',
+    suggested: 'Suggestion',
+    alternatives: 'Other matches',
+    where: 'Where',
+    why: 'Why',
+    whatToDo: 'What to do',
+    applySuggestion: 'Apply suggestion',
+    applyTo: 'Apply to all {n} identical occurrences',
+    ignoreIssue: 'Ignore this issue',
+    ignoreRule: 'Disable this rule',
+    openDoc: 'Documentation',
+    export: 'Export',
+    exportMd: 'Markdown report',
+    exportCsv: 'CSV export',
+    copyMd: 'Copy Markdown',
+    copied: 'Report copied to clipboard',
+    downloaded: 'File downloaded',
+    rescan: 'Run again',
+    newScan: 'New check',
+    emptyTitle: 'No issue found',
+    emptyBody: 'Your scope “{scope}” passes every rule of the {preset} preset.',
+    emptyStrict: 'Try the Strict preset',
+    emptyFiltered: 'No issue matches the current filters.',
+    resetFilters: 'Reset filters',
+    noMatchHint: 'No matching token: nothing to bind automatically.',
+    undo: 'Undo',
+    toastFixed: '{n} fixes applied · Design Health {before} → {after}',
+    toastFixedOne: 'Fixed: {label}',
+    toastFixFailed: '{n} fixes could not be applied',
+    toastUndone: '{n} fixes undone',
+    toastUndoneOne: 'Fix undone',
+    toastIgnored: 'Issue ignored for this file',
+    toastUnignored: 'Issue restored',
+    toastRuleDisabled: 'Rule disabled: run the check again to apply',
+    errorTitle: 'The check stopped',
+    errorBody: 'What worked is still shown. Technical detail: {message}',
+    retry: 'Retry',
+    retrySelection: 'Check selection',
+    warnLibraryCap: 'Very large libraries: only the first 800 variables were read.',
+    warnLibrary: 'Variables of library “{name}” could not be read.',
+    warnLibrariesUnavailable: 'Library variables could not be read: only local variables are used.',
+    warnRule: 'Rule {rule} failed on some layers.',
+    tokensSummary: '{colors} colors · {floats} numbers · {text} text styles',
+    librariesSummary: '{n} libraries read',
+    noTokens: 'No variables found: binding suggestions are disabled.',
+    keyboardHint: '↑↓ navigate · ↵ open · F fix · / search · Esc back',
+    resizeHandle: 'Resize',
+    pageChanged: 'Page changed: {name}',
+    scopeBadgePage: 'Page',
+    scopeBadgeFile: 'File',
+    scopeBadgeSelection: 'Selection',
+    scoreHint: 'Density of open issues per checked layer, weighted by severity.',
+    sourceLocal: 'Local',
+    byCategory: 'By category',
+    aboutTitle: 'How it works',
+    aboutBody: 'Every rule runs locally, with no AI and no network. “Safe” fixes bind a value to an identical token; the others wait for your call. Everything is undoable.',
+    version: 'v0.1.0',
+  },
+  categories: {
+    colors: 'Colors',
+    typography: 'Typography',
+    spacing: 'Spacing',
+    radius: 'Radius',
+    components: 'Components',
+    craft: 'Craft & interaction',
+    a11y: 'Accessibility',
+    handoff: 'Handoff',
+  },
+  categoriesShort: {
+    colors: 'Colors',
+    typography: 'Type',
+    spacing: 'Spacing',
+    radius: 'Radius',
+    components: 'Components',
+    craft: 'Craft',
+    a11y: 'A11y',
+    handoff: 'Handoff',
+  },
+  severity: { error: 'Error', warning: 'Warning', info: 'Info' },
+  presets: {
+    quick: { name: 'Quick check', hint: 'Fast cleanup before a review' },
+    handoff: { name: 'Handoff', hint: 'Dev-ready file' },
+    'design-system': { name: 'Design system', hint: 'Library health' },
+    a11y: { name: 'Accessibility', hint: 'Contrast, targets, states' },
+    craft: { name: 'Product Craft', hint: 'States, feedback, motion' },
+    strict: { name: 'Strict', hint: 'Full senior audit' },
+  },
+  rules: {
+    'colors/hardcoded-fill': {
+      title: 'Hard-coded fill color',
+      message: {
+        exact: '{value} is not bound to a variable. “{suggestion}” matches exactly.',
+        close: '{value} is not bound to a variable. “{suggestion}” is very close.',
+        ambiguous: '{value} is not bound to a variable. Several tokens are close: your call.',
+        none: '{value} is not bound to a variable and no token matches.',
+        noTokens: '{value} is hard-coded. This file has no color variables yet.',
+      },
+      why: 'An unbound color will not follow theme or brand changes, and developers will not know which token to use.',
+      suggestion: {
+        default: 'Bind the color to the matching variable.',
+        none: 'Create a token if this color is legitimate, or replace it with an existing token.',
+        noTokens: 'Create a color variable collection, then run the check again.',
+      },
+    },
+    'colors/hardcoded-stroke': {
+      title: 'Hard-coded stroke color',
+      message: {
+        exact: '{value} is not bound to a variable. “{suggestion}” matches exactly.',
+        close: '{value} is not bound to a variable. “{suggestion}” is very close.',
+        ambiguous: '{value} is not bound to a variable. Several tokens are close: your call.',
+        none: '{value} is not bound to a variable and no token matches.',
+        noTokens: '{value} is hard-coded. This file has no color variables yet.',
+      },
+      why: 'Hard-coded strokes drift over time: slightly different borders per component make the UI look unpolished.',
+      suggestion: {
+        default: 'Bind the stroke to the matching variable.',
+        none: 'Create a border token or reuse an existing one.',
+        noTokens: 'Create a color variable collection, then run the check again.',
+      },
+    },
+    'typography/no-text-style': {
+      title: 'Text without style',
+      message: {
+        exact: '“{value}” uses no Text Style. “{suggestion}” matches exactly.',
+        close: '“{value}” uses no Text Style. “{suggestion}” shares the same family and size.',
+        none: '“{value}” uses no Text Style and no style matches.',
+        noStyles: '“{value}” uses no Text Style. This file has no text styles yet.',
+      },
+      why: 'Without a style every text is an exception: typography cannot evolve globally, and the handoff loses the style name.',
+      suggestion: {
+        default: 'Apply the matching Text Style.',
+        none: 'Pick an existing style, or create one if this combination is legitimate.',
+        noStyles: 'Create the Text Styles of your type scale, then run the check again.',
+      },
+    },
+    'typography/mixed-styles': {
+      title: 'Mixed styles in one text',
+      message: 'This block contains {segments} different type styles.',
+      why: 'Mixed styles inside a single layer are hard to implement cleanly and fragile to maintain.',
+      suggestion: 'Split the texts or use one style per layer.',
+    },
+    'typography/off-scale-size': {
+      title: 'Off-scale font size',
+      message: '{value} is not part of the file’s type scale ({scale}). Nearest value: {nearest} px.',
+      why: 'An isolated size breaks the typographic rhythm and multiplies exceptions in code.',
+      suggestion: 'Use a size from the scale or apply a Text Style.',
+    },
+    'spacing/off-scale-padding': {
+      title: 'Off-scale padding',
+      message: {
+        exact: 'Padding {fields} = {value}, unbound. “{suggestion}” matches exactly.',
+        close: 'Padding {fields} = {value}, unbound. “{suggestion}” is the closest value.',
+        ambiguous: 'Padding {fields} = {value}, unbound. Two tokens are equally close: your call.',
+        grid: 'Padding {fields} = {value}: not a multiple of the {grid} px grid.',
+        none: 'Padding {fields} = {value}, unbound and no spacing token matches.',
+      },
+      why: 'Off-scale spacing creates “almost identical” rhythms (16 vs 18) that look inconsistent and complicate implementation.',
+      suggestion: { default: 'Bind to a spacing token.', grid: 'Round to a multiple of {grid} px.', none: 'Pick a value from the scale or create a token.' },
+    },
+    'spacing/off-scale-gap': {
+      title: 'Off-scale gap',
+      message: {
+        exact: 'Gap = {value}, unbound. “{suggestion}” matches exactly.',
+        close: 'Gap = {value}, unbound. “{suggestion}” is the closest value.',
+        ambiguous: 'Gap = {value}, unbound. Two tokens are equally close: your call.',
+        grid: 'Gap = {value}: not a multiple of the {grid} px grid.',
+        none: 'Gap = {value}, unbound and no spacing token matches.',
+      },
+      why: 'The gap sets the rhythm of a list or grid: an isolated value is immediately visible.',
+      suggestion: { default: 'Bind to a spacing token.', grid: 'Round to a multiple of {grid} px.', none: 'Pick a value from the scale or create a token.' },
+    },
+    'radius/not-tokenized': {
+      title: 'Untokenized radius',
+      message: {
+        exact: 'Radius {fields} = {value}, unbound. “{suggestion}” matches exactly.',
+        close: 'Radius {fields} = {value}, unbound. “{suggestion}” is close.',
+        ambiguous: 'Radius {fields} = {value}, unbound. Several tokens are close.',
+        none: 'Radius {fields} = {value}, unbound and no radius token matches.',
+      },
+      why: 'Radii are a visual signature: an isolated radius breaks component consistency.',
+      suggestion: { default: 'Bind to the radius token.', none: 'Use a value from the radius scale.' },
+    },
+    'components/detached-instance': {
+      title: 'Detached instance',
+      message: '“{node}” was detached from a component ({origin}).',
+      why: 'A detached layer no longer receives component updates and drifts silently.',
+      suggestion: 'Use an instance of the component again, or document the exception if intentional.',
+    },
+    'components/default-name': {
+      title: 'Default layer name',
+      message: '“{node}” still has its default name.',
+      why: 'Default names (Frame 47, Group 3) help neither navigation, handoff nor exports.',
+      suggestion: 'Name the layer after its role: “Card / Header”, “Price badge”.',
+    },
+    'components/heavy-overrides': {
+      title: 'Heavily overridden instance',
+      message: '{count} style properties are overridden on this instance ({fields}).',
+      why: 'Many overrides mean the component does not cover this need: a variant is missing, or this should be another component.',
+      suggestion: 'Add a variant or property to the component, then reset the overrides.',
+    },
+    'components/duplicate-component': {
+      title: 'Duplicate components',
+      message: '“{node}” exists {count} times: {others}.',
+      why: 'Two near-identical components drift apart and double the maintenance work.',
+      suggestion: 'Merge into a single component with variants.',
+    },
+    'components/no-description': {
+      title: 'Component without description',
+      message: '“{node}” has no description.',
+      why: 'The description explains usage, props and limits: the minimal documentation for the team and developers.',
+      suggestion: 'Add a short description: usage, variants, link to docs.',
+    },
+    'craft/missing-state': {
+      title: 'Missing interactive state',
+      message: '“{component}” has no {state} state (property {prop}).',
+      why: {
+        focus: 'Keyboard users will not see where the focus is.',
+        hover: 'Users will not know the element is interactive before clicking.',
+        pressed: 'No visual feedback confirms the action is happening.',
+        disabled: 'There is no way to show an action is temporarily unavailable.',
+        error: 'Users will not know an input is invalid, nor why.',
+        selected: 'The selected or checked state is not differentiated: users cannot tell what they chose.',
+        default: 'A missing state will be invented by developers, often inconsistently.',
+      },
+      suggestion: 'Add a {prop}={state} variant to the component.',
+    },
+    'craft/missing-loading-state': {
+      title: 'Missing loading state',
+      message: '“{component}” triggers a long action but has no loading state.',
+      why: 'After the click, users will not know whether the action is running and may click twice.',
+      suggestion: 'Add a {prop}=Loading variant with a spinner and the label kept.',
+    },
+    'craft/missing-empty-state': {
+      title: 'Missing empty state',
+      message: '“{component}” has no empty state.',
+      why: 'Without an empty state, a user facing an empty list has no guidance.',
+      suggestion: 'Add an Empty state with a message and an action (e.g. “Reset filters”).',
+    },
+    'craft/state-naming': {
+      title: 'Inconsistent state naming',
+      message: '“{component}” uses a minority spelling: {changes}.',
+      why: 'Differently named variants (Hover, hover, :hover) complicate instance swapping and code mapping.',
+      suggestion: 'Harmonize property and value names across components.',
+    },
+    'craft/missing-hover-transition': {
+      title: 'Missing hover transition',
+      message: '“{component}” has a hover state but no Default → Hover interaction.',
+      why: 'Other components in this file are interactive: this one will feel frozen in the prototype.',
+      suggestion: 'Add a “While hovering → Change to Hover” interaction.',
+    },
+    'craft/inconsistent-motion': {
+      title: 'Inconsistent transition duration',
+      message: 'Hover takes {duration} ms on “{component}”; other {kind} use {mode} ms.',
+      why: 'Same action, same duration: a different transition feels broken or slow.',
+      suggestion: 'Harmonize to {mode} ms.',
+    },
+    'a11y/text-contrast': {
+      title: 'Insufficient contrast',
+      message: 'Contrast {ratio} between {fg} and {bg}; required minimum: {required} at {size} px.',
+      why: 'Below WCAG AA, part of your users cannot read this text, especially in sunlight or with low vision.',
+      suggestion: {
+        default: 'Darken or lighten the text or background. Closest compliant token: “{suggestion}”.',
+        none: 'Darken or lighten the text or background until you reach {required}.',
+      },
+    },
+    'a11y/contrast-not-verifiable': {
+      title: 'Contrast not verifiable',
+      message: {
+        image: 'The text sits on an image: contrast cannot be computed automatically.',
+        gradient: 'The text sits on a gradient: contrast cannot be computed automatically.',
+        opacity: 'A semi-transparent parent hides the real background.',
+        mixed: 'This text mixes several colors.',
+        default: 'The real background cannot be determined.',
+      },
+      why: 'The plugin never invents a result: check this text manually.',
+      suggestion: 'Add a scrim or a solid background behind the text, then run again.',
+    },
+    'a11y/touch-target': {
+      title: 'Touch target too small',
+      message: '{width} × {height} px: the interactive target is under {min} px.',
+      why: 'Small targets cause mis-taps, especially on mobile and for people with motor impairments (WCAG 2.5.8).',
+      suggestion: 'Grow the clickable area to at least {min} × {min} px, even if the icon stays small.',
+    },
+    'a11y/text-too-small': {
+      title: 'Text too small',
+      message: '{value}: below the recommended minimum of {min} px.',
+      why: 'Small text is the first to become unreadable on mobile and for people with low vision.',
+      suggestion: 'Raise to at least {min} px, or keep this size for secondary notes only.',
+    },
+    'handoff/fractional-size': {
+      title: 'Fractional size',
+      message: '{value}: sub-pixel values that do not exist in CSS.',
+      why: 'Decimal values produce blur, inconsistent rounding and unreadable specs.',
+      suggestion: 'Round to the nearest integer.',
+    },
+    'handoff/fractional-position': {
+      title: 'Fractional position',
+      message: '{value}: the layer is off the pixel grid.',
+      why: 'A half-pixel layer renders blurry and shifts measurements in Dev Mode.',
+      suggestion: 'Round the position to the nearest integer.',
+    },
+    'handoff/stackable-without-autolayout': {
+      title: 'Stack without auto layout',
+      message: '{count} children aligned as a {direction} without auto layout.',
+      why: 'A manual stack adapts neither to content nor to widths: developers will have to guess the flex.',
+      suggestion: 'Enable auto layout (⇧ A) and check the gap.',
+    },
+  },
+  fixReasons: {
+    'no-plan': 'No automatic fix for this issue.',
+    'node-missing': 'The layer no longer exists.',
+    'variable-missing': 'The variable is no longer available.',
+    'mixed-paints': 'Fills are mixed.',
+    'paint-changed': 'The fill changed since the check.',
+    'mixed-text': 'The text has mixed styles.',
+    'style-missing': 'The style no longer exists.',
+    'node-type': 'Incompatible layer type.',
+    'no-transition': 'No transition to harmonize.',
+    unknown: 'Unexpected error.',
+  },
+};
+
+export const DICTIONARIES: Record<Locale, Dictionary> = { fr, en };
+
+export function interpolate(tpl: string, vars: Record<string, string | number | undefined>): string {
+  return tpl.replace(/\{(\w+)\}/g, (_, k: string) => {
+    const v = vars[k];
+    return v === undefined || v === null ? '' : String(v);
+  });
+}
+
+function pickVariant(tpl: Tpl, keys: (string | undefined)[]): string {
+  if (typeof tpl === 'string') return tpl;
+  for (const k of keys) if (k && tpl[k]) return tpl[k];
+  return tpl.default ?? Object.values(tpl)[0] ?? '';
+}
+
+/** Variables de template dérivées d'une issue. */
+export function issueVars(issue: Issue): Record<string, string | number | undefined> {
+  return {
+    ...(issue.params ?? {}),
+    value: issue.currentValue,
+    suggestion: issue.suggestion?.label,
+    node: issue.nodeName,
+  };
+}
+
+/** Clés de variante à essayer pour choisir la bonne phrase. */
+function variantKeys(issue: Issue): (string | undefined)[] {
+  const p = issue.params ?? {};
+  const confidence = typeof p.confidence === 'string' ? p.confidence : undefined;
+  const keys: (string | undefined)[] = [];
+  if (confidence === 'none' && p.hasTokens === 0) keys.push('noTokens');
+  if (confidence === 'none' && p.hasStyles === 0) keys.push('noStyles');
+  if (!issue.suggestion && issue.ruleId === 'a11y/text-contrast') keys.push('none');
+  keys.push(confidence);
+  if (typeof p.state === 'string') keys.push(p.state);
+  if (typeof p.reason === 'string') keys.push(p.reason);
+  keys.push('default');
+  return keys;
+}
+
+export class I18n {
+  constructor(public locale: Locale) {}
+  get d(): Dictionary {
+    return DICTIONARIES[this.locale];
+  }
+  t(key: string, vars: Record<string, string | number | undefined> = {}): string {
+    const tpl = this.d.ui[key] ?? DICTIONARIES.en.ui[key] ?? key;
+    return interpolate(tpl, vars);
+  }
+  category(c: Category, short = false): string {
+    return short ? this.d.categoriesShort[c] : this.d.categories[c];
+  }
+  severity(s: Severity): string {
+    return this.d.severity[s];
+  }
+  preset(p: PresetId): { name: string; hint: string } {
+    return this.d.presets[p];
+  }
+  ruleTitle(ruleId: string): string {
+    return this.d.rules[ruleId]?.title ?? ruleId;
+  }
+  ruleMessage(issue: Issue): string {
+    const copy = this.d.rules[issue.ruleId];
+    if (!copy) return issue.currentValue;
+    return interpolate(pickVariant(copy.message, variantKeys(issue)), issueVars(issue));
+  }
+  ruleWhy(issue: Issue): string {
+    const copy = this.d.rules[issue.ruleId];
+    return copy ? interpolate(pickVariant(copy.why, variantKeys(issue)), issueVars(issue)) : '';
+  }
+  ruleSuggestion(issue: Issue): string {
+    const copy = this.d.rules[issue.ruleId];
+    if (!copy) return '';
+    const keys = variantKeys(issue);
+    // Pour la suggestion, "exact"/"close"/"ambiguous" renvoient vers default.
+    const filtered = keys.map((k) => (k === 'exact' || k === 'close' || k === 'ambiguous' ? undefined : k));
+    return interpolate(pickVariant(copy.suggestion, filtered), issueVars(issue));
+  }
+  fixReason(reason: string | undefined): string {
+    return this.d.fixReasons[reason ?? 'unknown'] ?? this.d.fixReasons.unknown;
+  }
+  plural(n: number, one: string, many: string, vars: Record<string, string | number | undefined> = {}): string {
+    return n === 1 ? this.t(one, { n, ...vars }) : this.t(many, { n, ...vars });
+  }
+}
+
+export function detectLocale(): Locale {
+  try {
+    return /^fr/i.test(navigator.language) ? 'fr' : 'en';
+  } catch {
+    return 'en';
+  }
+}
