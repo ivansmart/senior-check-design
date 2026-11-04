@@ -82,8 +82,10 @@ export function revealNodes(nodes: readonly SceneNode[], uiSize: { width: number
     const regionCy = pick.y + pick.h / 2;
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
+    const center = { x: cx + (vw / 2 - regionCx) / nextZoom, y: cy + (vh / 2 - regionCy) / nextZoom };
+    if (!Number.isFinite(nextZoom) || !Number.isFinite(center.x) || !Number.isFinite(center.y)) return;
     figma.viewport.zoom = nextZoom;
-    figma.viewport.center = { x: cx + (vw / 2 - regionCx) / nextZoom, y: cy + (vh / 2 - regionCy) / nextZoom };
+    figma.viewport.center = center;
   } catch {
     /* position de la fenêtre indisponible : cadrage standard conservé */
   }

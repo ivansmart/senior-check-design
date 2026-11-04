@@ -26,7 +26,10 @@ export interface EngineOutput {
   cancelled: boolean;
 }
 
-const BATCH_SIZE = 120;
+/** Durée maximale de travail continu avant de rendre la main à Figma. */
+const YIELD_EVERY_MS = 32;
+/** Temps cumulé au-delà duquel une règle est suspendue pour l'analyse en cours. */
+const RULE_TIME_BUDGET_MS = 6000;
 const MAX_LEARNED_STYLES = 300;
 const INTERACTIVE_KINDS = new Set(['button', 'icon-button', 'link', 'input', 'select', 'checkbox', 'radio', 'toggle', 'chip', 'tab', 'search']);
 
@@ -229,41 +232,63 @@ export async function runScan(
   const byType = new Map<string, Rule[]>();
   for (const t of types) byType.set(t, checkRules.filter((r) => !r.types || r.types.includes(t)));
 
+  // Le bac à sable partage le thread principal de Figma : on rend la main à intervalle
+  // de temps fixe (pas par nombre de calques), et une règle anormalement lente sur ce
+  // fichier est suspendue plutôt que de figer l'éditeur.
   let scanned = 0;
-  for (let i = 0; i < nodes.length; i += BATCH_SIZE) {
-    const batch = nodes.slice(i, i + BATCH_SIZE);
-    for (const node of batch) {
-      scanned++;
-      if (node.removed) continue;
-      if (req.options.ignoreHidden && isEffectivelyHidden(node, ctx)) continue;
-      if (req.options.ignoreLocked && isEffectivelyLocked(node, ctx)) continue;
+  const ruleTime = new Map<string, number>();
+  const suspended = new Set<string>();
+  let lastYield = Date.now();
+  let sinceCheck = 0;
+  for (const node of nodes) {
+    scanned++;
+    if (!node.removed && !(req.options.ignoreHidden && isEffectivelyHidden(node, ctx)) && !(req.options.ignoreLocked && isEffectivelyLocked(node, ctx))) {
       const inside = !req.options.scanInsideInstances && isInsideInstance(node, ctx);
       const applicable = byType.get(node.type) ?? [];
       for (const rule of applicable) {
-        if (inside && !rule.insideInstances) continue;
+        if ((inside && !rule.insideInstances) || suspended.has(rule.id)) continue;
+        const t0 = Date.now();
         try {
           const raws = await rule.check!(node, ctx);
           if (raws) for (const raw of raws) push(raw);
-        } catch (e) {
+        } catch {
           // Une règle ne doit jamais faire tomber le scan.
           ctx.warnings.push(`rule:${rule.id}`);
         }
+        const spent = (ruleTime.get(rule.id) ?? 0) + (Date.now() - t0);
+        ruleTime.set(rule.id, spent);
+        if (spent > RULE_TIME_BUDGET_MS) {
+          suspended.add(rule.id);
+          ctx.warnings.push(`rule-slow:${rule.id}`);
+        }
       }
     }
-    emit({ phase: 'scanning', scanned, total: nodes.length });
-    await yieldToHost();
-    if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+    if (++sinceCheck >= 8) {
+      sinceCheck = 0;
+      if (Date.now() - lastYield >= YIELD_EVERY_MS) {
+        emit({ phase: 'scanning', scanned, total: nodes.length });
+        await yieldToHost();
+        lastYield = Date.now();
+        if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+      }
+    }
   }
+  emit({ phase: 'scanning', scanned, total: nodes.length });
+  await yieldToHost();
+  if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
 
   // 5. Règles agrégées
   emit({ phase: 'finalizing', scanned, total: nodes.length });
   for (const rule of finalizeRules) {
+    if (suspended.has(rule.id)) continue;
     try {
       const raws = await rule.finalize!(ctx);
       if (raws) for (const raw of raws) push(raw);
     } catch {
       ctx.warnings.push(`rule:${rule.id}`);
     }
+    await yieldToHost();
+    if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
   }
   // Dédoublonne les avertissements.
   ctx.warnings.splice(0, ctx.warnings.length, ...new Set(ctx.warnings));

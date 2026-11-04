@@ -129,6 +129,8 @@ export interface ScanContext {
   confirmPatternSeen: boolean;
   docLinkSeen: boolean;
   componentsForDocs: (ComponentNode | ComponentSetNode)[];
+  /** Genre de composant par identifiant d'instance (évite plusieurs getMainComponentAsync par instance). */
+  instanceKindCache: Map<string, string>;
   found: Partial<Record<Category, number>>;
   reportProgress: (p: Partial<ScanProgress>) => void;
   isCancelled: () => boolean;
@@ -322,6 +324,7 @@ export function createContext(
     confirmPatternSeen: false,
     docLinkSeen: false,
     componentsForDocs: [],
+    instanceKindCache: new Map(),
     found: {},
     reportProgress,
     isCancelled,

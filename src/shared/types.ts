@@ -263,6 +263,13 @@ export interface PreviewRoot {
   kind: 'selection' | 'frame';
 }
 
+/** Racine d'aperçu refusée : trop de calques ou surface trop grande pour cloner et exporter sans figer l'éditeur. */
+export interface PreviewSkipped {
+  id: string;
+  name: string;
+  nodes: number;
+}
+
 /** Un cadre racine rendu avant et après application des corrections (PNG). */
 export interface PreviewFrame {
   rootId: string;
@@ -303,6 +310,6 @@ export type PluginToUiMessage =
   | { type: 'undo-done'; batchId: string; issueIds: string[] }
   | { type: 'ignored-updated'; ignoredIssueIds: string[] }
   | { type: 'settings-saved'; settings: Settings }
-  | { type: 'preview-done'; requestId: number; frames: PreviewFrame[]; skipped: number; roots: PreviewRoot[] }
+  | { type: 'preview-done'; requestId: number; frames: PreviewFrame[]; skipped: number; roots: PreviewRoot[]; tooBig: PreviewSkipped[]; maxNodes: number }
   | { type: 'tokens-exported'; format: TokenExportFormat; content: string; variables: number }
   | { type: 'preview-error'; requestId: number; message: string };

@@ -18,19 +18,23 @@ const singleSolid = (paints: readonly Paint[] | typeof figma.mixed): SolidPaint 
   return visible.length === 1 && visible[0].type === 'SOLID' ? visible[0] : null;
 };
 
-async function kindOfNode(node: SceneNode): Promise<string> {
+async function kindOfNode(node: SceneNode, ctx: ScanContext): Promise<string> {
+  const cached = ctx.instanceKindCache.get(node.id);
+  if (cached) return cached;
+  let kind = inferComponentKind(node.name, 'description' in node ? (node as ComponentNode).description : '');
   if (node.type === 'INSTANCE') {
     try {
       const main = await node.getMainComponentAsync();
       if (main) {
         const set = main.parent?.type === 'COMPONENT_SET' ? main.parent : null;
-        return inferComponentKind(set ? set.name : main.name, (set ?? main).description);
+        kind = inferComponentKind(set ? set.name : main.name, (set ?? main).description);
       }
     } catch {
       /* composant inaccessible */
     }
   }
-  return inferComponentKind(node.name, 'description' in node ? (node as ComponentNode).description : '');
+  ctx.instanceKindCache.set(node.id, kind);
+  return kind;
 }
 
 function inInteractiveContext(node: SceneNode, ctx: ScanContext): boolean {
@@ -102,7 +106,7 @@ export const a11yProRules: Rule[] = [
     id: 'a11y/border-contrast',
     types: ['FRAME', 'INSTANCE', 'COMPONENT', 'RECTANGLE'],
     check: async (node, ctx) => {
-      const kind = await kindOfNode(node);
+      const kind = await kindOfNode(node, ctx);
       if (!FIELD_KINDS.has(kind)) return;
       const host = node as GeometryMixin & SceneNode;
       const weight = typeof host.strokeWeight === 'number' ? host.strokeWeight : 1;
@@ -130,9 +134,11 @@ export const a11yProRules: Rule[] = [
   {
     id: 'a11y/icon-only-without-label',
     types: ['INSTANCE', 'FRAME', 'COMPONENT'],
-    check: async (node) => {
+    check: async (node, ctx) => {
       if (node.type === 'COMPONENT' && node.parent?.type === 'COMPONENT_SET') return;
-      const kind = await kindOfNode(node);
+      // Un bouton icône est petit : on évite de parcourir les grands cadres interactifs (écrans de prototype).
+      if (node.width > 160 || node.height > 160) return;
+      const kind = await kindOfNode(node, ctx);
       const interactive = kind === 'icon-button' || isInteractiveByReactions(node) || (kind === 'button' && node.width <= 64);
       if (!interactive) return;
       const host = node as FrameNode;

@@ -9,7 +9,7 @@
  * les éléments sélectionnés sur le canvas (si demandé), sinon les cadres
  * racines (sous la page) des calques concernés.
  */
-import type { PreviewFrame, PreviewRoot } from '../shared/types';
+import type { PreviewFrame, PreviewRoot, PreviewSkipped } from '../shared/types';
 import { applyPlan } from './fix/apply';
 import type { FixPlan } from './fix/plans';
 
@@ -34,10 +34,15 @@ export interface PreviewOutput {
   skipped: number;
   /** Racines disponibles pour le sélecteur : sélection d'abord, puis cadres concernés. */
   roots: PreviewRoot[];
+  /** Racines refusées parce que trop lourdes à cloner et exporter. */
+  tooBig: PreviewSkipped[];
 }
 
 /** Côté maximal (px image) d'un export, pour borner mémoire et temps de rendu. */
 const MAX_EDGE = 1400;
+/** Au-delà, cloner et exporter figerait l'éditeur. */
+export const MAX_PREVIEW_NODES = 1500;
+const MAX_PREVIEW_AREA = 16_000_000;
 const PREVIEW_TAG = 'scd:preview-clone';
 /** Décalage du clone, loin de tout contenu plausible. */
 const FAR = 200000;
@@ -153,10 +158,22 @@ function selectionRoots(): SceneNode[] {
   return out;
 }
 
-async function renderRoot(root: SceneNode, located: Located[]): Promise<PreviewFrame | null> {
-  if (!('width' in root) || root.width <= 0 || root.height <= 0) return null;
+const COUNT_TYPES: NodeType[] = ['FRAME', 'GROUP', 'COMPONENT', 'COMPONENT_SET', 'INSTANCE', 'RECTANGLE', 'ELLIPSE', 'POLYGON', 'STAR', 'VECTOR', 'LINE', 'TEXT', 'BOOLEAN_OPERATION', 'SECTION', 'SLICE'];
+
+/** Nombre de calques d'un cadre (lui compris), via l'index natif par type. */
+function nodeCount(root: SceneNode): number {
+  return 'findAllWithCriteria' in root ? (root as SceneNode & ChildrenMixin).findAllWithCriteria({ types: COUNT_TYPES }).length + 1 : 1;
+}
+
+type RenderResult = { frame?: PreviewFrame; tooBig?: PreviewSkipped };
+
+async function renderRoot(root: SceneNode, located: Located[]): Promise<RenderResult> {
+  if (!('width' in root) || root.width <= 0 || root.height <= 0) return {};
   const page = pageOf(root);
-  if (!page) return null;
+  if (!page) return {};
+  // Cloner et exporter un cadre énorme bloquerait l'éditeur : on refuse au-delà des bornes.
+  const nodes = nodeCount(root);
+  if (nodes > MAX_PREVIEW_NODES || root.width * root.height > MAX_PREVIEW_AREA) return { tooBig: { id: root.id, name: root.name, nodes } };
   const inside = located.filter(({ node }) => isWithin(node, root));
   const scale = Math.min(4, MAX_EDGE / Math.max(root.width, root.height));
   const before = await exportPng(root, scale);
@@ -187,7 +204,7 @@ async function renderRoot(root: SceneNode, located: Located[]): Promise<PreviewF
       }
     }
     const after = await exportPng(clone, scale);
-    return { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) };
+    return { frame: { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) } };
   } finally {
     if (clone && !clone.removed) clone.remove();
   }
@@ -233,14 +250,16 @@ export async function renderPreview(req: PreviewRequest): Promise<PreviewOutput>
   }
 
   const out: PreviewFrame[] = [];
+  const tooBig: PreviewSkipped[] = [];
   let rendered = 0;
   for (const root of toRender) {
-    const frame = await renderRoot(root, located);
-    if (!frame) continue;
-    out.push(frame);
-    rendered += frame.issueIds.length;
+    const result = await renderRoot(root, located);
+    if (result.tooBig) tooBig.push(result.tooBig);
+    if (!result.frame) continue;
+    out.push(result.frame);
+    rendered += result.frame.issueIds.length;
   }
-  return { frames: out, skipped: Math.max(0, located.length - rendered), roots };
+  return { frames: out, skipped: Math.max(0, located.length - rendered), roots, tooBig };
 }
 
 /** Sécurité : supprime d'éventuels clones d'aperçu orphelins (plugin interrompu) sur la page courante. */

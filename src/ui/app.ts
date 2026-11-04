@@ -8,6 +8,7 @@ import {
   type PluginMode,
   type PreviewFrame,
   type PreviewRoot,
+  type PreviewSkipped,
   type ScanProgress,
   type ScanResult,
   type ScanScope,
@@ -246,8 +247,14 @@ const state = {
     width: 440,
     timer: 0,
     vision: 'normal' as VisionMode,
+    tooBig: [] as PreviewSkipped[],
+    maxNodes: 1500,
   },
+  /** Lignes affichées par onglet (pagination du rendu). */
+  rowLimit: {} as Partial<Record<Tab, number>>,
 };
+
+const ROW_PAGE = 150;
 
 type VisionMode = 'normal' | 'protan' | 'deutan' | 'tritan' | 'achroma';
 /** Matrices de simulation (approximation linéaire courante, appliquée en sRGB). */
@@ -606,6 +613,8 @@ function renderTabBody(): HTMLElement {
     else if (w === 'libraries-unavailable') text = t('warnLibrariesUnavailable');
     else if (w === 'libraries-no-permission') text = t('warnLibrariesNoPermission');
     else if (w.startsWith('library:')) text = t('warnLibrary', { name: w.slice(8) });
+    else if (w.startsWith('rule-slow:')) text = t('warnRuleSlow', { rule: state.i18n.ruleTitle(w.slice(10)) });
+    else if (w.startsWith('rule-partial:')) text = t('warnRulePartial', { rule: state.i18n.ruleTitle(w.slice(13)) });
     else if (w.startsWith('rule:')) text = t('warnRule', { rule: state.i18n.ruleTitle(w.slice(5)) });
     if (text) wrap.appendChild(el('div', { class: 'notice warn' }, svgIcon('alert'), el('span', {}, text)));
   }
@@ -634,8 +643,10 @@ function renderTabBody(): HTMLElement {
       ),
     );
   } else {
+    // Rendu borné : des milliers de lignes d'un coup figeraient l'interface (et Figma avec elle).
+    const limit = state.rowLimit[state.tab] ?? ROW_PAGE;
     let currentSection = '';
-    for (const row of rows) {
+    for (const row of rows.slice(0, limit)) {
       const sectionKey = `${row.kind}|${row.prop}`;
       if (sectionKey !== currentSection) {
         currentSection = sectionKey;
@@ -643,6 +654,23 @@ function renderTabBody(): HTMLElement {
       }
       wrap.appendChild(renderRow(row));
       if (state.expanded === row.key) wrap.appendChild(renderRowDetail(row));
+    }
+    if (rows.length > limit) {
+      const more = Math.min(ROW_PAGE, rows.length - limit);
+      wrap.appendChild(
+        el(
+          'button',
+          {
+            class: 'link-btn',
+            onclick: () => {
+              state.rowLimit[state.tab] = limit + ROW_PAGE;
+              render();
+            },
+          },
+          svgIcon('chevron'),
+          t('showMoreRows', { n: more, total: rows.length }),
+        ),
+      );
     }
   }
   const ignoredCount = state.rows.filter((r) => r.tab === state.tab && r.status === 'ignored').length;
@@ -1110,6 +1138,7 @@ function receiveResult(result: ScanResult, notice: typeof state.notice) {
   // Ouvre le premier onglet avec des suggestions (comme Check designs).
   const firstWithRows = visibleTabs().find((tab) => openRowsOf(tab).length > 0);
   state.tab = firstWithRows ?? 'colors';
+  state.rowLimit = {};
   state.lastScore = 0;
   render();
 }
@@ -1695,11 +1724,13 @@ function releaseFrames() {
   for (const f of state.compare.frames) for (const u of f.urls) URL.revokeObjectURL(u);
 }
 
-function receivePreview(frames: PreviewFrame[], skipped: number, roots: PreviewRoot[]) {
+function receivePreview(frames: PreviewFrame[], skipped: number, roots: PreviewRoot[], tooBig: PreviewSkipped[], maxNodes: number) {
   const c = state.compare;
   releaseFrames();
   const previousRoot = c.explicitRootId ?? c.rootId;
   c.roots = roots;
+  c.tooBig = tooBig;
+  c.maxNodes = maxNodes;
   c.frames = frames.map((f) => {
     const beforeUrl = URL.createObjectURL(new Blob([f.before as BlobPart], { type: 'image/png' }));
     const afterUrl = URL.createObjectURL(new Blob([f.after as BlobPart], { type: 'image/png' }));
@@ -1881,7 +1912,13 @@ function renderCompare(): HTMLElement {
     cmpCanvas,
     el('div', { class: 'cmp-loading', 'aria-hidden': 'true' }, el('i')),
     !c.frames.length && !c.loading && !c.error
-      ? el('div', { class: 'cmp-empty' }, svgIcon('compare', 18), el('p', {}, t('cmpEmpty')), el('p', { class: 'muted' }, t('cmpEmptyHint')))
+      ? el(
+          'div',
+          { class: 'cmp-empty' },
+          svgIcon('compare', 18),
+          el('p', {}, c.tooBig.length ? t('cmpTooBig', { frame: c.tooBig[0].name, n: c.tooBig[0].nodes, max: c.maxNodes }) : t('cmpEmpty')),
+          el('p', { class: 'muted' }, c.tooBig.length ? t('cmpTooBigHint') : t('cmpEmptyHint')),
+        )
       : null,
     c.error ? el('div', { class: 'notice warn cmp-error' }, svgIcon('alert'), el('span', {}, t('cmpError', { message: c.error }))) : null,
   );
@@ -2309,7 +2346,7 @@ window.onmessage = (event: MessageEvent) => {
       onUndoDone(msg.issueIds);
       break;
     case 'preview-done':
-      if (msg.requestId === state.compare.requestId) receivePreview(msg.frames, msg.skipped, msg.roots);
+      if (msg.requestId === state.compare.requestId) receivePreview(msg.frames, msg.skipped, msg.roots, msg.tooBig, msg.maxNodes);
       break;
     case 'tokens-exported':
       onTokensExported(msg.format, msg.content, msg.variables);

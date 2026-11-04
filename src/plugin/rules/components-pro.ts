@@ -5,7 +5,9 @@ import type { RawIssue } from '../scan/context';
 import { ancestors } from '../scan/node-info';
 import type { Rule } from './types';
 
-const MAX_ORPHAN_LOOKUPS = 200;
+/** getInstancesAsync parcourt tout le document : borné en nombre et en temps, et seulement en périmètre fichier. */
+const MAX_ORPHAN_LOOKUPS = 60;
+const ORPHAN_BUDGET_MS = 4000;
 
 function isTopLevelComponent(node: SceneNode): boolean {
   if (node.type === 'COMPONENT' && node.parent?.type === 'COMPONENT_SET') return false;
@@ -36,13 +38,18 @@ export const componentProRules: Rule[] = [
   {
     id: 'components/orphan-variant',
     finalize: async (ctx) => {
+      if (ctx.scope !== 'file') return; // les pages sont déjà chargées ; ailleurs, la recherche d'instances chargerait tout le fichier
       const out: RawIssue[] = [];
+      const started = Date.now();
       let lookups = 0;
       for (const s of ctx.componentSets) {
         if (s.node.remote) continue;
         for (const child of s.node.children) {
           if (child.type !== 'COMPONENT') continue;
-          if (++lookups > MAX_ORPHAN_LOOKUPS) return out;
+          if (++lookups > MAX_ORPHAN_LOOKUPS || Date.now() - started > ORPHAN_BUDGET_MS) {
+            ctx.warnings.push('rule-partial:components/orphan-variant');
+            return out;
+          }
           try {
             const instances = await child.getInstancesAsync();
             if (instances.length) continue;

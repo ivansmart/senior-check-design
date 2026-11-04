@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS } from '../shared/types';
 import { buildTokenModel } from './export/tokens-model';
 import { applyPlan, FixError, type UndoEntry } from './fix/apply';
 import type { FixPlan } from './fix/plans';
-import { renderPreview, sweepPreviewClones, type PreviewItem } from './preview';
+import { MAX_PREVIEW_NODES, renderPreview, sweepPreviewClones, type PreviewItem } from './preview';
 import { ALL_RULES } from './rules';
 import { revealNodes } from './reveal';
 import { runScan, type IssuePlans } from './scan/engine';
@@ -37,7 +37,9 @@ let previewPending: Extract<UiToPluginMessage, { type: 'preview' }> | null = nul
 let programmaticSelectionKey = '';
 
 const post = (msg: PluginToUiMessage) => figma.ui.postMessage(msg);
-const clamp = (v: number, min: number, max: number) => Math.round(Math.min(max, Math.max(min, v)));
+const clamp = (v: number, min: number, max: number) => (Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : min);
+/** Une correction ou une annulation est en cours (les aperçus attendent). */
+let applying = false;
 
 function clampWindow(w: number, h: number) {
   return { width: clamp(w, MIN_W, MAX_W), height: clamp(h, MIN_H, MAX_H) };
@@ -175,6 +177,7 @@ async function applyMany(entries: { issueId: string; alternativeId?: string }[],
   const journal: UndoEntry[] = [];
   const outcomes: FixOutcome[] = [];
   figma.commitUndo();
+  applying = true;
   let done = 0;
   for (const { issueId, alternativeId } of entries) {
     const issue = issues.get(issueId);
@@ -195,6 +198,7 @@ async function applyMany(entries: { issueId: string; alternativeId?: string }[],
     if (reportProgress && (done % 5 === 0 || done === entries.length)) post({ type: 'fix-progress', done, total: entries.length });
     if (done % 10 === 0) await new Promise((r) => setTimeout(r, 0));
   }
+  applying = false;
   if (journal.length) journals.set(batchId, journal);
   post({ type: 'fix-done', batchId, outcomes, undoable: journal.length > 0 });
 }
@@ -204,6 +208,7 @@ async function undoBatch(batchId: string) {
   if (!journal) return;
   journals.delete(batchId);
   figma.commitUndo();
+  applying = true;
   const restored: string[] = [];
   for (const entry of [...journal].reverse()) {
     try {
@@ -215,6 +220,7 @@ async function undoBatch(batchId: string) {
       /* le node a pu disparaître : on continue */
     }
   }
+  applying = false;
   post({ type: 'undo-done', batchId, issueIds: restored });
 }
 
@@ -226,14 +232,19 @@ async function handlePreview(msg: Extract<UiToPluginMessage, { type: 'preview' }
   }
   previewRunning = true;
   try {
+    // Jamais pendant une analyse ou une correction : les deux se disputeraient le thread principal.
+    if (scanning || applying) {
+      post({ type: 'preview-done', requestId: msg.requestId, frames: [], skipped: msg.items.length, roots: [], tooBig: [], maxNodes: MAX_PREVIEW_NODES });
+      return;
+    }
     const items: PreviewItem[] = [];
     for (const { issueId, alternativeId } of msg.items) {
       const issue = issues.get(issueId);
       const plan = planFor(issueId, alternativeId);
       if (issue && plan && issue.status === 'open') items.push({ issueId, nodeId: issue.nodeId, plan });
     }
-    const out = await renderPreview({ items, maxRoots: clamp(msg.maxRoots, 1, 6), rootId: msg.rootId ?? null, followSelection: msg.followSelection });
-    post({ type: 'preview-done', requestId: msg.requestId, frames: out.frames, skipped: out.skipped, roots: out.roots });
+    const out = await renderPreview({ items, maxRoots: clamp(msg.maxRoots, 1, 4), rootId: msg.rootId ?? null, followSelection: msg.followSelection });
+    post({ type: 'preview-done', requestId: msg.requestId, frames: out.frames, skipped: out.skipped, roots: out.roots, tooBig: out.tooBig, maxNodes: MAX_PREVIEW_NODES });
   } catch (e) {
     post({ type: 'preview-error', requestId: msg.requestId, message: e instanceof Error ? e.message : String(e) });
   } finally {
@@ -247,6 +258,23 @@ async function handlePreview(msg: Extract<UiToPluginMessage, { type: 'preview' }
 }
 
 figma.ui.onmessage = async (msg: UiToPluginMessage) => {
+  // Une exception non interceptée ferait fermer le plugin par Figma avec un message d'erreur :
+  // tout message est traité sous garde, et l'UI est prévenue plutôt que tuée.
+  try {
+    await dispatch(msg);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (msg.type === 'scan') {
+      scanning = false;
+      post({ type: 'scan-error', message, partial: null });
+    } else {
+      applying = false;
+      figma.notify(`Senior Check Design : ${message}`, { error: true, timeout: 5000 });
+    }
+  }
+};
+
+async function dispatch(msg: UiToPluginMessage): Promise<void> {
   switch (msg.type) {
     case 'ui-ready':
       sendInit();
@@ -314,7 +342,7 @@ figma.ui.onmessage = async (msg: UiToPluginMessage) => {
       if (/^https:\/\//.test(msg.url)) figma.openExternal(msg.url);
       break;
   }
-};
+}
 
 figma.on('selectionchange', postSelection);
 figma.on('currentpagechange', () => post({ type: 'page-changed', pageName: figma.currentPage.name }));

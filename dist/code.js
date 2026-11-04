@@ -718,6 +718,8 @@ module.exports = {
 
   // src/plugin/preview.ts
   var MAX_EDGE = 1400;
+  var MAX_PREVIEW_NODES = 1500;
+  var MAX_PREVIEW_AREA = 16e6;
   var PREVIEW_TAG = "scd:preview-clone";
   var FAR = 2e5;
   var isScene = (n) => Boolean(n) && n.type !== "PAGE" && n.type !== "DOCUMENT";
@@ -807,10 +809,16 @@ module.exports = {
     }
     return out;
   }
+  var COUNT_TYPES = ["FRAME", "GROUP", "COMPONENT", "COMPONENT_SET", "INSTANCE", "RECTANGLE", "ELLIPSE", "POLYGON", "STAR", "VECTOR", "LINE", "TEXT", "BOOLEAN_OPERATION", "SECTION", "SLICE"];
+  function nodeCount(root) {
+    return "findAllWithCriteria" in root ? root.findAllWithCriteria({ types: COUNT_TYPES }).length + 1 : 1;
+  }
   async function renderRoot(root, located) {
-    if (!("width" in root) || root.width <= 0 || root.height <= 0) return null;
+    if (!("width" in root) || root.width <= 0 || root.height <= 0) return {};
     const page = pageOf(root);
-    if (!page) return null;
+    if (!page) return {};
+    const nodes = nodeCount(root);
+    if (nodes > MAX_PREVIEW_NODES || root.width * root.height > MAX_PREVIEW_AREA) return { tooBig: { id: root.id, name: root.name, nodes } };
     const inside = located.filter(({ node }) => isWithin(node, root));
     const scale = Math.min(4, MAX_EDGE / Math.max(root.width, root.height));
     const before = await exportPng(root, scale);
@@ -841,7 +849,7 @@ module.exports = {
         }
       }
       const after = await exportPng(clone2, scale);
-      return { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) };
+      return { frame: { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) } };
     } finally {
       if (clone2 && !clone2.removed) clone2.remove();
     }
@@ -882,14 +890,16 @@ module.exports = {
       toRender = frames.slice(0, req.maxRoots);
     }
     const out = [];
+    const tooBig = [];
     let rendered = 0;
     for (const root of toRender) {
-      const frame = await renderRoot(root, located);
-      if (!frame) continue;
-      out.push(frame);
-      rendered += frame.issueIds.length;
+      const result = await renderRoot(root, located);
+      if (result.tooBig) tooBig.push(result.tooBig);
+      if (!result.frame) continue;
+      out.push(result.frame);
+      rendered += result.frame.issueIds.length;
     }
-    return { frames: out, skipped: Math.max(0, located.length - rendered), roots };
+    return { frames: out, skipped: Math.max(0, located.length - rendered), roots, tooBig };
   }
   function sweepPreviewClones() {
     let removed = 0;
@@ -1425,19 +1435,23 @@ module.exports = {
     });
     return visible.length === 1 && visible[0].type === "SOLID" ? visible[0] : null;
   };
-  async function kindOfNode(node) {
+  async function kindOfNode(node, ctx) {
     var _a;
+    const cached = ctx.instanceKindCache.get(node.id);
+    if (cached) return cached;
+    let kind = inferComponentKind(node.name, "description" in node ? node.description : "");
     if (node.type === "INSTANCE") {
       try {
         const main = await node.getMainComponentAsync();
         if (main) {
           const set = ((_a = main.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? main.parent : null;
-          return inferComponentKind(set ? set.name : main.name, (set != null ? set : main).description);
+          kind = inferComponentKind(set ? set.name : main.name, (set != null ? set : main).description);
         }
       } catch {
       }
     }
-    return inferComponentKind(node.name, "description" in node ? node.description : "");
+    ctx.instanceKindCache.set(node.id, kind);
+    return kind;
   }
   function inInteractiveContext(node, ctx) {
     return ancestors(node, ctx).some((a) => INTERACTIVE_KINDS2.has(inferComponentKind(a.name)) || isInteractiveByReactions(a));
@@ -1509,7 +1523,7 @@ module.exports = {
       id: "a11y/border-contrast",
       types: ["FRAME", "INSTANCE", "COMPONENT", "RECTANGLE"],
       check: async (node, ctx) => {
-        const kind = await kindOfNode(node);
+        const kind = await kindOfNode(node, ctx);
         if (!FIELD_KINDS.has(kind)) return;
         const host = node;
         const weight = typeof host.strokeWeight === "number" ? host.strokeWeight : 1;
@@ -1537,10 +1551,11 @@ module.exports = {
     {
       id: "a11y/icon-only-without-label",
       types: ["INSTANCE", "FRAME", "COMPONENT"],
-      check: async (node) => {
+      check: async (node, ctx) => {
         var _a;
         if (node.type === "COMPONENT" && ((_a = node.parent) == null ? void 0 : _a.type) === "COMPONENT_SET") return;
-        const kind = await kindOfNode(node);
+        if (node.width > 160 || node.height > 160) return;
+        const kind = await kindOfNode(node, ctx);
         const interactive = kind === "icon-button" || isInteractiveByReactions(node) || kind === "button" && node.width <= 64;
         if (!interactive) return;
         const host = node;
@@ -1815,7 +1830,8 @@ module.exports = {
   ];
 
   // src/plugin/rules/components-pro.ts
-  var MAX_ORPHAN_LOOKUPS = 200;
+  var MAX_ORPHAN_LOOKUPS = 60;
+  var ORPHAN_BUDGET_MS = 4e3;
   function isTopLevelComponent(node) {
     var _a;
     if (node.type === "COMPONENT" && ((_a = node.parent) == null ? void 0 : _a.type) === "COMPONENT_SET") return false;
@@ -1848,13 +1864,18 @@ module.exports = {
     {
       id: "components/orphan-variant",
       finalize: async (ctx) => {
+        if (ctx.scope !== "file") return;
         const out = [];
+        const started = Date.now();
         let lookups = 0;
         for (const s of ctx.componentSets) {
           if (s.node.remote) continue;
           for (const child of s.node.children) {
             if (child.type !== "COMPONENT") continue;
-            if (++lookups > MAX_ORPHAN_LOOKUPS) return out;
+            if (++lookups > MAX_ORPHAN_LOOKUPS || Date.now() - started > ORPHAN_BUDGET_MS) {
+              ctx.warnings.push("rule-partial:components/orphan-variant");
+              return out;
+            }
             try {
               const instances = await child.getInstancesAsync();
               if (instances.length) continue;
@@ -3451,8 +3472,10 @@ module.exports = {
       const regionCy = pick.y + pick.h / 2;
       const cx = box.x + box.width / 2;
       const cy = box.y + box.height / 2;
+      const center = { x: cx + (vw / 2 - regionCx) / nextZoom, y: cy + (vh / 2 - regionCy) / nextZoom };
+      if (!Number.isFinite(nextZoom) || !Number.isFinite(center.x) || !Number.isFinite(center.y)) return;
       figma.viewport.zoom = nextZoom;
-      figma.viewport.center = { x: cx + (vw / 2 - regionCx) / nextZoom, y: cy + (vh / 2 - regionCy) / nextZoom };
+      figma.viewport.center = center;
     } catch {
     }
   }
@@ -3616,6 +3639,7 @@ module.exports = {
       confirmPatternSeen: false,
       docLinkSeen: false,
       componentsForDocs: [],
+      instanceKindCache: /* @__PURE__ */ new Map(),
       found: {},
       reportProgress,
       isCancelled
@@ -3700,7 +3724,8 @@ module.exports = {
   }
 
   // src/plugin/scan/engine.ts
-  var BATCH_SIZE = 120;
+  var YIELD_EVERY_MS = 32;
+  var RULE_TIME_BUDGET_MS = 6e3;
   var MAX_LEARNED_STYLES = 300;
   var INTERACTIVE_KINDS3 = /* @__PURE__ */ new Set(["button", "icon-button", "link", "input", "select", "checkbox", "radio", "toggle", "chip", "tab", "search"]);
   function scopeLabel(scope, roots) {
@@ -3796,7 +3821,7 @@ module.exports = {
     };
   }
   async function runScan(req, report, isCancelled) {
-    var _a;
+    var _a, _b;
     const started = Date.now();
     const progress = { phase: "indexing", scanned: 0, total: 0, found: {} };
     const emit = (p) => {
@@ -3880,37 +3905,56 @@ module.exports = {
     const byType = /* @__PURE__ */ new Map();
     for (const t of types) byType.set(t, checkRules.filter((r) => !r.types || r.types.includes(t)));
     let scanned = 0;
-    for (let i = 0; i < nodes.length; i += BATCH_SIZE) {
-      const batch = nodes.slice(i, i + BATCH_SIZE);
-      for (const node of batch) {
-        scanned++;
-        if (node.removed) continue;
-        if (req.options.ignoreHidden && isEffectivelyHidden(node, ctx)) continue;
-        if (req.options.ignoreLocked && isEffectivelyLocked(node, ctx)) continue;
+    const ruleTime = /* @__PURE__ */ new Map();
+    const suspended = /* @__PURE__ */ new Set();
+    let lastYield = Date.now();
+    let sinceCheck = 0;
+    for (const node of nodes) {
+      scanned++;
+      if (!node.removed && !(req.options.ignoreHidden && isEffectivelyHidden(node, ctx)) && !(req.options.ignoreLocked && isEffectivelyLocked(node, ctx))) {
         const inside = !req.options.scanInsideInstances && isInsideInstance(node, ctx);
         const applicable = (_a = byType.get(node.type)) != null ? _a : [];
         for (const rule of applicable) {
-          if (inside && !rule.insideInstances) continue;
+          if (inside && !rule.insideInstances || suspended.has(rule.id)) continue;
+          const t0 = Date.now();
           try {
             const raws = await rule.check(node, ctx);
             if (raws) for (const raw of raws) push(raw);
-          } catch (e) {
+          } catch {
             ctx.warnings.push(`rule:${rule.id}`);
+          }
+          const spent = ((_b = ruleTime.get(rule.id)) != null ? _b : 0) + (Date.now() - t0);
+          ruleTime.set(rule.id, spent);
+          if (spent > RULE_TIME_BUDGET_MS) {
+            suspended.add(rule.id);
+            ctx.warnings.push(`rule-slow:${rule.id}`);
           }
         }
       }
-      emit({ phase: "scanning", scanned, total: nodes.length });
-      await yieldToHost();
-      if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+      if (++sinceCheck >= 8) {
+        sinceCheck = 0;
+        if (Date.now() - lastYield >= YIELD_EVERY_MS) {
+          emit({ phase: "scanning", scanned, total: nodes.length });
+          await yieldToHost();
+          lastYield = Date.now();
+          if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+        }
+      }
     }
+    emit({ phase: "scanning", scanned, total: nodes.length });
+    await yieldToHost();
+    if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
     emit({ phase: "finalizing", scanned, total: nodes.length });
     for (const rule of finalizeRules) {
+      if (suspended.has(rule.id)) continue;
       try {
         const raws = await rule.finalize(ctx);
         if (raws) for (const raw of raws) push(raw);
       } catch {
         ctx.warnings.push(`rule:${rule.id}`);
       }
+      await yieldToHost();
+      if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
     }
     ctx.warnings.splice(0, ctx.warnings.length, ...new Set(ctx.warnings));
     const sevOrder = { error: 0, warning: 1, info: 2 };
@@ -3941,7 +3985,8 @@ module.exports = {
   var previewPending = null;
   var programmaticSelectionKey = "";
   var post = (msg) => figma.ui.postMessage(msg);
-  var clamp = (v, min, max) => Math.round(Math.min(max, Math.max(min, v)));
+  var clamp = (v, min, max) => Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : min;
+  var applying = false;
   function clampWindow(w, h) {
     return { width: clamp(w, MIN_W, MAX_W), height: clamp(h, MIN_H, MAX_H) };
   }
@@ -4067,6 +4112,7 @@ module.exports = {
     const journal = [];
     const outcomes = [];
     figma.commitUndo();
+    applying = true;
     let done = 0;
     for (const { issueId, alternativeId } of entries) {
       const issue = issues.get(issueId);
@@ -4087,6 +4133,7 @@ module.exports = {
       if (reportProgress && (done % 5 === 0 || done === entries.length)) post({ type: "fix-progress", done, total: entries.length });
       if (done % 10 === 0) await new Promise((r) => setTimeout(r, 0));
     }
+    applying = false;
     if (journal.length) journals.set(batchId, journal);
     post({ type: "fix-done", batchId, outcomes, undoable: journal.length > 0 });
   }
@@ -4095,6 +4142,7 @@ module.exports = {
     if (!journal) return;
     journals.delete(batchId);
     figma.commitUndo();
+    applying = true;
     const restored = [];
     for (const entry of [...journal].reverse()) {
       try {
@@ -4105,6 +4153,7 @@ module.exports = {
       } catch {
       }
     }
+    applying = false;
     post({ type: "undo-done", batchId, issueIds: restored });
   }
   async function handlePreview(msg) {
@@ -4115,14 +4164,18 @@ module.exports = {
     }
     previewRunning = true;
     try {
+      if (scanning || applying) {
+        post({ type: "preview-done", requestId: msg.requestId, frames: [], skipped: msg.items.length, roots: [], tooBig: [], maxNodes: MAX_PREVIEW_NODES });
+        return;
+      }
       const items = [];
       for (const { issueId, alternativeId } of msg.items) {
         const issue = issues.get(issueId);
         const plan = planFor(issueId, alternativeId);
         if (issue && plan && issue.status === "open") items.push({ issueId, nodeId: issue.nodeId, plan });
       }
-      const out = await renderPreview({ items, maxRoots: clamp(msg.maxRoots, 1, 6), rootId: (_a = msg.rootId) != null ? _a : null, followSelection: msg.followSelection });
-      post({ type: "preview-done", requestId: msg.requestId, frames: out.frames, skipped: out.skipped, roots: out.roots });
+      const out = await renderPreview({ items, maxRoots: clamp(msg.maxRoots, 1, 4), rootId: (_a = msg.rootId) != null ? _a : null, followSelection: msg.followSelection });
+      post({ type: "preview-done", requestId: msg.requestId, frames: out.frames, skipped: out.skipped, roots: out.roots, tooBig: out.tooBig, maxNodes: MAX_PREVIEW_NODES });
     } catch (e) {
       post({ type: "preview-error", requestId: msg.requestId, message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -4135,6 +4188,20 @@ module.exports = {
     }
   }
   figma.ui.onmessage = async (msg) => {
+    try {
+      await dispatch(msg);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (msg.type === "scan") {
+        scanning = false;
+        post({ type: "scan-error", message, partial: null });
+      } else {
+        applying = false;
+        figma.notify(`Senior Check Design : ${message}`, { error: true, timeout: 5e3 });
+      }
+    }
+  };
+  async function dispatch(msg) {
     var _a;
     switch (msg.type) {
       case "ui-ready":
@@ -4203,7 +4270,7 @@ module.exports = {
         if (/^https:\/\//.test(msg.url)) figma.openExternal(msg.url);
         break;
     }
-  };
+  }
   figma.on("selectionchange", postSelection);
   figma.on("currentpagechange", () => post({ type: "page-changed", pageName: figma.currentPage.name }));
   (async () => {
