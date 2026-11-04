@@ -154,5 +154,5 @@ export function isInteractiveByReactions(node: SceneNode): boolean {
   });
 }
 
-/** Couleur sous forme de nombre (0–255) pour les messages. */
+/** Couleur sous forme de nombre (0 à 255) pour les messages. */
 export const round1 = (v: number) => Math.round(v * 10) / 10;

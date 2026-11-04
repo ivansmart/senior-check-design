@@ -87,26 +87,16 @@ async function learnRemoteStyles(nodes: SceneNode[], ctx: ScanContext) {
   }
   const knownText = new Set(ctx.textStyles.map((s) => s.id));
   const knownPaint = new Set(ctx.paintStyles.map((s) => s.id));
-  let i = 0;
-  for (const id of textIds) {
-    if (knownText.has(id)) continue;
-    try {
-      const s = await figma.getStyleByIdAsync(id);
-      if (s && s.type === 'TEXT') indexTextStyle(ctx, s);
-    } catch {
-      /* style inaccessible */
+  const pending = [...[...textIds].filter((id) => !knownText.has(id)), ...[...paintIds].filter((id) => !knownPaint.has(id))];
+  // Lectures par lots parallèles : un style distant peut nécessiter un aller-retour réseau.
+  for (let i = 0; i < pending.length; i += 40) {
+    const styles = await Promise.all(pending.slice(i, i + 40).map((id) => figma.getStyleByIdAsync(id).catch(() => null)));
+    for (const s of styles) {
+      if (!s) continue;
+      if (s.type === 'TEXT') indexTextStyle(ctx, s);
+      else if (s.type === 'PAINT') await indexPaintStyle(ctx, s);
     }
-    if (++i % 40 === 0) await yieldToHost();
-  }
-  for (const id of paintIds) {
-    if (knownPaint.has(id)) continue;
-    try {
-      const s = await figma.getStyleByIdAsync(id);
-      if (s && s.type === 'PAINT') await indexPaintStyle(ctx, s);
-    } catch {
-      /* style inaccessible */
-    }
-    if (++i % 40 === 0) await yieldToHost();
+    await yieldToHost();
   }
   rebuildScales(ctx);
 }

@@ -291,6 +291,8 @@ export function createContext(
 }
 
 const MAX_LIBRARY_VARIABLES = 800;
+/** Imports de variables de librairie lancés en parallèle (chaque import est une requête réseau). */
+const IMPORT_BATCH = 40;
 
 /** Indexe variables et styles locaux, puis (optionnel) les variables des librairies activées. */
 export async function indexTokens(ctx: ScanContext): Promise<void> {
@@ -315,37 +317,50 @@ export async function indexTokens(ctx: ScanContext): Promise<void> {
   for (const s of textStyles) indexTextStyle(ctx, s);
 
   if (ctx.options.includeLibraries) {
-    let imported = 0;
     try {
       const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
-      for (const col of collections) {
-        if (ctx.isCancelled()) return;
-        if (imported >= MAX_LIBRARY_VARIABLES) {
-          ctx.warnings.push('library-cap');
-          break;
-        }
-        ctx.reportProgress({ phase: 'indexing', detail: col.libraryName });
-        if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
-        try {
-          const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
-          for (const lv of vars) {
-            if (lv.resolvedType !== 'COLOR' && lv.resolvedType !== 'FLOAT') continue;
-            if (imported >= MAX_LIBRARY_VARIABLES) break;
-            try {
-              const v = await figma.variables.importVariableByKeyAsync(lv.key);
-              await indexVariable(ctx, v, col.libraryName, collectionCache);
-            } catch {
-              /* variable individuelle illisible : on continue */
-            }
-            if (++imported % 25 === 0) {
-              await yieldToHost();
-              if (ctx.isCancelled()) return;
-            }
+      if (collections.length) ctx.reportProgress({ phase: 'indexing', detail: collections[0].libraryName });
+      // 1. Les listes de variables de toutes les collections, en parallèle (une requête par collection).
+      const listed = await Promise.all(
+        collections.map(async (col) => {
+          try {
+            const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
+            return { col, vars: vars.filter((lv) => lv.resolvedType === 'COLOR' || lv.resolvedType === 'FLOAT') };
+          } catch {
+            ctx.warnings.push(`library:${col.libraryName}`);
+            return { col, vars: [] as LibraryVariable[] };
           }
-        } catch {
-          ctx.warnings.push(`library:${col.libraryName}`);
-        }
+        }),
+      );
+      if (ctx.isCancelled()) return;
+      const queue: { key: string; libraryName: string }[] = [];
+      for (const { col, vars } of listed) {
+        if (!vars.length) continue;
+        if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
+        for (const lv of vars) queue.push({ key: lv.key, libraryName: col.libraryName });
       }
+      if (queue.length > MAX_LIBRARY_VARIABLES) {
+        ctx.warnings.push('library-cap');
+        queue.length = MAX_LIBRARY_VARIABLES;
+      }
+      // 2. Les imports par lots parallèles : c'est la partie lente (réseau), le séquentiel multipliait les allers-retours.
+      for (let i = 0; i < queue.length; i += IMPORT_BATCH) {
+        const batch = queue.slice(i, i + IMPORT_BATCH);
+        ctx.reportProgress({ phase: 'indexing', detail: batch[0].libraryName, scanned: i, total: queue.length });
+        const imported = await Promise.all(
+          batch.map(async ({ key, libraryName }) => {
+            try {
+              return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
+            } catch {
+              return null; // variable individuelle illisible : on continue
+            }
+          }),
+        );
+        for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+        await yieldToHost();
+        if (ctx.isCancelled()) return;
+      }
+      if (queue.length) ctx.reportProgress({ phase: 'indexing', detail: queue[queue.length - 1].libraryName, scanned: queue.length, total: queue.length });
     } catch (e) {
       // Sans la permission « teamlibrary » dans le manifeste, l'API teamLibrary est inaccessible.
       const message = e instanceof Error ? e.message : String(e);

@@ -27,7 +27,7 @@ function mdEscape(s: string): string {
 export function buildMarkdownReport(issues: Issue[], stats: ScanStats, score: ScoreBreakdown, L: ReportLabels, fileName: string, date: Date): string {
   const open = issues.filter((i) => i.status !== 'ignored');
   const lines: string[] = [];
-  lines.push(`# ${L.title} — ${fileName}`);
+  lines.push(`# ${L.title} · ${fileName}`);
   lines.push('');
   lines.push(`- ${L.generated} : ${date.toISOString().slice(0, 16).replace('T', ' ')}`);
   lines.push(`- ${L.scope} : ${stats.scopeLabel}`);
@@ -58,14 +58,14 @@ export function buildMarkdownReport(issues: Issue[], stats: ScanStats, score: Sc
     const byRule = new Map<string, Issue[]>();
     for (const i of ofCat) byRule.set(i.ruleId, [...(byRule.get(i.ruleId) ?? []), i]);
     for (const [ruleId, list] of byRule) {
-      lines.push(`### ${L.rule(ruleId)} — ${L.occurrences(list.length)}`);
+      lines.push(`### ${L.rule(ruleId)} · ${L.occurrences(list.length)}`);
       lines.push('');
       lines.push(`| ${L.columns.severity} | ${L.columns.layer} | ${L.columns.current} | ${L.columns.suggested} | ${L.columns.status} |`);
       lines.push('| :-- | :-- | :-- | :-- | :-- |');
       for (const i of list) {
         const path = [...i.nodePath, i.nodeName].map(mdEscape).join(' › ');
         lines.push(
-          `| ${L.severity(i.severity)} | ${path} | ${mdEscape(i.currentValue)} | ${mdEscape(i.suggestion?.label ?? '—')} | ${L.status(i.status)} |`,
+          `| ${L.severity(i.severity)} | ${path} | ${mdEscape(i.currentValue)} | ${mdEscape(i.suggestion?.label ?? '')} | ${L.status(i.status)} |`,
         );
       }
       lines.push('');

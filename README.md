@@ -1,6 +1,6 @@
 # Senior Check Design
 
-> Audit local, déterministe et gratuit de vos fichiers Figma — tokens, typographie, espacement, composants, accessibilité, craft et handoff. Sans IA, sans backend, sans plan Organization.
+> Audit local, déterministe et gratuit de vos fichiers Figma : tokens, typographie, espacement, composants, accessibilité, craft et handoff. Sans IA, sans backend, sans plan Organization.
 
 **Check designs** de Figma (réservé aux plans Organization/Enterprise) vérifie la dérive par rapport aux tokens. **Senior Check Design** couvre ce socle pour tout le monde, puis va plus loin : il répond à « ce design est-il cohérent, accessible, maintenable et prêt à être développé ? ».
 
@@ -62,11 +62,11 @@ Chaque règle peut être activée/désactivée par rapport au preset ; les régl
 
 | Catégorie | Règle | Fix |
 | :-- | :-- | :-- |
-| Couleurs | `colors/hardcoded-fill`, `colors/hardcoded-stroke` — couleur non liée ; correspondance exacte (safe), proche/ambiguë (review), aucune | Lier à la variable / appliquer le style |
+| Couleurs | `colors/hardcoded-fill`, `colors/hardcoded-stroke` : couleur non liée ; correspondance exacte (safe), proche/ambiguë (review), aucune | Lier à la variable / appliquer le style |
 | Typographie | `typography/no-text-style` (style exact → safe), `typography/mixed-styles`, `typography/off-scale-size` | Appliquer le Text Style |
-| Espacement | `spacing/off-scale-padding`, `spacing/off-scale-gap` — tokens d'espacement ou grille de base 4/8 px | Lier à la variable |
+| Espacement | `spacing/off-scale-padding`, `spacing/off-scale-gap` : tokens d'espacement ou grille de base 4/8 px | Lier à la variable |
 | Radius | `radius/not-tokenized` (uniquement si des tokens de radius existent) | Lier à la variable |
-| Composants | `components/detached-instance`, `components/default-name`, `components/heavy-overrides`, `components/duplicate-component`, `components/no-description` | — |
+| Composants | `components/detached-instance`, `components/default-name`, `components/heavy-overrides`, `components/duplicate-component`, `components/no-description` | aucune |
 | Craft | `craft/missing-state` (hover, pressed, focus, disabled, error, selected selon le genre de composant), `craft/missing-loading-state`, `craft/missing-empty-state`, `craft/state-naming`, `craft/missing-hover-transition`, `craft/inconsistent-motion` | Harmoniser la durée (review) |
 | A11y | `a11y/text-contrast` (WCAG AA, texte normal/large, fond composé), `a11y/contrast-not-verifiable`, `a11y/touch-target` (WCAG 2.5.8), `a11y/text-too-small` | Token conforme le plus proche (review) |
 | Handoff | `handoff/fractional-size`, `handoff/fractional-position`, `handoff/stackable-without-autolayout` | Arrondir |

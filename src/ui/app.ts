@@ -367,7 +367,7 @@ function currentScore(): number {
 
 function renderHeader(): HTMLElement {
   const score = state.phase === 'results' ? currentScore() : null;
-  const scoreEl = el('span', { class: 'score num', 'data-level': score !== null ? scoreLevel(score) : 'none', title: t('scoreHint') }, score !== null ? String(state.lastScore) : '–');
+  const scoreEl = el('span', { class: 'score num', 'data-level': score !== null ? scoreLevel(score) : 'none', title: t('scoreHint') }, score !== null ? String(state.lastScore) : '…');
   if (score !== null && state.lastScore !== score) {
     animateNumber(state.lastScore, score, 300, (v) => (scoreEl.textContent = String(v)));
     state.lastScore = score;
@@ -485,7 +485,8 @@ function renderSelectionNotice(): HTMLElement {
 function phaseLabel(p: ScanProgress): string {
   switch (p.phase) {
     case 'indexing':
-      return p.detail && p.detail !== 'local' ? t('phaseIndexingLib', { name: p.detail }) : t('phaseIndexing');
+      if (!p.detail || p.detail === 'local') return t('phaseIndexing');
+      return p.total ? `${t('phaseIndexingLib', { name: p.detail })} · ${p.scanned}/${p.total}` : t('phaseIndexingLib', { name: p.detail });
     case 'collecting':
       return t('phaseCollecting');
     case 'scanning':
@@ -497,22 +498,23 @@ function phaseLabel(p: ScanProgress): string {
 
 function renderScanning(): HTMLElement {
   const p = state.progress ?? { phase: 'indexing', scanned: 0, total: 0, found: {} };
-  const pct = p.phase === 'scanning' && p.total ? (p.scanned / p.total) * 100 : p.phase === 'finalizing' ? 100 : 0;
+  const pct = (p.phase === 'scanning' || p.phase === 'indexing') && p.total ? (p.scanned / p.total) * 100 : p.phase === 'finalizing' ? 100 : 0;
+  const indeterminate = (p.phase === 'indexing' && !p.total) || p.phase === 'collecting';
   const skeleton = el('div', { class: 'skeleton' });
   for (let i = 0; i < 8; i++) skeleton.appendChild(el('div', { class: 'sk-row' }, el('span', { class: 'sk-cell' }), el('span', { class: 'sk-arrow' }), el('span', { class: 'sk-cell' })));
   return el(
     'div',
     { class: 'scanning' },
     el('div', { class: 'scan-head' }, el('span', { class: 'scan-title' }, t('scanning')), el('span', { class: 'scan-phase' }, phaseLabel(p as ScanProgress))),
-    el('div', { class: `bar${p.phase === 'indexing' || p.phase === 'collecting' ? ' indeterminate' : ''}` }, el('i', { style: `width:${pct}%` })),
+    el('div', { class: `bar${indeterminate ? ' indeterminate' : ''}` }, el('i', { style: `width:${pct}%` })),
     skeleton,
   );
 }
 
 function renderTabBody(): HTMLElement {
   const wrap = el('div', { class: 'tab-body', role: 'tabpanel' });
-  if (state.notice?.kind === 'cancelled') wrap.appendChild(el('div', { class: 'notice soft' }, svgIcon('info'), el('span', {}, `${t('cancelled')} — ${t('cancelledBody')}`)));
-  if (state.notice?.kind === 'error') wrap.appendChild(el('div', { class: 'notice warn' }, svgIcon('alert'), el('span', {}, `${t('errorTitle')} — ${t('errorBody', { message: state.notice.message })}`)));
+  if (state.notice?.kind === 'cancelled') wrap.appendChild(el('div', { class: 'notice soft' }, svgIcon('info'), el('span', {}, `${t('cancelled')} · ${t('cancelledBody')}`)));
+  if (state.notice?.kind === 'error') wrap.appendChild(el('div', { class: 'notice warn' }, svgIcon('alert'), el('span', {}, `${t('errorTitle')} · ${t('errorBody', { message: state.notice.message })}`)));
   for (const w of state.result?.stats.warnings ?? []) {
     let text = '';
     if (w === 'library-cap') text = t('warnLibraryCap');
@@ -651,7 +653,7 @@ function renderRow(row: Row): HTMLElement {
     'div',
     { class: 'cell cur', title: state.i18n.severity(row.severity) },
     swatchEl(first.swatch) ?? el('span', { class: 'cell-icon' }, svgIcon(KIND_ICON[row.kind])),
-    el('span', { class: 'val', title: first.swatch ? first.currentValue : `${first.nodeName} — ${first.currentValue}` }, first.swatch ? formatHex(first.currentValue) : row.kind === 'componentSet' || row.kind === 'component' || row.prop === 'propName' || row.prop === 'propDetached' ? first.nodeName : first.currentValue),
+    el('span', { class: 'val', title: first.swatch ? first.currentValue : `${first.nodeName} · ${first.currentValue}` }, first.swatch ? formatHex(first.currentValue) : row.kind === 'componentSet' || row.kind === 'component' || row.prop === 'propName' || row.prop === 'propDetached' ? first.nodeName : first.currentValue),
     state.settings.showRowCounts && count > 1 ? el('span', { class: 'cnt num', title: t('rowItems', { n: count }) }, String(count)) : null,
   );
 
@@ -959,7 +961,7 @@ function onFixDone(batchId: string, outcomes: { issueId: string; ok: boolean; re
   }
   if (failed.length) {
     const reason = state.i18n.fixReason(failed[0].reason);
-    toast({ message: failed.length === 1 ? reason : `${t('toastFixFailed', { n: failed.length })} — ${reason}`, timeout: 6000, error: true });
+    toast({ message: failed.length === 1 ? reason : `${t('toastFixFailed', { n: failed.length })} · ${reason}`, timeout: 6000, error: true });
   }
 }
 
@@ -1123,7 +1125,7 @@ function renderSettings(): HTMLElement {
         el(
           'select',
           { onchange: (e) => update(() => ((s.preset = (e.target as HTMLSelectElement).value as Settings['preset']), (s.disabledRules = []), (s.enabledRules = []))) },
-          ...PRESET_IDS.map((id) => el('option', { value: id, selected: s.preset === id }, `${state.i18n.preset(id).name} — ${state.i18n.preset(id).hint}`)),
+          ...PRESET_IDS.map((id) => el('option', { value: id, selected: s.preset === id }, `${state.i18n.preset(id).name} · ${state.i18n.preset(id).hint}`)),
         ),
       ),
     ),
@@ -2037,7 +2039,7 @@ window.onmessage = (event: MessageEvent) => {
       else {
         state.phase = 'results';
         render();
-        toast({ message: `${t('errorTitle')} — ${msg.message}`, timeout: 8000, error: true });
+        toast({ message: `${t('errorTitle')} · ${msg.message}`, timeout: 8000, error: true });
       }
       break;
     case 'fix-progress':

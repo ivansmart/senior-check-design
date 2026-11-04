@@ -2133,6 +2133,7 @@
     };
   }
   var MAX_LIBRARY_VARIABLES = 800;
+  var IMPORT_BATCH = 40;
   async function indexTokens(ctx) {
     const collectionCache = /* @__PURE__ */ new Map();
     ctx.reportProgress({ phase: "indexing", detail: "local" });
@@ -2153,36 +2154,48 @@
     for (const s of paintStyles) await indexPaintStyle(ctx, s);
     for (const s of textStyles) indexTextStyle(ctx, s);
     if (ctx.options.includeLibraries) {
-      let imported = 0;
       try {
         const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
-        for (const col of collections) {
-          if (ctx.isCancelled()) return;
-          if (imported >= MAX_LIBRARY_VARIABLES) {
-            ctx.warnings.push("library-cap");
-            break;
-          }
-          ctx.reportProgress({ phase: "indexing", detail: col.libraryName });
-          if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
-          try {
-            const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
-            for (const lv of vars) {
-              if (lv.resolvedType !== "COLOR" && lv.resolvedType !== "FLOAT") continue;
-              if (imported >= MAX_LIBRARY_VARIABLES) break;
-              try {
-                const v = await figma.variables.importVariableByKeyAsync(lv.key);
-                await indexVariable(ctx, v, col.libraryName, collectionCache);
-              } catch {
-              }
-              if (++imported % 25 === 0) {
-                await yieldToHost();
-                if (ctx.isCancelled()) return;
-              }
+        if (collections.length) ctx.reportProgress({ phase: "indexing", detail: collections[0].libraryName });
+        const listed = await Promise.all(
+          collections.map(async (col) => {
+            try {
+              const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
+              return { col, vars: vars.filter((lv) => lv.resolvedType === "COLOR" || lv.resolvedType === "FLOAT") };
+            } catch {
+              ctx.warnings.push(`library:${col.libraryName}`);
+              return { col, vars: [] };
             }
-          } catch {
-            ctx.warnings.push(`library:${col.libraryName}`);
-          }
+          })
+        );
+        if (ctx.isCancelled()) return;
+        const queue = [];
+        for (const { col, vars } of listed) {
+          if (!vars.length) continue;
+          if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
+          for (const lv of vars) queue.push({ key: lv.key, libraryName: col.libraryName });
         }
+        if (queue.length > MAX_LIBRARY_VARIABLES) {
+          ctx.warnings.push("library-cap");
+          queue.length = MAX_LIBRARY_VARIABLES;
+        }
+        for (let i2 = 0; i2 < queue.length; i2 += IMPORT_BATCH) {
+          const batch = queue.slice(i2, i2 + IMPORT_BATCH);
+          ctx.reportProgress({ phase: "indexing", detail: batch[0].libraryName, scanned: i2, total: queue.length });
+          const imported = await Promise.all(
+            batch.map(async ({ key, libraryName }) => {
+              try {
+                return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
+              } catch {
+                return null;
+              }
+            })
+          );
+          for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+          await yieldToHost();
+          if (ctx.isCancelled()) return;
+        }
+        if (queue.length) ctx.reportProgress({ phase: "indexing", detail: queue[queue.length - 1].libraryName, scanned: queue.length, total: queue.length });
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         ctx.warnings.push(/permission|manifest/i.test(message) ? "libraries-no-permission" : "libraries-unavailable");
@@ -2252,24 +2265,15 @@
     }
     const knownText = new Set(ctx.textStyles.map((s) => s.id));
     const knownPaint = new Set(ctx.paintStyles.map((s) => s.id));
-    let i = 0;
-    for (const id of textIds) {
-      if (knownText.has(id)) continue;
-      try {
-        const s = await figma.getStyleByIdAsync(id);
-        if (s && s.type === "TEXT") indexTextStyle(ctx, s);
-      } catch {
+    const pending = [...[...textIds].filter((id) => !knownText.has(id)), ...[...paintIds].filter((id) => !knownPaint.has(id))];
+    for (let i = 0; i < pending.length; i += 40) {
+      const styles = await Promise.all(pending.slice(i, i + 40).map((id) => figma.getStyleByIdAsync(id).catch(() => null)));
+      for (const s of styles) {
+        if (!s) continue;
+        if (s.type === "TEXT") indexTextStyle(ctx, s);
+        else if (s.type === "PAINT") await indexPaintStyle(ctx, s);
       }
-      if (++i % 40 === 0) await yieldToHost();
-    }
-    for (const id of paintIds) {
-      if (knownPaint.has(id)) continue;
-      try {
-        const s = await figma.getStyleByIdAsync(id);
-        if (s && s.type === "PAINT") await indexPaintStyle(ctx, s);
-      } catch {
-      }
-      if (++i % 40 === 0) await yieldToHost();
+      await yieldToHost();
     }
     rebuildScales(ctx);
   }

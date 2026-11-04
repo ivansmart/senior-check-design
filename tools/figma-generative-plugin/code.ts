@@ -1,4 +1,4 @@
-// Senior Check Design — chargeur.
+// Senior Check Design : chargeur.
 //
 // Ce plugin exécute le build versionné du dépôt GitHub ivansmart/senior-check-design
 // (dossier dist/), épinglé sur un commit précis. L'interface (dist/ui.html) télécharge
