@@ -212,6 +212,7 @@ const state = {
   selected: new Set<string>(),
   anchorKey: null as string | null,
   chosen: new Map<string, string>(), // rowKey → alternativeId choisi dans le menu
+  consented: new Set<string>(), // lignes divergentes (Pro) incluses une à une dans « Appliquer »
   expanded: null as string | null,
   dropdown: null as string | null,
   showIgnored: false,
@@ -363,10 +364,12 @@ function suggestionLabel(sug: { label: string; kind?: string }): (Node | string)
 const rowIsClose = (row: Row) => rowHasPlan(row) && row.first.fixSafety !== 'safe' && row.first.suggestion?.confidence === 'close' && !state.chosen.has(row.key);
 /** Ligne « divergente » (Pro) : instance détachée rattachable seulement avec consentement, rendu conservé. */
 const rowIsForced = (row: Row) => rowHasPlan(row) && row.first.params?.confidence === 'forced';
+/** Divergente incluse dans « Appliquer » : par le réglage global, ou une à une (« Inclure quand même »). */
+const rowForcedIncluded = (row: Row) => rowIsForced(row) && (state.settings.reattachDivergent || state.consented.has(row.key));
 /** Ligne incluse dans « Appliquer » sans sélection, selon le réglage `autoApply`. */
 function rowAutoIncluded(row: Row): boolean {
   if (!rowHasPlan(row) || state.chosen.has(row.key)) return false;
-  if (rowIsForced(row)) return state.settings.reattachDivergent;
+  if (rowIsForced(row)) return rowForcedIncluded(row);
   if (row.first.fixSafety === 'safe') return true;
   const level = state.settings.autoApply;
   if (level === 'exact') return false;
@@ -876,8 +879,11 @@ function renderRowDetail(row: Row): HTMLElement {
       'div',
       { class: 'detail-actions' },
       el('button', { class: 'btn btn-sm btn-secondary', onclick: (e) => (e.stopPropagation(), viewRow(row)) }, svgIcon('target'), t('viewLayers')),
-      row.status === 'open' && rowIsForced(row)
-        ? el('button', { class: 'btn btn-sm btn-primary', 'data-act': 'fix-anyway', title: t('fixAnywayHint'), onclick: (e) => (e.stopPropagation(), applyRows([row])) }, svgIcon('wand'), t('fixAnyway'))
+      // Divergente : consentement par ligne. Le bouton inclut (ou retire) la ligne des corrections en attente ; seul « Appliquer » corrige.
+      row.status === 'open' && rowIsForced(row) && !state.settings.reattachDivergent
+        ? state.consented.has(row.key)
+          ? el('button', { class: 'btn btn-sm btn-secondary', 'data-act': 'exclude-anyway', onclick: (e) => (e.stopPropagation(), setRowConsented(row, false)) }, svgIcon('check'), t('excludeAnyway'))
+          : el('button', { class: 'btn btn-sm btn-primary', 'data-act': 'include-anyway', title: t('includeAnywayHint'), onclick: (e) => (e.stopPropagation(), setRowConsented(row, true)) }, svgIcon('layers'), t('includeAnyway'))
         : null,
       row.status === 'open'
         ? el('button', { class: 'btn btn-sm btn-secondary', onclick: (e) => (e.stopPropagation(), setRowIgnored(row, true)) }, svgIcon('eye-off'), t('ignoreIssue'))
@@ -915,6 +921,8 @@ function renderFooter(): HTMLElement {
   const { rows, mode } = applicableRows();
   const closeRows = openRowsOf(state.tab).filter(rowIsClose);
   const forcedRows = openRowsOf(state.tab).filter(rowIsForced);
+  const forcedIncluded = forcedRows.filter(rowForcedIncluded);
+  const forcedExcluded = forcedRows.length - forcedIncluded.length;
   const layers = rows.reduce((n, r) => n + rowLayerCount(r), 0);
   let text: string;
   const layersLabel = layers === 1 ? t('rowItemOne') : t('rowItems', { n: layers });
@@ -928,7 +936,7 @@ function renderFooter(): HTMLElement {
     const unit = rows.length === 1 ? t(`${unitKey}One`) : t(`${unitKey}Many`);
     text = t('footerUpdateTpl', { n: rows.length, unit, layers: layersLabel });
     if (state.settings.autoApply !== 'exact' && closeRows.length) text += ` · ${closeRows.length === 1 ? t('inclCloseOne') : t('inclClose', { n: closeRows.length })}`;
-    if (state.settings.reattachDivergent && forcedRows.length) text += ` · ${forcedRows.length === 1 ? t('inclDivergentOne') : t('inclDivergent', { n: forcedRows.length })}`;
+    if (forcedIncluded.length) text += ` · ${forcedIncluded.length === 1 ? t('inclDivergentOne') : t('inclDivergent', { n: forcedIncluded.length })}`;
   }
   // Proches exclues du mode automatique : un lien les inclut en un clic (réglage mémorisé).
   const includeLink =
@@ -937,8 +945,8 @@ function renderFooter(): HTMLElement {
       : null;
   // Divergentes (rattachement forcé) : consentement explicite, mémorisé, révocable dans les réglages.
   const includeForced =
-    mode === 'safe' && !state.settings.reattachDivergent && forcedRows.length
-      ? el('button', { class: 'link-btn inline', 'data-act': 'include-divergent', title: t('setReattachDivergent'), onclick: () => setReattachDivergent(true) }, forcedRows.length === 1 ? t('includeDivergentOne') : t('includeDivergent', { n: forcedRows.length }))
+    mode === 'safe' && forcedExcluded > 0
+      ? el('button', { class: 'link-btn inline', 'data-act': 'include-divergent', title: t('setReattachDivergent'), onclick: () => setReattachDivergent(true) }, forcedExcluded === 1 ? t('includeDivergentOne') : t('includeDivergent', { n: forcedExcluded }))
       : null;
   append(footer, [
     el('span', { class: 'foot-text num' }, text),
@@ -1048,6 +1056,7 @@ function setRowIgnored(row: Row, ignored: boolean) {
     send({ type: 'ignore-issue', issueId: issue.id, ignored });
   }
   state.selected.delete(row.key);
+  state.consented.delete(row.key);
   refreshRows();
   render();
   toast({ message: ignored ? t('toastIgnored') : t('toastUnignored'), actionLabel: t('undo'), timeout: 6000, onAction: () => setRowIgnored(row, !ignored) });
@@ -1056,6 +1065,7 @@ function setRowIgnored(row: Row, ignored: boolean) {
 function refreshRows() {
   state.rows = buildRows();
   for (const key of [...state.selected]) if (!state.rows.some((r) => r.key === key && r.status === 'open')) state.selected.delete(key);
+  for (const key of [...state.consented]) if (!state.rows.some((r) => r.key === key && r.status === 'open')) state.consented.delete(key);
 }
 
 function onFixDone(batchId: string, outcomes: { issueId: string; ok: boolean; reason?: string }[], undoable: boolean) {
@@ -1133,6 +1143,7 @@ function startScan(force = false) {
   state.expanded = null;
   state.selected.clear();
   state.chosen.clear();
+  state.consented.clear();
   state.progress = { phase: 'indexing', scanned: 0, total: 0, found: {} };
   state.phase = 'scanning';
   state.notice = null;
@@ -1685,6 +1696,13 @@ function setAutoApply(level: Settings['autoApply']) {
 function setReattachDivergent(on: boolean) {
   state.settings.reattachDivergent = on;
   persistSettings();
+  render();
+}
+
+/** Consentement par ligne pour une divergente : incluse dans les corrections en attente, corrigée seulement par « Appliquer ». */
+function setRowConsented(row: Row, on: boolean) {
+  if (on) state.consented.add(row.key);
+  else state.consented.delete(row.key);
   render();
 }
 
