@@ -104,7 +104,7 @@
     showContrast: true,
     disabledRules: [],
     enabledRules: [],
-    window: { width: 660, height: 640 }
+    window: { width: 680, height: 640 }
   };
 
   // src/plugin/fix/apply.ts
