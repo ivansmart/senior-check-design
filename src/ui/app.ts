@@ -212,7 +212,10 @@ const state = {
   selected: new Set<string>(),
   anchorKey: null as string | null,
   chosen: new Map<string, string>(), // rowKey → alternativeId choisi dans le menu
-  consented: new Set<string>(), // lignes divergentes (Pro) incluses une à une dans « Appliquer »
+  // Divergentes (Pro) : consentement de session, jamais mémorisé (rattachement sensible, décidé à chaque analyse).
+  includeDivergent: false, // toutes les divergentes de l'analyse, sauf `excluded`
+  consented: new Set<string>(), // sans l'option globale : lignes incluses une à une
+  excluded: new Set<string>(), // avec l'option globale : lignes retirées une à une
   expanded: null as string | null,
   dropdown: null as string | null,
   showIgnored: false,
@@ -364,8 +367,8 @@ function suggestionLabel(sug: { label: string; kind?: string }): (Node | string)
 const rowIsClose = (row: Row) => rowHasPlan(row) && row.first.fixSafety !== 'safe' && row.first.suggestion?.confidence === 'close' && !state.chosen.has(row.key);
 /** Ligne « divergente » (Pro) : instance détachée rattachable seulement avec consentement, rendu conservé. */
 const rowIsForced = (row: Row) => rowHasPlan(row) && row.first.params?.confidence === 'forced';
-/** Divergente incluse dans « Appliquer » : par le réglage global, ou une à une (« Inclure quand même »). */
-const rowForcedIncluded = (row: Row) => rowIsForced(row) && (state.settings.reattachDivergent || state.consented.has(row.key));
+/** Divergente incluse dans « Appliquer » : par l'option globale (moins les retraits), ou une à une (« Inclure quand même »). */
+const rowForcedIncluded = (row: Row) => rowIsForced(row) && (state.includeDivergent ? !state.excluded.has(row.key) : state.consented.has(row.key));
 /** Ligne incluse dans « Appliquer » sans sélection, selon le réglage `autoApply`. */
 function rowAutoIncluded(row: Row): boolean {
   if (!rowHasPlan(row) || state.chosen.has(row.key)) return false;
@@ -399,6 +402,9 @@ function render() {
   const scrollTop = bodyEl?.scrollTop ?? 0;
   const focusedKey = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.row')?.dataset.key;
   clear(app);
+  // Thème du plugin : par défaut celui de Figma (classes figma-light/figma-dark), sinon palette forcée.
+  if (state.settings.theme === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = state.settings.theme;
   const compareOpen = state.compare.open && !state.collapsed;
   app.classList.toggle('has-compare', compareOpen);
   app.classList.toggle('is-collapsed', state.collapsed);
@@ -484,7 +490,7 @@ function renderHeader(): HTMLElement {
   return el(
     'header',
     { class: 'header' },
-    el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null, craftEl),
+    el('div', { class: 'title-wrap' }, el('h1', { class: 'title', title: t('signature') }, t('appName')), score !== null ? scoreEl : null, craftEl),
     modeSwitch,
     el(
       'button',
@@ -879,10 +885,11 @@ function renderRowDetail(row: Row): HTMLElement {
       'div',
       { class: 'detail-actions' },
       el('button', { class: 'btn btn-sm btn-secondary', onclick: (e) => (e.stopPropagation(), viewRow(row)) }, svgIcon('target'), t('viewLayers')),
-      // Divergente : consentement par ligne. Le bouton inclut (ou retire) la ligne des corrections en attente ; seul « Appliquer » corrige.
-      row.status === 'open' && rowIsForced(row) && !state.settings.reattachDivergent
-        ? state.consented.has(row.key)
-          ? el('button', { class: 'btn btn-sm btn-secondary', 'data-act': 'exclude-anyway', onclick: (e) => (e.stopPropagation(), setRowConsented(row, false)) }, svgIcon('check'), t('excludeAnyway'))
+      // Divergente : consentement par ligne, aussi quand l'option globale est active (retrait ciblé).
+      // Le bouton inclut (ou retire) la ligne des corrections en attente ; seul « Appliquer » corrige.
+      row.status === 'open' && rowIsForced(row)
+        ? rowForcedIncluded(row)
+          ? el('button', { class: 'btn btn-sm btn-secondary', 'data-act': 'exclude-anyway', title: t('excludeAnywayHint'), onclick: (e) => (e.stopPropagation(), setRowConsented(row, false)) }, svgIcon('check'), t('excludeAnyway'))
           : el('button', { class: 'btn btn-sm btn-primary', 'data-act': 'include-anyway', title: t('includeAnywayHint'), onclick: (e) => (e.stopPropagation(), setRowConsented(row, true)) }, svgIcon('layers'), t('includeAnyway'))
         : null,
       row.status === 'open'
@@ -943,10 +950,10 @@ function renderFooter(): HTMLElement {
     mode === 'safe' && state.settings.autoApply === 'exact' && closeRows.length
       ? el('button', { class: 'link-btn inline', 'data-act': 'include-close', onclick: () => setAutoApply('close') }, closeRows.length === 1 ? t('includeCloseOne') : t('includeClose', { n: closeRows.length }))
       : null;
-  // Divergentes (rattachement forcé) : consentement explicite, mémorisé, révocable dans les réglages.
+  // Divergentes (rattachement forcé) : consentement explicite pour cette analyse seulement, révocable ligne à ligne ou dans les réglages.
   const includeForced =
     mode === 'safe' && forcedExcluded > 0
-      ? el('button', { class: 'link-btn inline', 'data-act': 'include-divergent', title: t('setReattachDivergent'), onclick: () => setReattachDivergent(true) }, forcedExcluded === 1 ? t('includeDivergentOne') : t('includeDivergent', { n: forcedExcluded }))
+      ? el('button', { class: 'link-btn inline', 'data-act': 'include-divergent', title: t('includeDivergentHint'), onclick: () => setIncludeDivergent(true) }, forcedExcluded === 1 ? t('includeDivergentOne') : t('includeDivergent', { n: forcedExcluded }))
       : null;
   append(footer, [
     el('span', { class: 'foot-text num' }, text),
@@ -1057,6 +1064,7 @@ function setRowIgnored(row: Row, ignored: boolean) {
   }
   state.selected.delete(row.key);
   state.consented.delete(row.key);
+  state.excluded.delete(row.key);
   refreshRows();
   render();
   toast({ message: ignored ? t('toastIgnored') : t('toastUnignored'), actionLabel: t('undo'), timeout: 6000, onAction: () => setRowIgnored(row, !ignored) });
@@ -1066,6 +1074,7 @@ function refreshRows() {
   state.rows = buildRows();
   for (const key of [...state.selected]) if (!state.rows.some((r) => r.key === key && r.status === 'open')) state.selected.delete(key);
   for (const key of [...state.consented]) if (!state.rows.some((r) => r.key === key && r.status === 'open')) state.consented.delete(key);
+  for (const key of [...state.excluded]) if (!state.rows.some((r) => r.key === key && r.status === 'open')) state.excluded.delete(key);
 }
 
 function onFixDone(batchId: string, outcomes: { issueId: string; ok: boolean; reason?: string }[], undoable: boolean) {
@@ -1143,7 +1152,10 @@ function startScan(force = false) {
   state.expanded = null;
   state.selected.clear();
   state.chosen.clear();
+  // Consentement des divergentes : jamais reporté d'une analyse à l'autre (ni d'un lancement à l'autre).
+  state.includeDivergent = false;
   state.consented.clear();
+  state.excluded.clear();
   state.progress = { phase: 'indexing', scanned: 0, total: 0, found: {} };
   state.phase = 'scanning';
   state.notice = null;
@@ -1298,8 +1310,18 @@ function renderSettings(): HTMLElement {
       checkbox(t('setRowCounts'), s.showRowCounts, (v) => update(() => (s.showRowCounts = v), false)),
       checkbox(t('optIncludeLibraries'), o.includeLibraries, (v) => update(() => (o.includeLibraries = v))),
       checkbox(t('setCompareFollow'), s.compareFollowsSelection, (v) => update(() => ((s.compareFollowsSelection = v), (state.compare.explicitRootId = null)), false)),
-      s.mode === 'pro' ? checkbox(t('setReattachDivergent'), s.reattachDivergent, (v) => update(() => (s.reattachDivergent = v), false)) : null,
+      s.mode === 'pro' ? checkbox(t('setReattachDivergent'), state.includeDivergent, (v) => setIncludeDivergent(v)) : null,
+      s.mode === 'pro' ? el('div', { class: 'hint' }, t('setReattachDivergentHint')) : null,
     ),
+    el('div', { class: 'pop-section' }, el('div', { class: 'k' }, t('setTheme')), segmented<Settings['theme']>(
+      [
+        { value: 'auto', label: t('themeFigma'), title: t('themeFigmaHint') },
+        { value: 'light', label: t('themeLight') },
+        { value: 'dark', label: t('themeDark') },
+      ],
+      s.theme,
+      (v) => update(() => (s.theme = v), false),
+    )),
     el(
       'details',
       { class: 'accordion' },
@@ -1346,7 +1368,7 @@ function renderSettings(): HTMLElement {
           document.documentElement.lang = v;
         }, false),
     )),
-    el('div', { class: 'pop-section about' }, el('div', { class: 'k' }, t('aboutTitle')), el('div', { class: 'hint' }, t('aboutBody')), el('div', { class: 'hint' }, `${t('appName')} ${t('version')}`)),
+    el('div', { class: 'pop-section about' }, el('div', { class: 'k' }, t('aboutTitle')), el('div', { class: 'hint' }, t('aboutBody')), el('div', { class: 'hint signature' }, t('signature'))),
   );
   return el('div', { class: 'scrim', onclick: () => toggleMenu('settings') }, panel);
 }
@@ -1396,7 +1418,7 @@ function reportLabels(): ReportLabels {
   const i18n = state.i18n;
   const fr = state.settings.locale === 'fr';
   return {
-    title: t('appName'),
+    title: t('signature'),
     generated: fr ? 'Généré' : 'Generated',
     scope: t('scope'),
     nodes: fr ? 'Calques analysés' : 'Layers checked',
@@ -1445,7 +1467,7 @@ function reviewLabels(): ReviewLabels {
   const i18n = state.i18n;
   const nextKey: Record<string, string> = { colors: 'sumNextColors', typography: 'sumNextTypography', spacing: 'sumNextSpacing', radius: 'sumNextRadius', components: 'sumNextComponents', tokens: 'sumNextTokens', craft: 'sumNextCraft', a11y: 'sumNextA11y', handoff: 'sumNextHandoff' };
   return {
-    title: `${t('appName')} · ${t('exportSummary').replace(/\s*\(.*\)$/, '')}`,
+    title: `${t('signature')} · ${t('exportSummary').replace(/\s*\(.*\)$/, '')}`,
     generated: state.settings.locale === 'fr' ? 'Généré' : 'Generated',
     scope: t('scope'),
     nodes: state.settings.locale === 'fr' ? 'Calques analysés' : 'Layers checked',
@@ -1493,12 +1515,11 @@ interface TeamRulesFile {
   enabledRules: string[];
   options: Settings['options'];
   autoApply: Settings['autoApply'];
-  reattachDivergent?: boolean;
 }
 
 function exportTeamRules() {
   const s = state.settings;
-  const file: TeamRulesFile = { app: 'senior-check-design', version: 1, mode: s.mode, preset: s.preset, disabledRules: s.disabledRules, enabledRules: s.enabledRules, options: s.options, autoApply: s.autoApply, reattachDivergent: s.reattachDivergent };
+  const file: TeamRulesFile = { app: 'senior-check-design', version: 1, mode: s.mode, preset: s.preset, disabledRules: s.disabledRules, enabledRules: s.enabledRules, options: s.options, autoApply: s.autoApply };
   download('senior-check-rules.json', JSON.stringify(file, null, 2), 'application/json;charset=utf-8');
   toast({ message: t('downloaded'), timeout: 3000 });
 }
@@ -1519,7 +1540,6 @@ function importTeamRules() {
       s.enabledRules = data.enabledRules.filter((id) => RULE_BY_ID[id]);
       if (data.mode === 'classic' || data.mode === 'pro') s.mode = data.mode;
       if (data.autoApply === 'exact' || data.autoApply === 'close' || data.autoApply === 'all') s.autoApply = data.autoApply;
-      if (typeof data.reattachDivergent === 'boolean') s.reattachDivergent = data.reattachDivergent;
       if (data.options && typeof data.options === 'object') s.options = { ...DEFAULT_SETTINGS.options, ...s.options, ...data.options };
       if (!visibleTabs().includes(state.tab)) state.tab = 'colors';
       persistSettings();
@@ -1693,15 +1713,19 @@ function setAutoApply(level: Settings['autoApply']) {
   render();
 }
 
-function setReattachDivergent(on: boolean) {
-  state.settings.reattachDivergent = on;
-  persistSettings();
+/** Option globale (session) : toutes les divergentes de l'analyse rejoignent « Appliquer » ; les retraits ligne à ligne repartent de zéro. */
+function setIncludeDivergent(on: boolean) {
+  state.includeDivergent = on;
+  state.excluded.clear();
   render();
 }
 
-/** Consentement par ligne pour une divergente : incluse dans les corrections en attente, corrigée seulement par « Appliquer ». */
+/** Consentement par ligne pour une divergente : incluse dans (ou retirée des) corrections en attente, corrigée seulement par « Appliquer ». */
 function setRowConsented(row: Row, on: boolean) {
-  if (on) state.consented.add(row.key);
+  if (state.includeDivergent) {
+    if (on) state.excluded.delete(row.key);
+    else state.excluded.add(row.key);
+  } else if (on) state.consented.add(row.key);
   else state.consented.delete(row.key);
   render();
 }
@@ -1880,6 +1904,23 @@ function renderCompare(): HTMLElement {
         render();
       },
     ),
+    // Thème de la vue : par défaut celui du plugin ; clair ou sombre à part pour mieux lire certains composants.
+    el(
+      'div',
+      { class: 'select cmp-theme', title: t('cmpTheme') },
+      el(
+        'select',
+        {
+          'aria-label': t('cmpTheme'),
+          onchange: (e) => {
+            state.settings.compareTheme = (e.target as HTMLSelectElement).value as Settings['compareTheme'];
+            persistSettings();
+            render();
+          },
+        },
+        ...(['auto', 'light', 'dark'] as Settings['compareTheme'][]).map((v) => el('option', { value: v, selected: state.settings.compareTheme === v }, v === 'auto' ? t('cmpThemeAuto') : v === 'light' ? t('themeLight') : t('themeDark'))),
+      ),
+    ),
     el('button', { class: 'icon-btn', 'data-act': 'compare-close', title: t('compareClose'), 'aria-label': t('compareClose'), onclick: () => toggleCompare(false) }, svgIcon('close')),
   );
   cmpZoomLabel = el('button', { class: 'cmp-zoom-val num', title: t('cmpZoom100'), onclick: () => setZoom(1) }, `${Math.round(c.zoom * 100)} %`);
@@ -1969,7 +2010,8 @@ function renderCompare(): HTMLElement {
   cmpObserver.observe(cmpStage);
   requestAnimationFrame(() => drawCompare());
 
-  const aside = el('aside', { class: 'compare', style: `--cmp-w:${c.width}px`, 'aria-label': t('compareOpen') }, head, tools, cmpStage, renderCompareFoot());
+  const themeAttr = state.settings.compareTheme === 'auto' ? {} : { 'data-theme': state.settings.compareTheme };
+  const aside = el('aside', { class: 'compare', style: `--cmp-w:${c.width}px`, 'aria-label': t('compareOpen'), ...themeAttr }, head, tools, cmpStage, renderCompareFoot());
   return aside;
 }
 
@@ -2071,10 +2113,11 @@ function drawCompare() {
   const oy = Math.round((ch - size.h) / 2 + c.pan.y);
   const fw = frame.width * z;
   const fh = frame.height * z;
-  const style = getComputedStyle(document.documentElement);
+  // Couleurs lues sur la scène : elles suivent le thème propre de la vue quand il diffère du plugin.
+  const style = getComputedStyle(cmpStage ?? document.documentElement);
   const labelBg = style.getPropertyValue('--bg-inverse').trim() || '#2c2c2c';
   const labelFg = style.getPropertyValue('--text-oninverse').trim() || '#ffffff';
-  const frameBorder = 'rgba(0, 0, 0, 0.12)';
+  const frameBorder = style.getPropertyValue('--cmp-frame-border').trim() || 'rgba(0, 0, 0, 0.12)';
   // Pixels nets quand on dépasse la résolution de l'export, lissage sinon.
   ctx.imageSmoothingEnabled = z * dpr <= frame.scale;
   ctx.imageSmoothingQuality = 'high';
@@ -2327,6 +2370,8 @@ window.onmessage = (event: MessageEvent) => {
       const stored = msg.settings as Partial<Settings>;
       state.settings = { ...DEFAULT_SETTINGS, ...stored, options: { ...DEFAULT_SETTINGS.options, ...(stored.options ?? {}) } };
       if (!['auto', 'page', 'file'].includes(state.settings.scope)) state.settings.scope = 'auto';
+      if (!['auto', 'light', 'dark'].includes(state.settings.theme)) state.settings.theme = 'auto';
+      if (!['auto', 'light', 'dark'].includes(state.settings.compareTheme)) state.settings.compareTheme = 'auto';
       if (!stored.locale) state.settings.locale = detectLocale();
       state.i18n = new I18n(state.settings.locale);
       document.documentElement.lang = state.settings.locale;

@@ -316,7 +316,8 @@ module.exports = {
     enabledRules: [],
     autoApply: "exact",
     compareFollowsSelection: true,
-    reattachDivergent: false,
+    theme: "auto",
+    compareTheme: "auto",
     window: { width: 680, height: 640 }
   };
 

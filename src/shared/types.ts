@@ -52,6 +52,9 @@ export type Locale = 'fr' | 'en';
 /** Lignes incluses dans « Appliquer » quand rien n'est sélectionné : exactes seules, + proches, ou toutes (y compris ambiguës). */
 export type AutoApplyLevel = 'exact' | 'close' | 'all';
 
+/** Thème : `auto` suit Figma (plugin) ou le plugin (vue Comparer). */
+export type ThemeSetting = 'auto' | 'light' | 'dark';
+
 export interface SuggestionAlternative {
   id: string;
   label: string;
@@ -135,8 +138,10 @@ export interface Settings {
   autoApply: AutoApplyLevel;
   /** Volet Comparer : rendre l'élément sélectionné sur le canvas (sinon les cadres concernés). */
   compareFollowsSelection: boolean;
-  /** Pro : inclure dans « Appliquer » les rattachements d'instances détachées divergentes (consentement explicite). */
-  reattachDivergent: boolean;
+  /** Thème du plugin : `auto` suit le thème choisi dans Figma. */
+  theme: ThemeSetting;
+  /** Thème de la vue Comparer : `auto` suit le plugin. */
+  compareTheme: ThemeSetting;
   /** Taille de la colonne principale (hors volet Comparer). */
   window: { width: number; height: number };
 }
@@ -165,7 +170,8 @@ export const DEFAULT_SETTINGS: Settings = {
   enabledRules: [],
   autoApply: 'exact',
   compareFollowsSelection: true,
-  reattachDivergent: false,
+  theme: 'auto',
+  compareTheme: 'auto',
   window: { width: 680, height: 640 },
 };
 

@@ -61,6 +61,98 @@
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
   --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);
   --focus-ring: 0 0 0 1px var(--bg), 0 0 0 3px var(--border-brand);
+  /* Liseré des cadres rendus dans la vue Comparer. */
+  --cmp-frame-border: rgba(0, 0, 0, 0.12);
+}
+html.figma-dark {
+  --cmp-frame-border: rgba(255, 255, 255, 0.16);
+}
+
+/* ---- Thèmes forcés ------------------------------------------------------
+   Le plugin suit Figma par défaut (classes figma-light / figma-dark). Un thème
+   forcé sur <html> (réglage « Thème du plugin ») ou sur le volet Comparer
+   (thème de la vue) redéfinit directement les alias ci-dessus : palette
+   claire mesurée sur Check designs, palette sombre de Figma.
+   ------------------------------------------------------------------------- */
+html[data-theme='light'],
+.compare[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-2: #f5f5f5;
+  --bg-3: #e6e6e6;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --bg-selected: #e5f4ff;
+  --bg-brand: #0d99ff;
+  --bg-brand-hover: #007be5;
+  --bg-brand-3: #e5f4ff;
+  --bg-danger: #f24822;
+  --bg-warning: #ffcd29;
+  --bg-success: #14ae5c;
+  --bg-inverse: #2c2c2c;
+  --bg-disabled: #e6e6e6;
+  --text: #1a1a1a;
+  --text-strong: #000000;
+  --text-2: #7f7f7f;
+  --text-3: #b3b3b3;
+  --text-brand: #007be5;
+  --text-danger: #dc3412;
+  --text-warning: #a8720b;
+  --text-success: #009951;
+  --text-component: #7b3ff2;
+  --text-onbrand: #ffffff;
+  --text-oninverse: #ffffff;
+  --text-disabled: rgba(0, 0, 0, 0.3);
+  --border: #e6e6e6;
+  --border-strong: #2c2c2c;
+  --border-brand: #0d99ff;
+  --border-success: #b9ebc6;
+  --border-component: #dcd0ff;
+  --icon: #1a1a1a;
+  --icon-2: #7f7f7f;
+  --icon-3: #b2b2b2;
+  --icon-brand: #007be5;
+  --focus-ring: 0 0 0 1px var(--bg), 0 0 0 3px var(--border-brand);
+  --cmp-frame-border: rgba(0, 0, 0, 0.12);
+}
+html[data-theme='dark'],
+.compare[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #2c2c2c;
+  --bg-2: #383838;
+  --bg-3: #444444;
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-selected: #394a5e;
+  --bg-brand: #0c8ce9;
+  --bg-brand-hover: #0a6dc2;
+  --bg-brand-3: #1d3a55;
+  --bg-danger: #f24822;
+  --bg-warning: #ffcd29;
+  --bg-success: #14ae5c;
+  --bg-inverse: #e6e6e6;
+  --bg-disabled: rgba(255, 255, 255, 0.1);
+  --text: rgba(255, 255, 255, 0.9);
+  --text-strong: #ffffff;
+  --text-2: rgba(255, 255, 255, 0.6);
+  --text-3: rgba(255, 255, 255, 0.4);
+  --text-brand: #7cc4ff;
+  --text-danger: #ff8a7a;
+  --text-warning: #ffd36a;
+  --text-success: #79d297;
+  --text-component: #c7a9ff;
+  --text-onbrand: #ffffff;
+  --text-oninverse: #1e1e1e;
+  --text-disabled: rgba(255, 255, 255, 0.4);
+  --border: #444444;
+  --border-strong: #a6a6a6;
+  --border-brand: #0c8ce9;
+  --border-success: #2f6b44;
+  --border-component: #6c49d2;
+  --icon: rgba(255, 255, 255, 0.9);
+  --icon-2: rgba(255, 255, 255, 0.6);
+  --icon-3: rgba(255, 255, 255, 0.35);
+  --icon-brand: #7cc4ff;
+  --focus-ring: 0 0 0 1px var(--bg), 0 0 0 3px var(--border-brand);
+  --cmp-frame-border: rgba(255, 255, 255, 0.16);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1362,6 +1454,8 @@ details.accordion .body {
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--bg);
+  /* Couleur posée ici (pas seulement héritée de body) : le volet peut avoir son propre thème. */
+  color: var(--text);
   animation: fade-in var(--d-panel) var(--ease-out);
 }
 .cmp-head {
@@ -1566,4 +1660,15 @@ details.accordion .body {
 .cmp-vision select {
   height: 24px;
   max-width: 132px;
+}
+.cmp-theme {
+  flex: 0 0 auto;
+}
+.cmp-theme select {
+  height: 24px;
+  max-width: 88px;
+}
+.about .signature {
+  color: var(--text);
+  font-weight: 500;
 }
