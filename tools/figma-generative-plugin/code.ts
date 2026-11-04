@@ -6,7 +6,7 @@
 // dans ce bac à sable et affiche sa propre interface. Aucune donnée du fichier Figma
 // ne quitte Figma : seul le code du plugin est téléchargé.
 
-const BUILD_COMMIT = 'd6617618ff80fa67c3b75706417ab4be0f68795b'
+const BUILD_COMMIT = 'c3e1412ab845623b96360a1c30ef4e5240eeb148'
 const BUILD_BASE = 'https://cdn.jsdelivr.net/gh/ivansmart/senior-check-design@' + BUILD_COMMIT + '/dist/'
 
 type LoaderMessage =
