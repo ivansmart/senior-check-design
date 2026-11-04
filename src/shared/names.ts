@@ -176,3 +176,82 @@ export function ellipsize(s: string, max = 28): string {
   if (s.length <= max) return s;
   return s.slice(0, Math.max(1, Math.floor(max / 2) - 1)) + '…' + s.slice(-Math.floor(max / 2));
 }
+
+// ---------------------------------------------------------------------------
+// Heuristiques Pro (V2) : tokens, composants, craft, accessibilité
+// ---------------------------------------------------------------------------
+
+/** Token « primitif » : palette brute (blue/500, gray-100, neutral.900…). */
+const PRIMITIVE_TOKEN_RE =
+  /(^|\/|\.)(blue|red|green|gray|grey|neutral|orange|yellow|purple|violet|pink|teal|cyan|indigo|slate|zinc|stone|amber|lime|emerald|sky|rose|fuchsia|brown|black|white|magenta|mint)[-_/. ]?(\d{1,4}|lightest|lighter|light|dark|darker|darkest|base)$/i;
+const PRIMITIVE_COLLECTION_RE = /primitive|core|base|palette|raw|foundation|global/i;
+/** Token « sémantique » : rôle d'usage plutôt que valeur. */
+const SEMANTIC_TOKEN_RE =
+  /(^|\/|\.|-|_)(action|brand|text|surface|background|bg|border|stroke|icon|fg|foreground|accent|success|danger|error|warning|info|link|interactive|disabled|muted|inverse|overlay|focus|on)(\/|\.|-|_|$)/i;
+
+export function looksPrimitiveToken(name: string, collection = ''): boolean {
+  if (SEMANTIC_TOKEN_RE.test(name)) return false;
+  return PRIMITIVE_TOKEN_RE.test(name) || PRIMITIVE_COLLECTION_RE.test(collection);
+}
+
+export function looksSemanticToken(name: string): boolean {
+  return SEMANTIC_TOKEN_RE.test(name);
+}
+
+export const DEPRECATED_RE = /\b(deprecated|obsolete|legacy|do not use|don['’]t use|ne pas utiliser|obsol[eè]te|à supprimer)\b|⚠️|⚠|🚫|❌|☠️/i;
+
+export const STATUS_RE = /\b(draft|wip|work in progress|beta|alpha|stable|deprecated|ready|in review|experimental|brouillon|validé|valide)\b|🟢|🟡|🟠|🔴|✅|🚧|🧪/i;
+
+export const DESTRUCTIVE_RE =
+  /\b(delete|remove|supprimer|effacer|trash|retirer|destroy|clear all|tout effacer|unsubscribe|désinscrire|desinscrire|deactivate|désactiver|desactiver|close account|fermer le compte|reset|réinitialiser|reinitialiser|discard|abandonner)\b/i;
+
+export const CONFIRM_RE = /\b(confirm|confirmation|dialog|modal|alert|undo|annuler|toast|snackbar|are you sure|êtes-vous sûr|es-tu sûr|sure\?)\b/i;
+
+export const RECOVERY_RE =
+  /\b(retry|réessayer|reessayer|try again|contact|support|back|retour|help|aide|reload|recharger|refresh|actualiser|go home|accueil|réinitialiser|reinitialiser|reset)\b/i;
+
+export const GENERIC_ERROR_RE =
+  /^(erreur|error|une erreur est survenue|une erreur s['’]est produite|something went wrong|an error occurred|an error has occurred|oops!?|oups!?|échec|echec|failed|erreur inconnue|unknown error|error\s*\d{3})[.!…]*$/i;
+
+export const ERROR_NAME_RE = /\b(error|erreur|échec|echec|failed|failure|invalid)\b/i;
+
+export const ICON_NAME_RE = /\b(icon|icône|icone|ico|glyph|symbol|pictogram|picto)\b/i;
+
+/** Niveau de titre déduit du nom d'un style de texte (« Heading/H2 », « Title 1 », « h3 »). */
+export function headingLevel(styleName: string): number | null {
+  const m = /(^|\/|\s|-|_)(h|heading|title|titre|headline|display)[\s/_-]?([1-6])\b/i.exec(styleName);
+  return m ? Number(m[3]) : null;
+}
+
+export type LabelCase = 'upper' | 'title' | 'sentence' | 'lower' | 'other';
+
+/** Casse d'un libellé court (bouton, onglet). */
+export function labelCase(text: string): LabelCase {
+  const words = text.trim().split(/\s+/).filter((w) => /\p{L}/u.test(w));
+  if (!words.length) return 'other';
+  const letters = words.join('');
+  if (letters === letters.toUpperCase() && letters !== letters.toLowerCase()) return 'upper';
+  if (letters === letters.toLowerCase()) return 'lower';
+  const startsUpper = (w: string) => /^\p{Lu}/u.test(w);
+  if (words.length >= 2 && words.every((w) => startsUpper(w) || w.length <= 2)) return 'title';
+  if (startsUpper(words[0]) && words.slice(1).every((w) => !startsUpper(w))) return 'sentence';
+  return 'other';
+}
+
+export const LABEL_CASE_EXAMPLE: Record<LabelCase, string> = {
+  upper: 'ENREGISTRER',
+  title: 'Enregistrer Les Modifications',
+  sentence: 'Enregistrer les modifications',
+  lower: 'enregistrer',
+  other: '',
+};
+
+/** Nom normalisé pour comparer des conteneurs « de même rôle » (sans numéros ni suffixes). */
+export function roleName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s*copy(\s*\d+)?$/i, '')
+    .replace(/[\s_-]*\d+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}

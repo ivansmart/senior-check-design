@@ -6,6 +6,7 @@
 import { resolveActiveRules } from '../shared/rules-catalog';
 import { DEFAULT_OPTIONS } from '../shared/types';
 import { applyPlan } from './fix/apply';
+import { ALL_RULES } from './rules';
 import { runScan } from './scan/engine';
 
-(globalThis as unknown as { SCD: unknown }).SCD = { runScan, applyPlan, resolveActiveRules, DEFAULT_OPTIONS };
+(globalThis as unknown as { SCD: unknown }).SCD = { runScan, applyPlan, resolveActiveRules, DEFAULT_OPTIONS, ALL_RULES };

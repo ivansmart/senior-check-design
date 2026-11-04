@@ -1,6 +1,7 @@
 "use strict";
 (() => {
   // src/shared/rules-catalog.ts
+  var WCAG = "https://www.w3.org/WAI/WCAG22/Understanding/";
   var RULES = [
     // Couleurs
     { id: "colors/hardcoded-fill", category: "colors", severity: "error" },
@@ -9,9 +10,17 @@
     { id: "typography/no-text-style", category: "typography", severity: "error" },
     { id: "typography/mixed-styles", category: "typography", severity: "info" },
     { id: "typography/off-scale-size", category: "typography", severity: "warning" },
-    // Espacement
+    { id: "typography/near-duplicate-styles", category: "typography", severity: "info", aggregate: true, tier: "pro" },
+    { id: "typography/line-length", category: "typography", severity: "info", tier: "pro" },
+    { id: "typography/line-height-inconsistent", category: "typography", severity: "warning", aggregate: true, tier: "pro" },
+    { id: "typography/label-case", category: "typography", severity: "info", aggregate: true, tier: "pro" },
+    // Espacement et layout
     { id: "spacing/off-scale-padding", category: "spacing", severity: "warning" },
     { id: "spacing/off-scale-gap", category: "spacing", severity: "warning" },
+    { id: "spacing/rhythm-near-miss", category: "spacing", severity: "info", aggregate: true, tier: "pro" },
+    { id: "spacing/fixed-should-fill", category: "spacing", severity: "warning", tier: "pro" },
+    { id: "spacing/fixed-should-hug", category: "spacing", severity: "info", tier: "pro" },
+    { id: "spacing/text-overlap", category: "spacing", severity: "warning", tier: "pro" },
     // Radius
     { id: "radius/not-tokenized", category: "radius", severity: "warning" },
     // Composants
@@ -20,6 +29,19 @@
     { id: "components/heavy-overrides", category: "components", severity: "info" },
     { id: "components/duplicate-component", category: "components", severity: "info", aggregate: true },
     { id: "components/no-description", category: "components", severity: "info" },
+    { id: "components/deprecated-in-use", category: "components", severity: "warning", tier: "pro" },
+    { id: "components/orphan-variant", category: "components", severity: "info", aggregate: true, tier: "pro" },
+    { id: "components/useless-nesting", category: "components", severity: "info", tier: "pro" },
+    { id: "components/no-doc-link", category: "components", severity: "info", aggregate: true, tier: "pro" },
+    { id: "components/no-status", category: "components", severity: "info", aggregate: true, tier: "pro" },
+    // Architecture des tokens (Pro)
+    { id: "tokens/broken-alias", category: "tokens", severity: "error", aggregate: true, tier: "pro" },
+    { id: "tokens/circular-alias", category: "tokens", severity: "error", aggregate: true, tier: "pro" },
+    { id: "tokens/orphan", category: "tokens", severity: "info", aggregate: true, tier: "pro" },
+    { id: "tokens/duplicate-value", category: "tokens", severity: "info", aggregate: true, tier: "pro" },
+    { id: "tokens/primitive-bound", category: "tokens", severity: "warning", tier: "pro" },
+    { id: "tokens/mode-gap", category: "tokens", severity: "info", aggregate: true, tier: "pro" },
+    { id: "tokens/unscoped", category: "tokens", severity: "info", aggregate: true, tier: "pro" },
     // Craft & interaction
     { id: "craft/missing-state", category: "craft", severity: "warning" },
     { id: "craft/missing-loading-state", category: "craft", severity: "warning" },
@@ -27,29 +49,39 @@
     { id: "craft/state-naming", category: "craft", severity: "info", aggregate: true },
     { id: "craft/missing-hover-transition", category: "craft", severity: "info" },
     { id: "craft/inconsistent-motion", category: "craft", severity: "warning", aggregate: true },
+    { id: "craft/missing-success-state", category: "craft", severity: "info", tier: "pro" },
+    { id: "craft/destructive-without-confirm", category: "craft", severity: "warning", aggregate: true, tier: "pro" },
+    { id: "craft/error-without-recovery", category: "craft", severity: "warning", tier: "pro" },
+    { id: "craft/generic-error-message", category: "craft", severity: "info", tier: "pro" },
+    { id: "craft/duplicate-state", category: "craft", severity: "warning", tier: "pro" },
+    { id: "craft/state-matrix-thin", category: "craft", severity: "info", tier: "pro" },
+    { id: "craft/inconsistent-easing", category: "craft", severity: "warning", aggregate: true, tier: "pro" },
+    { id: "craft/transition-too-long", category: "craft", severity: "warning", tier: "pro" },
+    { id: "craft/non-reversible-hover", category: "craft", severity: "warning", tier: "pro" },
     // Accessibilité
-    {
-      id: "a11y/text-contrast",
-      category: "a11y",
-      severity: "error",
-      docUrl: "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html"
-    },
+    { id: "a11y/text-contrast", category: "a11y", severity: "error", docUrl: `${WCAG}contrast-minimum.html` },
     { id: "a11y/contrast-not-verifiable", category: "a11y", severity: "info" },
-    {
-      id: "a11y/touch-target",
-      category: "a11y",
-      severity: "warning",
-      docUrl: "https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html"
-    },
+    { id: "a11y/touch-target", category: "a11y", severity: "warning", docUrl: `${WCAG}target-size-minimum.html` },
     { id: "a11y/text-too-small", category: "a11y", severity: "info" },
+    { id: "a11y/heading-skip", category: "a11y", severity: "info", aggregate: true, tier: "pro", docUrl: `${WCAG}info-and-relationships.html` },
+    { id: "a11y/icon-contrast", category: "a11y", severity: "warning", tier: "pro", docUrl: `${WCAG}non-text-contrast.html` },
+    { id: "a11y/border-contrast", category: "a11y", severity: "warning", tier: "pro", docUrl: `${WCAG}non-text-contrast.html` },
+    { id: "a11y/icon-only-without-label", category: "a11y", severity: "warning", tier: "pro", docUrl: `${WCAG}name-role-value.html` },
+    { id: "a11y/color-only-status", category: "a11y", severity: "info", tier: "pro", docUrl: `${WCAG}use-of-color.html` },
     // Handoff
     { id: "handoff/fractional-size", category: "handoff", severity: "info" },
     { id: "handoff/fractional-position", category: "handoff", severity: "info" },
-    { id: "handoff/stackable-without-autolayout", category: "handoff", severity: "info" }
+    { id: "handoff/stackable-without-autolayout", category: "handoff", severity: "info" },
+    { id: "handoff/repeated-pattern", category: "handoff", severity: "info", tier: "pro" },
+    { id: "handoff/image-crop", category: "handoff", severity: "info", tier: "pro" }
   ];
   var RULE_BY_ID = Object.fromEntries(RULES.map((r) => [r.id, r]));
   var ALL_RULE_IDS = RULES.map((r) => r.id);
+  var CLASSIC_RULE_IDS = RULES.filter((r) => !r.tier).map((r) => r.id);
+  var PRO_RULE_IDS = RULES.filter((r) => r.tier === "pro").map((r) => r.id);
   var byCategory = (...cats) => RULES.filter((r) => cats.includes(r.category)).map((r) => r.id);
+  var byPrefix = (...prefixes) => ALL_RULE_IDS.filter((id) => prefixes.some((p) => id.startsWith(p)));
+  var unique = (ids) => [...new Set(ids)];
   var PRESETS = {
     quick: [
       "colors/hardcoded-fill",
@@ -60,27 +92,202 @@
       "components/detached-instance",
       "components/default-name"
     ],
-    handoff: [
+    handoff: unique([
       ...byCategory("colors", "typography", "spacing", "radius", "handoff"),
       "components/detached-instance",
       "components/default-name",
-      "components/heavy-overrides"
-    ],
-    "design-system": [
-      ...byCategory("colors", "typography", "spacing", "radius", "components"),
+      "components/heavy-overrides",
+      "components/deprecated-in-use",
+      "components/useless-nesting"
+    ]),
+    "design-system": unique([
+      ...byCategory("colors", "typography", "spacing", "radius", "components", "tokens"),
       "craft/state-naming",
-      "craft/missing-state"
-    ],
-    a11y: [...byCategory("a11y"), "craft/missing-state"],
-    craft: [...byCategory("craft"), "a11y/touch-target"],
+      "craft/missing-state",
+      "craft/duplicate-state",
+      "craft/state-matrix-thin"
+    ]),
+    a11y: unique([...byCategory("a11y"), "craft/missing-state"]),
+    craft: unique([...byCategory("craft"), "a11y/touch-target", "a11y/icon-only-without-label"]),
+    preflight: unique([
+      ...byCategory("tokens", "components", "craft", "handoff"),
+      ...byPrefix("colors/", "radius/"),
+      "typography/no-text-style",
+      "typography/near-duplicate-styles",
+      "typography/line-height-inconsistent",
+      "spacing/off-scale-padding",
+      "spacing/off-scale-gap",
+      "spacing/fixed-should-fill",
+      "a11y/text-contrast",
+      "a11y/icon-contrast",
+      "a11y/touch-target"
+    ]),
     strict: ALL_RULE_IDS
   };
-  function resolveActiveRules(preset, disabled, enabled) {
+  function resolveActiveRules(preset, disabled, enabled, mode = "pro") {
     var _a;
     const set = new Set((_a = PRESETS[preset]) != null ? _a : PRESETS.quick);
     for (const id of enabled) if (RULE_BY_ID[id]) set.add(id);
     for (const id of disabled) set.delete(id);
+    if (mode === "classic") for (const id of PRO_RULE_IDS) set.delete(id);
     return set;
+  }
+
+  // src/shared/tokens-export.ts
+  var segments = (name) => name.split("/").map((s) => s.trim()).filter(Boolean);
+  var kebab = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+  function findVariable(model, collection, name) {
+    const col = model.collections.find((c) => c.name === collection);
+    const v = col == null ? void 0 : col.variables.find((x) => x.name === name);
+    return col && v ? { col, v } : null;
+  }
+  function resolveValue(model, col, v, modeId, depth = 0) {
+    var _a, _b, _c, _d;
+    const value = (_a = v.valuesByMode[modeId]) != null ? _a : v.valuesByMode[col.defaultModeId];
+    if (!value) return null;
+    if (value.kind !== "alias") return value;
+    if (depth > 12) return null;
+    const target = findVariable(model, value.collection, value.name);
+    if (!target) return null;
+    const modeName = (_b = col.modes.find((m) => m.id === modeId)) == null ? void 0 : _b.name;
+    const targetMode = (_d = (_c = target.col.modes.find((m) => m.name === modeName)) == null ? void 0 : _c.id) != null ? _d : target.col.defaultModeId;
+    return resolveValue(model, target.col, target.v, targetMode, depth + 1);
+  }
+  function plain(value) {
+    switch (value.kind) {
+      case "color":
+        return value.hex;
+      case "number":
+        return value.value;
+      case "string":
+        return value.value;
+      case "boolean":
+        return value.value;
+      case "alias":
+        return `{${[kebab(value.collection), ...segments(value.name).map(kebab)].join(".")}}`;
+    }
+  }
+  var dtcgType = (t) => t === "COLOR" ? "color" : t === "FLOAT" ? "number" : t === "STRING" ? "string" : "boolean";
+  function toDtcg(model) {
+    var _a, _b;
+    const root = {};
+    for (const col of model.collections) {
+      const group = {};
+      for (const v of col.variables) {
+        let node = group;
+        const path = segments(v.name).map(kebab);
+        for (const seg of path.slice(0, -1)) {
+          node[seg] = (_a = node[seg]) != null ? _a : {};
+          node = node[seg];
+        }
+        const def = v.valuesByMode[col.defaultModeId];
+        const token = { $type: dtcgType(v.type), $value: def ? plain(def) : null };
+        if (v.description) token.$description = v.description;
+        const modes = {};
+        for (const m of col.modes) {
+          const mv = v.valuesByMode[m.id];
+          if (mv) modes[m.name] = plain(mv);
+        }
+        token.$extensions = { "com.figma": { scopes: v.scopes, ...col.modes.length > 1 ? { modes } : {} } };
+        node[(_b = path[path.length - 1]) != null ? _b : kebab(v.name)] = token;
+      }
+      root[kebab(col.name)] = group;
+    }
+    return JSON.stringify(root, null, 2) + "\n";
+  }
+  var cssVar = (collection, name) => `--${kebab(collection)}-${segments(name).map(kebab).join("-")}`;
+  function cssValue(value, type) {
+    switch (value.kind) {
+      case "alias":
+        return `var(${cssVar(value.collection, value.name)})`;
+      case "number":
+        return type === "FLOAT" ? `${value.value}px` : String(value.value);
+      case "color":
+        return value.hex;
+      case "string":
+        return JSON.stringify(value.value);
+      case "boolean":
+        return value.value ? "1" : "0";
+    }
+  }
+  function toCss(model) {
+    const lines = [];
+    lines.push(":root {");
+    for (const col of model.collections) {
+      for (const v of col.variables) {
+        const value = v.valuesByMode[col.defaultModeId];
+        if (value) lines.push(`  ${cssVar(col.name, v.name)}: ${cssValue(value, v.type)};`);
+      }
+    }
+    lines.push("}");
+    for (const col of model.collections) {
+      for (const mode of col.modes) {
+        if (mode.id === col.defaultModeId) continue;
+        lines.push("");
+        lines.push(`[data-theme="${kebab(mode.name)}"] {`);
+        for (const v of col.variables) {
+          const value = v.valuesByMode[mode.id];
+          if (value) lines.push(`  ${cssVar(col.name, v.name)}: ${cssValue(value, v.type)};`);
+        }
+        lines.push("}");
+      }
+    }
+    return lines.join("\n") + "\n";
+  }
+  function setPath(root, path, value) {
+    let node = root;
+    for (const seg of path.slice(0, -1)) {
+      const next = node[seg];
+      if (typeof next !== "object" || next === null) node[seg] = {};
+      node = node[seg];
+    }
+    const last = path[path.length - 1];
+    if (typeof node[last] === "object") node[last].DEFAULT = value;
+    else node[last] = value;
+  }
+  var tailwindBucket = (v) => {
+    const s = new Set(v.scopes);
+    if (s.has("CORNER_RADIUS") || /radius|corner|round/i.test(v.name)) return "borderRadius";
+    if (s.has("FONT_SIZE") || /font.?size|text.?size|type.?scale/i.test(v.name)) return "fontSize";
+    if (s.has("GAP") || s.has("WIDTH_HEIGHT") || /spac|gap|pad|inset|size|grid/i.test(v.name)) return "spacing";
+    return "other";
+  };
+  function toTailwind(model) {
+    const colors = {};
+    const spacing = {};
+    const borderRadius = {};
+    const fontSize = {};
+    const other = {};
+    for (const col of model.collections) {
+      for (const v of col.variables) {
+        const resolved = resolveValue(model, col, v, col.defaultModeId);
+        if (!resolved || resolved.kind === "alias") continue;
+        const path = segments(v.name).map(kebab);
+        if (v.type === "COLOR" && resolved.kind === "color") {
+          setPath(colors, path[0] === "color" || path[0] === "colors" ? path.slice(1) : path, resolved.hex);
+        } else if (v.type === "FLOAT" && resolved.kind === "number") {
+          const bucket = tailwindBucket(v);
+          const target = bucket === "spacing" ? spacing : bucket === "borderRadius" ? borderRadius : bucket === "fontSize" ? fontSize : other;
+          setPath(target, [path.slice(1).join("-") || path[0]], `${resolved.value}px`);
+        }
+      }
+    }
+    const extend = {};
+    if (Object.keys(colors).length) extend.colors = colors;
+    if (Object.keys(spacing).length) extend.spacing = spacing;
+    if (Object.keys(borderRadius).length) extend.borderRadius = borderRadius;
+    if (Object.keys(fontSize).length) extend.fontSize = fontSize;
+    if (Object.keys(other).length) extend.figmaNumbers = other;
+    return `/** G\xE9n\xE9r\xE9 par Senior Check Design \xE0 partir des variables Figma locales. */
+module.exports = {
+  theme: {
+    extend: ${JSON.stringify(extend, null, 2).replace(/\n/g, "\n    ")},
+  },
+};
+`;
+  }
+  function countVariables(model) {
+    return model.collections.reduce((n, c) => n + c.variables.length, 0);
   }
 
   // src/shared/types.ts
@@ -97,6 +304,7 @@
   };
   var DEFAULT_SETTINGS = {
     locale: "fr",
+    mode: "classic",
     preset: "quick",
     scope: "auto",
     options: DEFAULT_OPTIONS,
@@ -108,6 +316,111 @@
     compareFollowsSelection: true,
     window: { width: 680, height: 640 }
   };
+
+  // src/shared/color.ts
+  var clamp01 = (v) => Math.min(1, Math.max(0, v));
+  function rgbToHex(c, alpha) {
+    const to = (v) => Math.round(clamp01(v) * 255).toString(16).padStart(2, "0").toUpperCase();
+    const base = `#${to(c.r)}${to(c.g)}${to(c.b)}`;
+    if (alpha !== void 0 && alpha < 0.999) return `${base}${to(alpha)}`;
+    return base;
+  }
+  function colorKey(c, alpha = 1) {
+    return rgbToHex(c) + "@" + Math.round(clamp01(alpha) * 100);
+  }
+  function srgbToLinear(v) {
+    v = clamp01(v);
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }
+  function rgbToLab(c) {
+    const r = srgbToLinear(c.r);
+    const g = srgbToLinear(c.g);
+    const b = srgbToLinear(c.b);
+    let x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;
+    let y = (r * 0.2126729 + g * 0.7151522 + b * 0.072175) / 1;
+    let z = (r * 0.0193339 + g * 0.119192 + b * 0.9503041) / 1.08883;
+    const f = (t) => t > 8856e-6 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+    x = f(x);
+    y = f(y);
+    z = f(z);
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+  }
+  function deltaE(a, b) {
+    const [l1, a1, b1] = rgbToLab(a);
+    const [l2, a2, b2] = rgbToLab(b);
+    return Math.sqrt((l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2);
+  }
+  function relativeLuminance(c) {
+    return 0.2126 * srgbToLinear(c.r) + 0.7152 * srgbToLinear(c.g) + 0.0722 * srgbToLinear(c.b);
+  }
+  function contrastRatio(fg, bg) {
+    const l1 = relativeLuminance(fg);
+    const l2 = relativeLuminance(bg);
+    const [hi, lo] = l1 >= l2 ? [l1, l2] : [l2, l1];
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function composite(fg, alpha, bg) {
+    const a = clamp01(alpha);
+    return {
+      r: fg.r * a + bg.r * (1 - a),
+      g: fg.g * a + bg.g * (1 - a),
+      b: fg.b * a + bg.b * (1 - a)
+    };
+  }
+  function isLargeText(fontSize, bold) {
+    return fontSize >= 24 || bold && fontSize >= 18.66;
+  }
+  function evaluateContrast(ratio, large) {
+    const aa = large ? 3 : 4.5;
+    const aaa = large ? 4.5 : 7;
+    const passesAA = ratio >= aa;
+    const passesAAA = ratio >= aaa;
+    const level = passesAAA ? "AAA" : passesAA ? large ? "AA-large" : "AA" : "fail";
+    return { level, passesAA, passesAAA };
+  }
+  function formatRatio(ratio) {
+    return `${(Math.round(ratio * 100) / 100).toFixed(2).replace(/\.?0+$/, "")}:1`;
+  }
+  function isBoldStyle(style) {
+    return /bold|black|heavy|extra\s*bold|semi\s*bold|demi|700|800|900/i.test(style);
+  }
+
+  // src/plugin/export/tokens-model.ts
+  var EXPORTABLE = /* @__PURE__ */ new Set(["COLOR", "FLOAT", "STRING", "BOOLEAN"]);
+  async function buildTokenModel() {
+    const [collections, variables] = await Promise.all([figma.variables.getLocalVariableCollectionsAsync(), figma.variables.getLocalVariablesAsync()]);
+    const byId = new Map(variables.map((v) => [v.id, v]));
+    const colById = new Map(collections.map((c) => [c.id, c]));
+    const convert = (value) => {
+      var _a;
+      if (typeof value === "object" && value !== null && "type" in value && value.type === "VARIABLE_ALIAS") {
+        const target = byId.get(value.id);
+        const col = target ? colById.get(target.variableCollectionId) : void 0;
+        return target ? { kind: "alias", collection: (_a = col == null ? void 0 : col.name) != null ? _a : "", name: target.name } : { kind: "string", value: "(alias inaccessible)" };
+      }
+      if (typeof value === "object" && value !== null && "r" in value) {
+        const c = value;
+        return { kind: "color", hex: rgbToHex({ r: c.r, g: c.g, b: c.b }, "a" in c ? c.a : 1) };
+      }
+      if (typeof value === "number") return { kind: "number", value: Math.round(value * 1e3) / 1e3 };
+      if (typeof value === "boolean") return { kind: "boolean", value };
+      return { kind: "string", value: String(value) };
+    };
+    return {
+      collections: collections.map((c) => ({
+        name: c.name,
+        modes: c.modes.map((m) => ({ id: m.modeId, name: m.name })),
+        defaultModeId: c.defaultModeId,
+        variables: variables.filter((v) => v.variableCollectionId === c.id && EXPORTABLE.has(v.resolvedType)).map((v) => ({
+          name: v.name,
+          type: v.resolvedType,
+          description: v.description || void 0,
+          scopes: [...v.scopes],
+          valuesByMode: Object.fromEntries(Object.entries(v.valuesByMode).map(([mode, value]) => [mode, convert(value)]))
+        }))
+      }))
+    };
+  }
 
   // src/plugin/fix/apply.ts
   var FixError = class extends Error {
@@ -143,7 +456,7 @@
     }
   }
   async function applyPlan(issueId, plan) {
-    var _a, _b;
+    var _a, _b, _c, _d;
     switch (plan.kind) {
       case "bind-paint-variable": {
         const node = await getNode(plan.nodeId);
@@ -279,6 +592,112 @@
               const inSeconds = current < 10;
               a.transition.duration = inSeconds ? plan.durationMs / 1e3 : plan.durationMs;
               touched = true;
+            }
+          }
+          if (r.actions) r.actions = actions;
+          else if (r.action) r.action = actions[0];
+        }
+        if (!touched) throw new FixError("no-transition");
+        await node.setReactionsAsync(next);
+        return {
+          issueId,
+          revert: async () => {
+            const n = await getNode(plan.nodeId);
+            await n.setReactionsAsync(before);
+          }
+        };
+      }
+      // ---- Pro ------------------------------------------------------------
+      case "set-number": {
+        const node = await getNode(plan.nodeId);
+        if (!(plan.field in node) || typeof node[plan.field] !== "number") throw new FixError("node-type");
+        const before = node[plan.field];
+        node[plan.field] = plan.value;
+        return {
+          issueId,
+          revert: async () => {
+            const n = await getNode(plan.nodeId);
+            n[plan.field] = before;
+          }
+        };
+      }
+      case "set-line-height": {
+        const node = await getNode(plan.nodeId);
+        if (node.type !== "TEXT") throw new FixError("node-type");
+        if (node.lineHeight === figma.mixed) throw new FixError("mixed-text");
+        const before = node.lineHeight;
+        await loadFontsFor(node);
+        node.lineHeight = { unit: "PIXELS", value: plan.px };
+        return {
+          issueId,
+          revert: async () => {
+            const n = await getNode(plan.nodeId);
+            await loadFontsFor(n);
+            n.lineHeight = before;
+          }
+        };
+      }
+      case "set-layout-sizing": {
+        const node = await getNode(plan.nodeId);
+        if (!("layoutSizingHorizontal" in node)) throw new FixError("node-type");
+        const host = node;
+        const before = plan.axis === "horizontal" ? host.layoutSizingHorizontal : host.layoutSizingVertical;
+        const size = { w: host.width, h: host.height };
+        if (plan.axis === "horizontal") host.layoutSizingHorizontal = plan.value;
+        else host.layoutSizingVertical = plan.value;
+        return {
+          issueId,
+          revert: async () => {
+            const n = await getNode(plan.nodeId);
+            if (plan.axis === "horizontal") n.layoutSizingHorizontal = before;
+            else n.layoutSizingVertical = before;
+            if (before === "FIXED" && "resize" in n) n.resize(size.w, size.h);
+          }
+        };
+      }
+      case "set-axis-sizing": {
+        const node = await getNode(plan.nodeId);
+        if (!("primaryAxisSizingMode" in node)) throw new FixError("node-type");
+        const host = node;
+        const before = plan.axis === "primary" ? host.primaryAxisSizingMode : host.counterAxisSizingMode;
+        const size = { w: host.width, h: host.height };
+        if (plan.axis === "primary") host.primaryAxisSizingMode = plan.value;
+        else host.counterAxisSizingMode = plan.value;
+        return {
+          issueId,
+          revert: async () => {
+            const n = await getNode(plan.nodeId);
+            if (plan.axis === "primary") n.primaryAxisSizingMode = before;
+            else n.counterAxisSizingMode = before;
+            if (before === "FIXED") n.resize(size.w, size.h);
+          }
+        };
+      }
+      case "set-hover-easing":
+      case "cap-transition-duration": {
+        const node = await getNode(plan.nodeId);
+        if (!("reactions" in node)) throw new FixError("node-type");
+        const before = clone(node.reactions);
+        const next = clone(before);
+        let touched = false;
+        for (const r of next) {
+          const t = (_c = r.trigger) == null ? void 0 : _c.type;
+          const hoverOnly = plan.kind === "set-hover-easing";
+          if (hoverOnly && t !== "ON_HOVER" && t !== "MOUSE_ENTER") continue;
+          const actions = (_d = r.actions) != null ? _d : r.action ? [r.action] : [];
+          for (const a of actions) {
+            if (a.type !== "NODE" || !a.transition || !("duration" in a.transition)) continue;
+            const tr = a.transition;
+            if (plan.kind === "set-hover-easing") {
+              tr.easing = { type: plan.easing };
+              touched = true;
+            } else {
+              const inSeconds = tr.duration < 10;
+              const ms = inSeconds ? tr.duration * 1e3 : tr.duration;
+              if (ms > plan.maxMs) {
+                tr.duration = inSeconds ? plan.maxMs / 1e3 : plan.maxMs;
+                touched = true;
+              }
             }
           }
           if (r.actions) r.actions = actions;
@@ -486,141 +905,6 @@
     return removed;
   }
 
-  // src/plugin/reveal.ts
-  var UI_CHROME_H = 40;
-  var MARGIN = 24;
-  var MIN_REGION = 96;
-  var PANEL_INSET = 240;
-  var PANEL_INSET_MIN_WIDTH = 1100;
-  function union(rects) {
-    let x1 = Infinity;
-    let y1 = Infinity;
-    let x2 = -Infinity;
-    let y2 = -Infinity;
-    for (const r of rects) {
-      x1 = Math.min(x1, r.x);
-      y1 = Math.min(y1, r.y);
-      x2 = Math.max(x2, r.x + r.width);
-      y2 = Math.max(y2, r.y + r.height);
-    }
-    return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
-  }
-  function intersects(a, b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  }
-  function clip(a, to) {
-    const x = Math.max(a.x, to.x);
-    const y = Math.max(a.y, to.y);
-    return { x, y, w: Math.min(a.x + a.w, to.x + to.w) - x, h: Math.min(a.y + a.h, to.y + to.h) - y };
-  }
-  function revealNodes(nodes, uiSize2) {
-    figma.viewport.scrollAndZoomIntoView(nodes);
-    try {
-      const rects = nodes.map((n) => n.absoluteBoundingBox).filter((r) => Boolean(r));
-      if (!rects.length) return;
-      const box = union(rects);
-      const vb = figma.viewport.bounds;
-      const zoom = figma.viewport.zoom;
-      const vw = vb.width * zoom;
-      const vh = vb.height * zoom;
-      const pos = figma.ui.getPosition().canvasSpace;
-      const plugin = clip(
-        { x: (pos.x - vb.x) * zoom, y: (pos.y - vb.y) * zoom - UI_CHROME_H, w: uiSize2.width, h: uiSize2.height + UI_CHROME_H },
-        { x: 0, y: 0, w: vw, h: vh }
-      );
-      if (plugin.w <= 0 || plugin.h <= 0) return;
-      const target = { x: (box.x - vb.x) * zoom, y: (box.y - vb.y) * zoom, w: box.width * zoom, h: box.height * zoom };
-      if (!intersects(target, plugin)) return;
-      const inset = vw >= PANEL_INSET_MIN_WIDTH ? PANEL_INSET : 0;
-      const regions = [
-        { x: inset, y: 0, w: plugin.x - inset, h: vh },
-        { x: plugin.x + plugin.w, y: 0, w: vw - inset - (plugin.x + plugin.w), h: vh },
-        { x: inset, y: 0, w: vw - 2 * inset, h: plugin.y },
-        { x: inset, y: plugin.y + plugin.h, w: vw - 2 * inset, h: vh - (plugin.y + plugin.h) }
-      ].filter((r) => r.w >= MIN_REGION && r.h >= MIN_REGION);
-      if (!regions.length) return;
-      const fits = regions.filter((r) => r.w - 2 * MARGIN >= target.w && r.h - 2 * MARGIN >= target.h);
-      const pick = (fits.length ? fits : regions).sort((a, b) => b.w * b.h - a.w * a.h)[0];
-      let nextZoom = zoom;
-      if (!fits.length) nextZoom = Math.max(0.02, Math.min(zoom, (pick.w - 2 * MARGIN) / box.width, (pick.h - 2 * MARGIN) / box.height));
-      const regionCx = pick.x + pick.w / 2;
-      const regionCy = pick.y + pick.h / 2;
-      const cx = box.x + box.width / 2;
-      const cy = box.y + box.height / 2;
-      figma.viewport.zoom = nextZoom;
-      figma.viewport.center = { x: cx + (vw / 2 - regionCx) / nextZoom, y: cy + (vh / 2 - regionCy) / nextZoom };
-    } catch {
-    }
-  }
-
-  // src/shared/color.ts
-  var clamp01 = (v) => Math.min(1, Math.max(0, v));
-  function rgbToHex(c, alpha) {
-    const to = (v) => Math.round(clamp01(v) * 255).toString(16).padStart(2, "0").toUpperCase();
-    const base = `#${to(c.r)}${to(c.g)}${to(c.b)}`;
-    if (alpha !== void 0 && alpha < 0.999) return `${base}${to(alpha)}`;
-    return base;
-  }
-  function colorKey(c, alpha = 1) {
-    return rgbToHex(c) + "@" + Math.round(clamp01(alpha) * 100);
-  }
-  function srgbToLinear(v) {
-    v = clamp01(v);
-    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-  }
-  function rgbToLab(c) {
-    const r = srgbToLinear(c.r);
-    const g = srgbToLinear(c.g);
-    const b = srgbToLinear(c.b);
-    let x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;
-    let y = (r * 0.2126729 + g * 0.7151522 + b * 0.072175) / 1;
-    let z = (r * 0.0193339 + g * 0.119192 + b * 0.9503041) / 1.08883;
-    const f = (t) => t > 8856e-6 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
-    x = f(x);
-    y = f(y);
-    z = f(z);
-    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
-  }
-  function deltaE(a, b) {
-    const [l1, a1, b1] = rgbToLab(a);
-    const [l2, a2, b2] = rgbToLab(b);
-    return Math.sqrt((l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2);
-  }
-  function relativeLuminance(c) {
-    return 0.2126 * srgbToLinear(c.r) + 0.7152 * srgbToLinear(c.g) + 0.0722 * srgbToLinear(c.b);
-  }
-  function contrastRatio(fg, bg) {
-    const l1 = relativeLuminance(fg);
-    const l2 = relativeLuminance(bg);
-    const [hi, lo] = l1 >= l2 ? [l1, l2] : [l2, l1];
-    return (hi + 0.05) / (lo + 0.05);
-  }
-  function composite(fg, alpha, bg) {
-    const a = clamp01(alpha);
-    return {
-      r: fg.r * a + bg.r * (1 - a),
-      g: fg.g * a + bg.g * (1 - a),
-      b: fg.b * a + bg.b * (1 - a)
-    };
-  }
-  function isLargeText(fontSize, bold) {
-    return fontSize >= 24 || bold && fontSize >= 18.66;
-  }
-  function evaluateContrast(ratio, large) {
-    const aa = large ? 3 : 4.5;
-    const aaa = large ? 4.5 : 7;
-    const passesAA = ratio >= aa;
-    const passesAAA = ratio >= aaa;
-    const level = passesAAA ? "AAA" : passesAA ? large ? "AA-large" : "AA" : "fail";
-    return { level, passesAA, passesAAA };
-  }
-  function formatRatio(ratio) {
-    return `${(Math.round(ratio * 100) / 100).toFixed(2).replace(/\.?0+$/, "")}:1`;
-  }
-  function isBoldStyle(style) {
-    return /bold|black|heavy|extra\s*bold|semi\s*bold|demi|700|800|900/i.test(style);
-  }
-
   // src/shared/names.ts
   var DEFAULT_NAME_RE = /^(Frame|Group|Rectangle|Ellipse|Polygon|Star|Line|Arrow|Vector|Image|Text|Component|Section|Slice|Union|Subtract|Intersect|Exclude|Boolean(?: Group)?|Instance|Mask(?: group)?)(?:\s+\d+)?(?:\s+copy(?:\s+\d+)?)?$/i;
   function isDefaultName(name) {
@@ -745,6 +1029,42 @@
     return ACTION_VERB_RE.test(text);
   }
   var EMPTY_STATE_KINDS = ["list", "table", "search"];
+  var PRIMITIVE_TOKEN_RE = /(^|\/|\.)(blue|red|green|gray|grey|neutral|orange|yellow|purple|violet|pink|teal|cyan|indigo|slate|zinc|stone|amber|lime|emerald|sky|rose|fuchsia|brown|black|white|magenta|mint)[-_/. ]?(\d{1,4}|lightest|lighter|light|dark|darker|darkest|base)$/i;
+  var PRIMITIVE_COLLECTION_RE = /primitive|core|base|palette|raw|foundation|global/i;
+  var SEMANTIC_TOKEN_RE = /(^|\/|\.|-|_)(action|brand|text|surface|background|bg|border|stroke|icon|fg|foreground|accent|success|danger|error|warning|info|link|interactive|disabled|muted|inverse|overlay|focus|on)(\/|\.|-|_|$)/i;
+  function looksPrimitiveToken(name, collection = "") {
+    if (SEMANTIC_TOKEN_RE.test(name)) return false;
+    return PRIMITIVE_TOKEN_RE.test(name) || PRIMITIVE_COLLECTION_RE.test(collection);
+  }
+  function looksSemanticToken(name) {
+    return SEMANTIC_TOKEN_RE.test(name);
+  }
+  var DEPRECATED_RE = /\b(deprecated|obsolete|legacy|do not use|don['’]t use|ne pas utiliser|obsol[eè]te|à supprimer)\b|⚠️|⚠|🚫|❌|☠️/i;
+  var STATUS_RE = /\b(draft|wip|work in progress|beta|alpha|stable|deprecated|ready|in review|experimental|brouillon|validé|valide)\b|🟢|🟡|🟠|🔴|✅|🚧|🧪/i;
+  var DESTRUCTIVE_RE = /\b(delete|remove|supprimer|effacer|trash|retirer|destroy|clear all|tout effacer|unsubscribe|désinscrire|desinscrire|deactivate|désactiver|desactiver|close account|fermer le compte|reset|réinitialiser|reinitialiser|discard|abandonner)\b/i;
+  var CONFIRM_RE = /\b(confirm|confirmation|dialog|modal|alert|undo|annuler|toast|snackbar|are you sure|êtes-vous sûr|es-tu sûr|sure\?)\b/i;
+  var RECOVERY_RE = /\b(retry|réessayer|reessayer|try again|contact|support|back|retour|help|aide|reload|recharger|refresh|actualiser|go home|accueil|réinitialiser|reinitialiser|reset)\b/i;
+  var GENERIC_ERROR_RE = /^(erreur|error|une erreur est survenue|une erreur s['’]est produite|something went wrong|an error occurred|an error has occurred|oops!?|oups!?|échec|echec|failed|erreur inconnue|unknown error|error\s*\d{3})[.!…]*$/i;
+  var ERROR_NAME_RE = /\b(error|erreur|échec|echec|failed|failure|invalid)\b/i;
+  var ICON_NAME_RE = /\b(icon|icône|icone|ico|glyph|symbol|pictogram|picto)\b/i;
+  function headingLevel(styleName) {
+    const m = /(^|\/|\s|-|_)(h|heading|title|titre|headline|display)[\s/_-]?([1-6])\b/i.exec(styleName);
+    return m ? Number(m[3]) : null;
+  }
+  function labelCase(text) {
+    const words = text.trim().split(/\s+/).filter((w) => /\p{L}/u.test(w));
+    if (!words.length) return "other";
+    const letters = words.join("");
+    if (letters === letters.toUpperCase() && letters !== letters.toLowerCase()) return "upper";
+    if (letters === letters.toLowerCase()) return "lower";
+    const startsUpper = (w) => /^\p{Lu}/u.test(w);
+    if (words.length >= 2 && words.every((w) => startsUpper(w) || w.length <= 2)) return "title";
+    if (startsUpper(words[0]) && words.slice(1).every((w) => !startsUpper(w))) return "sentence";
+    return "other";
+  }
+  function roleName(name) {
+    return name.toLowerCase().replace(/\s*copy(\s*\d+)?$/i, "").replace(/[\s_-]*\d+$/, "").replace(/\s+/g, " ").trim();
+  }
 
   // src/plugin/scan/node-info.ts
   function ancestors(node, ctx) {
@@ -1091,6 +1411,169 @@
     }
   ];
 
+  // src/plugin/rules/a11y-pro.ts
+  var INTERACTIVE_KINDS2 = /* @__PURE__ */ new Set(["button", "icon-button", "link", "checkbox", "radio", "toggle", "chip", "tab", "select"]);
+  var FIELD_KINDS = /* @__PURE__ */ new Set(["input", "select", "checkbox", "radio", "toggle", "search"]);
+  var NON_TEXT_MIN = 3;
+  var STATUS_TOKEN_RE = /(error|danger|success|warning|invalid|negative|positive|critical)/i;
+  var GENERIC_ICON_BUTTON_RE = /^(icon[\s_-]?(button|btn)|button|btn|icon|action)$/i;
+  var singleSolid = (paints) => {
+    if (paints === figma.mixed) return null;
+    const visible = paints.filter((p) => {
+      var _a;
+      return p.visible !== false && ((_a = p.opacity) != null ? _a : 1) > 0;
+    });
+    return visible.length === 1 && visible[0].type === "SOLID" ? visible[0] : null;
+  };
+  async function kindOfNode(node) {
+    var _a;
+    if (node.type === "INSTANCE") {
+      try {
+        const main = await node.getMainComponentAsync();
+        if (main) {
+          const set = ((_a = main.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? main.parent : null;
+          return inferComponentKind(set ? set.name : main.name, (set != null ? set : main).description);
+        }
+      } catch {
+      }
+    }
+    return inferComponentKind(node.name, "description" in node ? node.description : "");
+  }
+  function inInteractiveContext(node, ctx) {
+    return ancestors(node, ctx).some((a) => INTERACTIVE_KINDS2.has(inferComponentKind(a.name)) || isInteractiveByReactions(a));
+  }
+  var a11yProRules = [
+    {
+      id: "a11y/heading-skip",
+      types: ["TEXT"],
+      check: (node, ctx) => {
+        var _a, _b, _c;
+        const text = node;
+        if (typeof text.textStyleId !== "string" || !text.textStyleId) return;
+        const style = ctx.textStyles.find((s) => s.id === text.textStyleId);
+        if (!style) return;
+        const level = headingLevel(style.name);
+        if (!level) return;
+        const chain = ancestors(text, ctx);
+        const root = (_a = chain[chain.length - 1]) != null ? _a : text;
+        ctx.headings.push({ node: text, level, rootId: root.id, y: (_c = (_b = text.absoluteBoundingBox) == null ? void 0 : _b.y) != null ? _c : text.y });
+      },
+      finalize: (ctx) => {
+        var _a;
+        const byRoot = /* @__PURE__ */ new Map();
+        for (const h of ctx.headings) byRoot.set(h.rootId, [...(_a = byRoot.get(h.rootId)) != null ? _a : [], h]);
+        const out = [];
+        for (const list of byRoot.values()) {
+          if (list.length < 2) continue;
+          list.sort((a, b) => a.y - b.y);
+          let prev = list[0].level;
+          for (const h of list.slice(1)) {
+            if (h.level > prev + 1) {
+              out.push({ ruleId: "a11y/heading-skip", node: h.node, currentValue: `H${prev} \u2192 H${h.level}`, fixSafety: "none", params: { level: h.level, prev, expected: prev + 1 } });
+            }
+            prev = h.level;
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "a11y/icon-contrast",
+      types: ["VECTOR", "BOOLEAN_OPERATION"],
+      insideInstances: true,
+      check: async (node, ctx) => {
+        if (node.width < 8 || node.height < 8) return;
+        const iconish = ICON_NAME_RE.test(node.name) || ancestors(node, ctx).slice(0, 2).some((a) => ICON_NAME_RE.test(a.name));
+        if (!iconish && !inInteractiveContext(node, ctx)) return;
+        const paint = singleSolid(node.fills);
+        if (!paint) return;
+        const bg = await backgroundBehind(node, ctx);
+        if (bg.kind !== "solid") return;
+        const fg = await resolveSolidPaint(paint, node);
+        if (fg.alpha < 0.99) return;
+        const ratio = contrastRatio(fg.rgb, bg.rgb);
+        if (ratio >= NON_TEXT_MIN) return;
+        return [
+          {
+            ruleId: "a11y/icon-contrast",
+            node,
+            currentValue: formatRatio(ratio),
+            swatch: rgbToHex(fg.rgb),
+            fixSafety: "none",
+            params: { ratio: formatRatio(ratio), required: "3:1", fg: rgbToHex(fg.rgb), bg: rgbToHex(bg.rgb) }
+          }
+        ];
+      }
+    },
+    {
+      id: "a11y/border-contrast",
+      types: ["FRAME", "INSTANCE", "COMPONENT", "RECTANGLE"],
+      check: async (node, ctx) => {
+        const kind = await kindOfNode(node);
+        if (!FIELD_KINDS.has(kind)) return;
+        const host = node;
+        const weight = typeof host.strokeWeight === "number" ? host.strokeWeight : 1;
+        if (weight < 1) return;
+        const paint = singleSolid(host.strokes);
+        if (!paint) return;
+        const bg = await backgroundBehind(node, ctx);
+        if (bg.kind !== "solid") return;
+        const stroke = await resolveSolidPaint(paint, node);
+        if (stroke.alpha < 0.99) return;
+        const ratio = contrastRatio(stroke.rgb, bg.rgb);
+        if (ratio >= NON_TEXT_MIN) return;
+        return [
+          {
+            ruleId: "a11y/border-contrast",
+            node,
+            currentValue: formatRatio(ratio),
+            swatch: rgbToHex(stroke.rgb),
+            fixSafety: "none",
+            params: { ratio: formatRatio(ratio), required: "3:1", stroke: rgbToHex(stroke.rgb), bg: rgbToHex(bg.rgb), kind }
+          }
+        ];
+      }
+    },
+    {
+      id: "a11y/icon-only-without-label",
+      types: ["INSTANCE", "FRAME", "COMPONENT"],
+      check: async (node) => {
+        var _a;
+        if (node.type === "COMPONENT" && ((_a = node.parent) == null ? void 0 : _a.type) === "COMPONENT_SET") return;
+        const kind = await kindOfNode(node);
+        const interactive = kind === "icon-button" || isInteractiveByReactions(node) || kind === "button" && node.width <= 64;
+        if (!interactive) return;
+        const host = node;
+        const texts = host.findAllWithCriteria({ types: ["TEXT"] }).filter((t) => t.characters.trim());
+        if (texts.length) return;
+        const glyphs = host.findAllWithCriteria({ types: ["VECTOR", "BOOLEAN_OPERATION", "ELLIPSE", "RECTANGLE", "INSTANCE"] });
+        if (!glyphs.length) return;
+        const name = node.name.replace(/.*\//, "").trim();
+        if (!isDefaultName(node.name) && !GENERIC_ICON_BUTTON_RE.test(name) && name.length > 2) return;
+        return [{ ruleId: "a11y/icon-only-without-label", node, currentValue: node.name, fixSafety: "none", params: { name: node.name } }];
+      }
+    },
+    {
+      id: "a11y/color-only-status",
+      types: ["TEXT"],
+      insideInstances: true,
+      check: (node, ctx) => {
+        var _a, _b;
+        const text = node;
+        const paint = singleSolid(text.fills);
+        const id = (_b = (_a = paint == null ? void 0 : paint.boundVariables) == null ? void 0 : _a.color) == null ? void 0 : _b.id;
+        if (!id) return;
+        const token = ctx.colorById.get(id);
+        if (!token || !STATUS_TOKEN_RE.test(token.name)) return;
+        const parent = text.parent;
+        if (!parent || !("children" in parent)) return;
+        const hasIcon = parent.children.some((c) => c.id !== text.id && (ICON_NAME_RE.test(c.name) || c.type === "VECTOR" || c.type === "BOOLEAN_OPERATION"));
+        if (hasIcon) return;
+        return [{ ruleId: "a11y/color-only-status", node, currentValue: token.name, swatch: rgbToHex(token.rgb), fixSafety: "none", params: { token: token.name } }];
+      }
+    }
+  ];
+
   // src/plugin/rules/colors.ts
   var PAINT_TYPES = [
     "FRAME",
@@ -1331,6 +1814,117 @@
     }
   ];
 
+  // src/plugin/rules/components-pro.ts
+  var MAX_ORPHAN_LOOKUPS = 200;
+  function isTopLevelComponent(node) {
+    var _a;
+    if (node.type === "COMPONENT" && ((_a = node.parent) == null ? void 0 : _a.type) === "COMPONENT_SET") return false;
+    return node.type === "COMPONENT" || node.type === "COMPONENT_SET";
+  }
+  var hasVisible = (paints) => paints !== figma.mixed && paints.some((p) => {
+    var _a;
+    return p.visible !== false && ((_a = p.opacity) != null ? _a : 1) > 0;
+  });
+  var componentProRules = [
+    {
+      id: "components/deprecated-in-use",
+      types: ["INSTANCE"],
+      check: async (node) => {
+        var _a, _b, _c;
+        const inst = node;
+        let main = null;
+        try {
+          main = await inst.getMainComponentAsync();
+        } catch {
+          return;
+        }
+        if (!main) return;
+        const set = ((_a = main.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? main.parent : null;
+        const hay = `${main.name} ${(_b = main.description) != null ? _b : ""} ${set ? `${set.name} ${(_c = set.description) != null ? _c : ""}` : ""}`;
+        if (!DEPRECATED_RE.test(hay)) return;
+        return [{ ruleId: "components/deprecated-in-use", node, currentValue: set ? set.name : main.name, fixSafety: "none", params: { component: set ? set.name : main.name } }];
+      }
+    },
+    {
+      id: "components/orphan-variant",
+      finalize: async (ctx) => {
+        const out = [];
+        let lookups = 0;
+        for (const s of ctx.componentSets) {
+          if (s.node.remote) continue;
+          for (const child of s.node.children) {
+            if (child.type !== "COMPONENT") continue;
+            if (++lookups > MAX_ORPHAN_LOOKUPS) return out;
+            try {
+              const instances = await child.getInstancesAsync();
+              if (instances.length) continue;
+            } catch {
+              continue;
+            }
+            out.push({ ruleId: "components/orphan-variant", node: child, currentValue: child.name, fixSafety: "none", params: { variant: child.name, component: s.name } });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "components/useless-nesting",
+      types: ["GROUP", "FRAME"],
+      check: (node) => {
+        var _a;
+        if (((_a = node.parent) == null ? void 0 : _a.type) === "PAGE") return;
+        const children = node.children.filter((c) => c.visible);
+        if (children.length !== 1) return;
+        const only = children[0];
+        if (node.type === "FRAME") {
+          const frame = node;
+          if (frame.layoutMode !== "NONE" || frame.clipsContent || frame.detachedInfo || frame.reactions.length) return;
+          if (hasVisible(frame.fills) || hasVisible(frame.strokes) || frame.effects.some((e) => e.visible)) return;
+          if (Math.abs(only.width - frame.width) > 1 || Math.abs(only.height - frame.height) > 1 || Math.abs(only.x) > 1 || Math.abs(only.y) > 1) return;
+        }
+        return [{ ruleId: "components/useless-nesting", node, currentValue: node.name, fixSafety: "none", params: { type: node.type === "GROUP" ? "group" : "frame", child: only.name } }];
+      }
+    },
+    {
+      id: "components/no-doc-link",
+      types: ["COMPONENT", "COMPONENT_SET"],
+      check: (node, ctx) => {
+        var _a;
+        if (!isTopLevelComponent(node) || ancestors(node, ctx).some((a) => a.type === "COMPONENT" || a.type === "COMPONENT_SET")) return;
+        const comp = node;
+        if (comp.documentationLinks.length || /https?:\/\//i.test((_a = comp.description) != null ? _a : "")) {
+          ctx.docLinkSeen = true;
+          return;
+        }
+        ctx.componentsForDocs.push(comp);
+      },
+      finalize: (ctx) => {
+        if (!ctx.docLinkSeen) return;
+        return ctx.componentsForDocs.map((c) => ({ ruleId: "components/no-doc-link", node: c, currentValue: c.name, fixSafety: "none", params: { component: c.name } }));
+      }
+    },
+    {
+      id: "components/no-status",
+      types: ["COMPONENT", "COMPONENT_SET"],
+      check: (node, ctx) => {
+        if (!isTopLevelComponent(node) || ancestors(node, ctx).some((a) => a.type === "COMPONENT" || a.type === "COMPONENT_SET")) return;
+        if (!ctx.localComponents.some((c) => c.node.id === node.id)) ctx.localComponents.push({ node, name: node.name });
+      },
+      finalize: (ctx) => {
+        var _a, _b, _c;
+        const all = ctx.localComponents;
+        if (all.length < 3) return;
+        const withStatus = all.filter((c) => {
+          var _a2;
+          return STATUS_RE.test(`${c.name} ${(_a2 = c.node.description) != null ? _a2 : ""}`);
+        });
+        if (withStatus.length / all.length < 0.3) return;
+        const sample = (_c = (_b = STATUS_RE.exec(`${withStatus[0].name} ${(_a = withStatus[0].node.description) != null ? _a : ""}`)) == null ? void 0 : _b[0]) != null ? _c : "";
+        return all.filter((c) => !withStatus.includes(c)).map((c) => ({ ruleId: "components/no-status", node: c.node, currentValue: c.name, fixSafety: "none", params: { component: c.name, example: sample } }));
+      }
+    }
+  ];
+
   // src/plugin/rules/types.ts
   function toMs(duration) {
     return Math.round(duration < 10 ? duration * 1e3 : duration);
@@ -1405,6 +1999,7 @@
       id: "craft/missing-state",
       types: ["COMPONENT_SET"],
       check: (node, ctx) => {
+        var _a;
         const set = node;
         const { stateProp, stateValues, canonical } = collectStates(set);
         const kind = inferComponentKind(set.name, set.description);
@@ -1442,6 +2037,45 @@
             });
           }
         }
+        if (ctx.activeRules.has("craft/duplicate-state")) {
+          const byCanon = /* @__PURE__ */ new Map();
+          for (const v of stateValues) {
+            const c = canonicalState(v);
+            if (c) byCanon.set(c, [...(_a = byCanon.get(c)) != null ? _a : [], v]);
+          }
+          for (const [c, values] of byCanon) {
+            if (values.length < 2) continue;
+            out.push({
+              ruleId: "craft/duplicate-state",
+              node,
+              slot: c,
+              currentValue: values.join(" \xB7 "),
+              fixSafety: "none",
+              params: { state: c, values: values.join(", "), component: set.name, prop: stateProp }
+            });
+          }
+        }
+        if (ctx.activeRules.has("craft/state-matrix-thin") && expected && canonical.size < 3) {
+          out.push({
+            ruleId: "craft/state-matrix-thin",
+            node,
+            currentValue: stateValues.join(" \xB7 "),
+            fixSafety: "none",
+            params: { count: canonical.size, component: set.name, kind, prop: stateProp }
+          });
+        }
+        if (ctx.activeRules.has("craft/missing-success-state") && (kind === "button" || kind === "icon-button") && !canonical.has("success")) {
+          if (looksLikeLongAction(set.name) || looksLikeLongAction(textsInside(set))) {
+            out.push({
+              ruleId: "craft/missing-success-state",
+              node,
+              currentValue: stateValues.join(" \xB7 "),
+              suggestion: { kind: "value", id: "success", label: `${stateProp}=Success`, confidence: "none" },
+              fixSafety: "none",
+              params: { component: set.name, prop: stateProp }
+            });
+          }
+        }
         if (ctx.activeRules.has("craft/missing-empty-state") && EMPTY_STATE_KINDS.includes(kind) && !canonical.has("empty")) {
           out.push({
             ruleId: "craft/missing-empty-state",
@@ -1458,6 +2092,9 @@
     // Les règles ci-dessous partagent la collecte de craft/missing-state ; leur `check` est vide.
     { id: "craft/missing-loading-state", types: ["COMPONENT_SET"] },
     { id: "craft/missing-empty-state", types: ["COMPONENT_SET"] },
+    { id: "craft/missing-success-state", types: ["COMPONENT_SET"] },
+    { id: "craft/duplicate-state", types: ["COMPONENT_SET"] },
+    { id: "craft/state-matrix-thin", types: ["COMPONENT_SET"] },
     {
       id: "craft/missing-hover-transition",
       types: ["COMPONENT_SET"],
@@ -1514,14 +2151,14 @@
             const expected = majoritySpelling.get(c);
             if (expected !== v && normalizeStateValue(expected) !== normalizeStateValue(v) + "!") problems.push(`${v} \u2192 ${expected}`);
           }
-          const unique = [...new Set(problems)].filter((p) => p.split(" \u2192 ")[0] !== p.split(" \u2192 ")[1]);
-          if (!unique.length) continue;
+          const unique2 = [...new Set(problems)].filter((p) => p.split(" \u2192 ")[0] !== p.split(" \u2192 ")[1]);
+          if (!unique2.length) continue;
           out.push({
             ruleId: "craft/state-naming",
             node: s.node,
-            currentValue: unique.join(", "),
+            currentValue: unique2.join(", "),
             fixSafety: "none",
-            params: { component: s.name, changes: unique.join(", ") }
+            params: { component: s.name, changes: unique2.join(", ") }
           });
         }
         return out;
@@ -1558,6 +2195,158 @@
               plan: { kind: "set-hover-duration", nodeId: l.nodeId, durationMs: mode }
             });
           }
+        }
+        return out;
+      }
+    }
+  ];
+
+  // src/plugin/rules/craft-pro.ts
+  var ACTION_KINDS = /* @__PURE__ */ new Set(["button", "icon-button", "link", "chip"]);
+  var FIELD_KINDS2 = /* @__PURE__ */ new Set(["input", "select", "checkbox", "radio", "toggle", "search", "chip", "tab"]);
+  var MAX_TRANSITION_MS = 500;
+  var CAPPED_MS = 300;
+  function nodeActions(node) {
+    var _a, _b, _c;
+    if (!("reactions" in node)) return [];
+    const out = [];
+    for (const r of node.reactions) {
+      const actions = (_a = r.actions) != null ? _a : r.action ? [r.action] : [];
+      for (const a of actions) out.push({ trigger: (_c = (_b = r.trigger) == null ? void 0 : _b.type) != null ? _c : "", action: a, reaction: r });
+    }
+    return out;
+  }
+  var craftProRules = [
+    {
+      id: "craft/destructive-without-confirm",
+      types: ["TEXT", "FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"],
+      insideInstances: true,
+      check: (node, ctx) => {
+        var _a;
+        if (node.type !== "TEXT") {
+          if (CONFIRM_RE.test(node.name)) ctx.confirmPatternSeen = true;
+          return;
+        }
+        const text = node.characters.trim();
+        if (!text || text.length > 40 || !DESTRUCTIVE_RE.test(text)) return;
+        const host = (_a = ancestors(node, ctx).find((a) => ACTION_KINDS.has(inferComponentKind(a.name)) || isInteractiveByReactions(a))) != null ? _a : node;
+        if (!ctx.destructiveNodes.some((n) => n.id === host.id)) ctx.destructiveNodes.push(host);
+      },
+      finalize: (ctx) => {
+        if (ctx.confirmPatternSeen) return;
+        return ctx.destructiveNodes.map((n) => ({ ruleId: "craft/destructive-without-confirm", node: n, currentValue: n.name, fixSafety: "none", params: { label: n.name } }));
+      }
+    },
+    {
+      id: "craft/error-without-recovery",
+      types: ["FRAME", "COMPONENT", "INSTANCE"],
+      check: (node, ctx) => {
+        var _a, _b;
+        const isVariantError = node.type === "COMPONENT" && Object.values((_a = node.variantProperties) != null ? _a : {}).some((v) => canonicalState(v) === "error");
+        if (!isVariantError && !ERROR_NAME_RE.test(node.name)) return;
+        if (ancestors(node, ctx).some((a) => ERROR_NAME_RE.test(a.name))) return;
+        if (node.width < 200 || node.height < 120) return;
+        const kind = inferComponentKind(node.type === "COMPONENT" && ((_b = node.parent) == null ? void 0 : _b.type) === "COMPONENT_SET" ? node.parent.name : node.name);
+        if (FIELD_KINDS2.has(kind)) return;
+        const host = node;
+        const texts = host.findAllWithCriteria({ types: ["TEXT"] });
+        if (!texts.length) return;
+        const recovery = texts.some((t) => RECOVERY_RE.test(t.characters)) || host.findAllWithCriteria({ types: ["INSTANCE", "FRAME", "COMPONENT"] }).some((c) => ACTION_KINDS.has(inferComponentKind(c.name)) || isInteractiveByReactions(c));
+        if (recovery) return;
+        return [{ ruleId: "craft/error-without-recovery", node, currentValue: node.name, fixSafety: "none", params: { name: node.name } }];
+      }
+    },
+    {
+      id: "craft/generic-error-message",
+      types: ["TEXT"],
+      insideInstances: true,
+      check: (node) => {
+        const text = node.characters.trim();
+        if (!text || !GENERIC_ERROR_RE.test(text)) return;
+        return [{ ruleId: "craft/generic-error-message", node, currentValue: text, fixSafety: "none", params: { text } }];
+      }
+    },
+    {
+      id: "craft/inconsistent-easing",
+      finalize: (ctx) => {
+        var _a, _b, _c;
+        const out = [];
+        const byKind = /* @__PURE__ */ new Map();
+        for (const s of ctx.componentSets) {
+          for (const h of s.hoverDurations) {
+            const key = s.kind === "unknown" ? `unknown:${s.name}` : s.kind;
+            byKind.set(key, [...(_a = byKind.get(key)) != null ? _a : [], { set: s, nodeId: h.nodeId, easing: h.easing }]);
+          }
+        }
+        for (const [kind, list] of byKind) {
+          const counts = /* @__PURE__ */ new Map();
+          for (const l of list) counts.set(l.easing, ((_b = counts.get(l.easing)) != null ? _b : 0) + 1);
+          if (counts.size < 2) continue;
+          const mode = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+          for (const l of list) {
+            if (l.easing === mode) continue;
+            const variant = (_c = l.set.node.children.find((c) => c.id === l.nodeId)) != null ? _c : l.set.node;
+            out.push({
+              ruleId: "craft/inconsistent-easing",
+              node: variant,
+              currentValue: l.easing,
+              suggestion: { kind: "value", id: mode, label: mode, confidence: "close" },
+              fixSafety: "review",
+              params: { easing: l.easing, mode, kind: kind.replace(/^unknown:/, ""), component: l.set.name },
+              plan: { kind: "set-hover-easing", nodeId: l.nodeId, easing: mode }
+            });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "craft/transition-too-long",
+      types: ["COMPONENT", "FRAME", "INSTANCE"],
+      check: (node) => {
+        let max = 0;
+        for (const { action } of nodeActions(node)) {
+          if (action.type !== "NODE" || !action.transition || !("duration" in action.transition)) continue;
+          max = Math.max(max, toMs(action.transition.duration));
+        }
+        if (max <= MAX_TRANSITION_MS) return;
+        return [
+          {
+            ruleId: "craft/transition-too-long",
+            node,
+            currentValue: `${max} ms`,
+            suggestion: { kind: "value", id: String(CAPPED_MS), label: `\u2264 ${CAPPED_MS} ms`, confidence: "close" },
+            fixSafety: "review",
+            params: { duration: max, max: MAX_TRANSITION_MS, capped: CAPPED_MS },
+            plan: { kind: "cap-transition-duration", nodeId: node.id, maxMs: CAPPED_MS }
+          }
+        ];
+      }
+    },
+    {
+      id: "craft/non-reversible-hover",
+      types: ["COMPONENT"],
+      check: (node) => {
+        const set = node.parent;
+        if (!set || set.type !== "COMPONENT_SET") return;
+        const out = [];
+        for (const { trigger, action } of nodeActions(node)) {
+          if (trigger !== "MOUSE_ENTER" || action.type !== "NODE" || action.navigation !== "CHANGE_TO" || !action.destinationId) continue;
+          const destination = set.children.find((c) => c.id === action.destinationId);
+          if (!destination || !("reactions" in destination)) continue;
+          const back = destination.reactions.some((r) => {
+            var _a;
+            return ((_a = r.trigger) == null ? void 0 : _a.type) === "MOUSE_LEAVE";
+          });
+          if (back) continue;
+          out.push({
+            ruleId: "craft/non-reversible-hover",
+            node,
+            slot: destination.id,
+            currentValue: `${node.name} \u2192 ${destination.name}`,
+            fixSafety: "none",
+            params: { component: set.name, from: node.name, to: destination.name }
+          });
         }
         return out;
       }
@@ -1693,6 +2482,232 @@
             params: { count: kids.length, direction: stack }
           }
         ];
+      }
+    }
+  ];
+
+  // src/plugin/rules/handoff-pro.ts
+  var MIN_REPEATS = 3;
+  function signature(node, depth) {
+    const base = `${node.type}:${roleName(node.name)}:${Math.round(node.width / 4)}x${Math.round(node.height / 4)}`;
+    if (depth === 0 || !("children" in node)) return base;
+    const kids = node.children.slice(0, 12).map((c) => signature(c, depth - 1));
+    return `${base}[${kids.join(",")}]`;
+  }
+  var handoffProRules = [
+    {
+      id: "handoff/repeated-pattern",
+      types: ["FRAME", "GROUP", "SECTION", "COMPONENT"],
+      check: (node) => {
+        var _a;
+        const children = node.children.filter((c) => c.visible && (c.type === "FRAME" || c.type === "GROUP") && "children" in c && c.children.length >= 2);
+        if (children.length < MIN_REPEATS) return;
+        const groups = /* @__PURE__ */ new Map();
+        for (const c of children) {
+          const sig = signature(c, 2);
+          groups.set(sig, [...(_a = groups.get(sig)) != null ? _a : [], c]);
+        }
+        const out = [];
+        for (const list of groups.values()) {
+          if (list.length < MIN_REPEATS) continue;
+          out.push({
+            ruleId: "handoff/repeated-pattern",
+            node: list[0],
+            currentValue: `${list.length} \xD7 ${list[0].name}`,
+            fixSafety: "none",
+            params: { count: list.length, name: list[0].name, parent: node.name }
+          });
+        }
+        return out;
+      }
+    },
+    {
+      id: "handoff/image-crop",
+      types: ["RECTANGLE", "FRAME", "ELLIPSE", "POLYGON", "INSTANCE", "COMPONENT"],
+      check: (node) => {
+        const fills = node.fills;
+        if (fills === figma.mixed) return;
+        const cropped = fills.some((p) => p.type === "IMAGE" && p.visible !== false && p.scaleMode === "CROP");
+        if (!cropped) return;
+        return [{ ruleId: "handoff/image-crop", node, currentValue: "Crop", fixSafety: "none", params: { name: node.name } }];
+      }
+    }
+  ];
+
+  // src/plugin/rules/layout-pro.ts
+  var CHILD_TYPES = ["FRAME", "COMPONENT", "INSTANCE", "RECTANGLE", "TEXT", "GROUP", "ELLIPSE", "VECTOR", "BOOLEAN_OPERATION"];
+  var EPS2 = 0.6;
+  function visibleChildren(parent) {
+    return parent.children.filter((c) => c.visible && "layoutPositioning" in c && c.layoutPositioning !== "ABSOLUTE");
+  }
+  var layoutProRules = [
+    {
+      id: "spacing/rhythm-near-miss",
+      types: ["FRAME", "COMPONENT", "INSTANCE"],
+      check: (node, ctx) => {
+        if (!hasAutoLayout(node) || node.layoutMode === "NONE" || isDefaultName(node.name)) return;
+        if (visibleChildren(node).length < 2) return;
+        ctx.autoLayoutFrames.push({ node, role: roleName(node.name), mode: node.layoutMode, gap: node.itemSpacing });
+      },
+      finalize: (ctx) => {
+        var _a, _b;
+        const groups = /* @__PURE__ */ new Map();
+        for (const f of ctx.autoLayoutFrames) {
+          const key = `${f.role}|${f.mode}`;
+          groups.set(key, [...(_a = groups.get(key)) != null ? _a : [], f]);
+        }
+        const out = [];
+        for (const list of groups.values()) {
+          if (list.length < 3) continue;
+          const gaps = list.map((f) => f.gap);
+          const min = Math.min(...gaps);
+          const max = Math.max(...gaps);
+          if (max === min || max - min > 6) continue;
+          const counts = /* @__PURE__ */ new Map();
+          for (const g of gaps) counts.set(g, ((_b = counts.get(g)) != null ? _b : 0) + 1);
+          const mode = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+          for (const f of list) {
+            if (f.gap === mode) continue;
+            out.push({
+              ruleId: "spacing/rhythm-near-miss",
+              node: f.node,
+              currentValue: `${f.gap} px`,
+              suggestion: { kind: "value", id: String(mode), label: `${mode} px`, confidence: "close" },
+              fixSafety: "review",
+              params: { gap: f.gap, mode, role: f.node.name, count: list.length },
+              plan: { kind: "set-number", nodeId: f.node.id, field: "itemSpacing", value: mode }
+            });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "spacing/fixed-should-fill",
+      types: CHILD_TYPES,
+      check: (node) => {
+        const parent = node.parent;
+        if (!parent || !hasAutoLayout(parent) || parent.layoutMode === "NONE") return;
+        if (!("layoutSizingHorizontal" in node) || node.layoutPositioning === "ABSOLUTE") return;
+        const p = parent;
+        const child = node;
+        const out = [];
+        if (p.layoutMode === "VERTICAL" && child.layoutSizingHorizontal === "FIXED") {
+          const inner = p.width - p.paddingLeft - p.paddingRight;
+          if (Math.abs(child.width - inner) < EPS2 && inner > 0) {
+            out.push({
+              ruleId: "spacing/fixed-should-fill",
+              node,
+              slot: "horizontal",
+              currentValue: `${Math.round(child.width)} px`,
+              suggestion: { kind: "value", id: "FILL", label: "Fill", confidence: "exact" },
+              fixSafety: "review",
+              params: { axis: "width", size: Math.round(child.width), parent: p.name },
+              plan: { kind: "set-layout-sizing", nodeId: node.id, axis: "horizontal", value: "FILL" }
+            });
+          }
+        }
+        if (p.layoutMode === "HORIZONTAL" && child.layoutSizingVertical === "FIXED") {
+          const inner = p.height - p.paddingTop - p.paddingBottom;
+          if (Math.abs(child.height - inner) < EPS2 && inner > 0 && visibleChildren(p).length > 1) {
+            out.push({
+              ruleId: "spacing/fixed-should-fill",
+              node,
+              slot: "vertical",
+              currentValue: `${Math.round(child.height)} px`,
+              suggestion: { kind: "value", id: "FILL", label: "Fill", confidence: "exact" },
+              fixSafety: "review",
+              params: { axis: "height", size: Math.round(child.height), parent: p.name },
+              plan: { kind: "set-layout-sizing", nodeId: node.id, axis: "vertical", value: "FILL" }
+            });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "spacing/fixed-should-hug",
+      types: ["FRAME", "COMPONENT"],
+      check: (node) => {
+        if (!hasAutoLayout(node) || node.layoutMode === "NONE" || node.layoutWrap === "WRAP") return;
+        const kids = visibleChildren(node);
+        if (!kids.length) return;
+        const horizontal = node.layoutMode === "HORIZONTAL";
+        const out = [];
+        if (node.primaryAxisSizingMode === "FIXED" && node.primaryAxisAlignItems !== "SPACE_BETWEEN") {
+          const fills = kids.some((k) => (horizontal ? k.layoutSizingHorizontal : k.layoutSizingVertical) === "FILL");
+          if (!fills) {
+            const sum = kids.reduce((s, k) => s + (horizontal ? k.width : k.height), 0) + node.itemSpacing * (kids.length - 1);
+            const hug = sum + (horizontal ? node.paddingLeft + node.paddingRight : node.paddingTop + node.paddingBottom);
+            const actual = horizontal ? node.width : node.height;
+            if (Math.abs(actual - hug) < EPS2) {
+              out.push({
+                ruleId: "spacing/fixed-should-hug",
+                node,
+                slot: "primary",
+                currentValue: `${Math.round(actual)} px`,
+                suggestion: { kind: "value", id: "HUG", label: "Hug", confidence: "exact" },
+                fixSafety: "review",
+                params: { axis: horizontal ? "width" : "height", size: Math.round(actual) },
+                plan: { kind: "set-axis-sizing", nodeId: node.id, axis: "primary", value: "AUTO" }
+              });
+            }
+          }
+        }
+        if (node.counterAxisSizingMode === "FIXED") {
+          const fills = kids.some((k) => (horizontal ? k.layoutSizingVertical : k.layoutSizingHorizontal) === "FILL");
+          if (!fills) {
+            const max = Math.max(...kids.map((k) => horizontal ? k.height : k.width));
+            const hug = max + (horizontal ? node.paddingTop + node.paddingBottom : node.paddingLeft + node.paddingRight);
+            const actual = horizontal ? node.height : node.width;
+            if (Math.abs(actual - hug) < EPS2) {
+              out.push({
+                ruleId: "spacing/fixed-should-hug",
+                node,
+                slot: "counter",
+                currentValue: `${Math.round(actual)} px`,
+                suggestion: { kind: "value", id: "HUG", label: "Hug", confidence: "exact" },
+                fixSafety: "review",
+                params: { axis: horizontal ? "height" : "width", size: Math.round(actual) },
+                plan: { kind: "set-axis-sizing", nodeId: node.id, axis: "counter", value: "AUTO" }
+              });
+            }
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "spacing/text-overlap",
+      types: ["TEXT"],
+      check: (node) => {
+        const parent = node.parent;
+        if (!parent || parent.type === "PAGE" || parent.type === "DOCUMENT") return;
+        if (hasAutoLayout(parent) && parent.layoutMode !== "NONE") return;
+        const box = node.absoluteBoundingBox;
+        if (!box) return;
+        const siblings = parent.children;
+        const index = siblings.indexOf(node);
+        const out = [];
+        for (let i = 0; i < index; i++) {
+          const other = siblings[i];
+          if (other.type !== "TEXT" || !other.visible) continue;
+          const ob = other.absoluteBoundingBox;
+          if (!ob) continue;
+          const dx = Math.min(box.x + box.width, ob.x + ob.width) - Math.max(box.x, ob.x);
+          const dy = Math.min(box.y + box.height, ob.y + ob.height) - Math.max(box.y, ob.y);
+          if (dx > 2 && dy > 2) {
+            out.push({
+              ruleId: "spacing/text-overlap",
+              node,
+              slot: other.id,
+              currentValue: `${Math.round(dx)} \xD7 ${Math.round(dy)} px`,
+              fixSafety: "none",
+              params: { other: other.name, dx: Math.round(dx), dy: Math.round(dy) }
+            });
+          }
+        }
+        return out;
       }
     }
   ];
@@ -1850,6 +2865,231 @@
     }
   ];
 
+  // src/plugin/rules/tokens.ts
+  var isAlias = (v) => typeof v === "object" && v !== null && "type" in v && v.type === "VARIABLE_ALIAS";
+  function virtualOf(v, ctx) {
+    var _a;
+    const col = ctx.collectionsById.get(v.variableCollectionId);
+    return { id: v.id, name: v.name, type: "VARIABLE", path: [(_a = col == null ? void 0 : col.name) != null ? _a : "Variables"] };
+  }
+  function collectBound(value, out, depth = 0) {
+    if (!value || typeof value !== "object" || depth > 3) return;
+    if (Array.isArray(value)) {
+      for (const v of value) collectBound(v, out, depth + 1);
+      return;
+    }
+    const obj = value;
+    if (obj.type === "VARIABLE_ALIAS" && typeof obj.id === "string") {
+      out.add(obj.id);
+      return;
+    }
+    for (const v of Object.values(obj)) collectBound(v, out, depth + 1);
+  }
+  var PAINT_TYPES2 = ["FRAME", "COMPONENT", "INSTANCE", "RECTANGLE", "ELLIPSE", "POLYGON", "STAR", "VECTOR", "TEXT", "LINE", "BOOLEAN_OPERATION", "SECTION", "GROUP", "COMPONENT_SET"];
+  var valueKey = (v) => {
+    if (isAlias(v)) return `alias:${v.id}`;
+    if (typeof v === "object" && v !== null && "r" in v) {
+      const c = v;
+      return colorKey({ r: c.r, g: c.g, b: c.b }, "a" in c ? c.a : 1);
+    }
+    return `${typeof v}:${String(v)}`;
+  };
+  var tokenRules = [
+    {
+      // Collecte des usages (toutes les règles tokens aggregate en profitent) + orphelins en périmètre fichier.
+      id: "tokens/orphan",
+      types: PAINT_TYPES2,
+      insideInstances: true,
+      check: (node, ctx) => {
+        collectBound(node.boundVariables, ctx.usedVariableIds);
+        if (node.type === "TEXT") {
+          try {
+            const ranges = node.getStyledTextSegments(["boundVariables"]);
+            for (const r of ranges) collectBound(r.boundVariables, ctx.usedVariableIds);
+          } catch {
+          }
+        }
+      },
+      finalize: (ctx) => {
+        if (ctx.scope !== "file") return;
+        const aliased = /* @__PURE__ */ new Set();
+        for (const v of ctx.localVariables) for (const val of Object.values(v.valuesByMode)) if (isAlias(val)) aliased.add(val.id);
+        const out = [];
+        for (const v of ctx.localVariables) {
+          if (ctx.usedVariableIds.has(v.id) || aliased.has(v.id)) continue;
+          out.push({ ruleId: "tokens/orphan", virtual: virtualOf(v, ctx), currentValue: v.name, fixSafety: "none", params: { name: v.name } });
+        }
+        return out;
+      }
+    },
+    {
+      id: "tokens/broken-alias",
+      finalize: async (ctx) => {
+        var _a, _b;
+        const out = [];
+        for (const v of ctx.localVariables) {
+          for (const [modeId, val] of Object.entries(v.valuesByMode)) {
+            if (!isAlias(val)) continue;
+            const target = await figma.variables.getVariableByIdAsync(val.id);
+            if (target) continue;
+            const col = ctx.collectionsById.get(v.variableCollectionId);
+            const mode = (_b = (_a = col == null ? void 0 : col.modes.find((m) => m.modeId === modeId)) == null ? void 0 : _a.name) != null ? _b : modeId;
+            out.push({ ruleId: "tokens/broken-alias", virtual: virtualOf(v, ctx), slot: modeId, currentValue: v.name, fixSafety: "none", params: { name: v.name, mode } });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "tokens/circular-alias",
+      finalize: (ctx) => {
+        var _a;
+        const byId = new Map(ctx.localVariables.map((v) => [v.id, v]));
+        const out = [];
+        const reported = /* @__PURE__ */ new Set();
+        for (const v of ctx.localVariables) {
+          for (const [modeId, val] of Object.entries(v.valuesByMode)) {
+            if (!isAlias(val)) continue;
+            const seen = /* @__PURE__ */ new Set([v.id]);
+            let cur = byId.get(val.id);
+            const chain = [v.name];
+            while (cur) {
+              chain.push(cur.name);
+              if (seen.has(cur.id)) {
+                if (!reported.has(v.id)) {
+                  reported.add(v.id);
+                  out.push({ ruleId: "tokens/circular-alias", virtual: virtualOf(v, ctx), currentValue: chain.join(" \u2192 "), fixSafety: "none", params: { name: v.name, chain: chain.join(" \u2192 ") } });
+                }
+                break;
+              }
+              seen.add(cur.id);
+              const next = (_a = cur.valuesByMode[modeId]) != null ? _a : Object.values(cur.valuesByMode)[0];
+              cur = isAlias(next) ? byId.get(next.id) : void 0;
+            }
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "tokens/duplicate-value",
+      finalize: (ctx) => {
+        var _a;
+        const groups = /* @__PURE__ */ new Map();
+        for (const v of ctx.localVariables) {
+          if (v.resolvedType !== "COLOR" && v.resolvedType !== "FLOAT") continue;
+          const values = Object.entries(v.valuesByMode).sort((a, b) => a[0].localeCompare(b[0])).map(([m, val]) => `${m}=${valueKey(val)}`);
+          if (values.some((x) => x.includes("alias:"))) continue;
+          const key = `${v.variableCollectionId}|${v.resolvedType}|${[...v.scopes].sort().join(",")}|${values.join(";")}`;
+          groups.set(key, [...(_a = groups.get(key)) != null ? _a : [], v]);
+        }
+        const out = [];
+        for (const list of groups.values()) {
+          if (list.length < 2) continue;
+          for (const v of list) {
+            const first = Object.values(v.valuesByMode)[0];
+            const swatch = v.resolvedType === "COLOR" && typeof first === "object" && first && "r" in first ? rgbToHex(first) : void 0;
+            out.push({
+              ruleId: "tokens/duplicate-value",
+              virtual: virtualOf(v, ctx),
+              currentValue: v.name,
+              swatch,
+              fixSafety: "none",
+              params: { name: v.name, others: list.filter((o) => o !== v).map((o) => o.name).slice(0, 3).join(", "), count: list.length }
+            });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "tokens/primitive-bound",
+      types: PAINT_TYPES2,
+      check: async (node, ctx) => {
+        var _a, _b, _c;
+        const out = [];
+        const hasSemantic = ctx.colors.some((t) => looksSemanticToken(t.name));
+        if (!hasSemantic) return;
+        for (const prop of ["fills", "strokes"]) {
+          if (!(prop in node)) continue;
+          const paints = node[prop];
+          if (paints === figma.mixed) continue;
+          for (let i = 0; i < paints.length; i++) {
+            const p = paints[i];
+            if (p.type !== "SOLID" || p.visible === false) continue;
+            const id = (_b = (_a = p.boundVariables) == null ? void 0 : _a.color) == null ? void 0 : _b.id;
+            if (!id) continue;
+            const token = ctx.colorById.get(id);
+            if (!token || !looksPrimitiveToken(token.name, token.collection)) continue;
+            const { rgb, alpha } = await resolveSolidPaint(p, node);
+            const semantic = ((_c = ctx.colorByKey.get(colorKey(rgb, alpha))) != null ? _c : []).filter((t) => looksSemanticToken(t.name) && t.id !== id);
+            const best = semantic[0];
+            out.push({
+              ruleId: "tokens/primitive-bound",
+              node,
+              slot: `${prop}[${i}]`,
+              currentValue: token.name,
+              swatch: rgbToHex(rgb),
+              suggestion: best ? {
+                kind: "variable",
+                id: best.id,
+                label: tokenLabel(best),
+                swatch: rgbToHex(best.rgb),
+                confidence: "exact",
+                alternatives: semantic.slice(1, 4).map((t) => ({ id: `var:${t.id}`, label: tokenLabel(t), swatch: rgbToHex(t.rgb) }))
+              } : void 0,
+              fixSafety: best ? "review" : "none",
+              params: { token: token.name, prop, semantic: best ? tokenLabel(best) : "", confidence: best ? "exact" : "none" },
+              plan: best ? { kind: "bind-paint-variable", nodeId: node.id, prop, index: i, variableId: best.id } : void 0,
+              alternativePlans: Object.fromEntries(semantic.slice(1, 4).map((t) => [`var:${t.id}`, { kind: "bind-paint-variable", nodeId: node.id, prop, index: i, variableId: t.id }]))
+            });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "tokens/mode-gap",
+      finalize: (ctx) => {
+        const out = [];
+        for (const col of ctx.collectionsById.values()) {
+          if (col.modes.length < 2) continue;
+          const vars = ctx.localVariables.filter((v) => v.variableCollectionId === col.id && v.resolvedType === "COLOR");
+          if (vars.length < 4) continue;
+          const differs = (v) => new Set(col.modes.map((m) => valueKey(v.valuesByMode[m.modeId]))).size > 1;
+          const differing = vars.filter(differs).length;
+          if (differing < vars.length / 2) continue;
+          for (const v of vars) {
+            if (differs(v)) continue;
+            out.push({
+              ruleId: "tokens/mode-gap",
+              virtual: virtualOf(v, ctx),
+              currentValue: v.name,
+              fixSafety: "none",
+              params: { name: v.name, modes: col.modes.map((m) => m.name).join(" / "), collection: col.name }
+            });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "tokens/unscoped",
+      finalize: (ctx) => {
+        const colors = ctx.localVariables.filter((v) => v.resolvedType === "COLOR");
+        if (colors.length < 4) return;
+        const scoped = colors.filter((v) => !v.scopes.includes("ALL_SCOPES")).length;
+        if (scoped < colors.length / 2) return;
+        const out = [];
+        for (const v of colors) {
+          if (!v.scopes.includes("ALL_SCOPES")) continue;
+          out.push({ ruleId: "tokens/unscoped", virtual: virtualOf(v, ctx), currentValue: v.name, fixSafety: "none", params: { name: v.name } });
+        }
+        return out;
+      }
+    }
+  ];
+
   // src/plugin/rules/typography.ts
   var sameLineHeight = (a, b) => a.unit === "AUTO" ? b.unit === "AUTO" : b.unit !== "AUTO" && a.unit === b.unit && Math.abs(a.value - b.value) < 0.01;
   var sameLetterSpacing = (a, b) => a.unit === b.unit && Math.abs(a.value - b.value) < 0.01;
@@ -1931,14 +3171,14 @@
         const mixedStyle = text.textStyleId === figma.mixed;
         const mixedFont = text.fontName === figma.mixed || text.fontSize === figma.mixed;
         if (!mixedStyle && !mixedFont) return;
-        const segments = text.getStyledTextSegments(["fontName", "fontSize", "textStyleId"]).length;
+        const segments2 = text.getStyledTextSegments(["fontName", "fontSize", "textStyleId"]).length;
         return [
           {
             ruleId: "typography/mixed-styles",
             node,
-            currentValue: `${segments} styles`,
+            currentValue: `${segments2} styles`,
             fixSafety: "none",
-            params: { segments, mixedStyle: mixedStyle ? 1 : 0 }
+            params: { segments: segments2, mixedStyle: mixedStyle ? 1 : 0 }
           }
         ];
       }
@@ -1969,28 +3209,264 @@
     }
   ];
 
+  // src/plugin/rules/typography-pro.ts
+  var LABEL_KINDS = /* @__PURE__ */ new Set(["button", "icon-button", "tab", "chip", "link"]);
+  var MAX_CHARS_PER_LINE = 90;
+  function lineHeightPx(lh, size) {
+    if (lh.unit === "PIXELS") return Math.round(lh.value * 10) / 10;
+    if (lh.unit === "PERCENT") return Math.round(lh.value / 100 * size * 10) / 10;
+    return null;
+  }
+  function toCase(text, target) {
+    switch (target) {
+      case "upper":
+        return text.toUpperCase();
+      case "lower":
+        return text.toLowerCase();
+      case "sentence": {
+        const lower = text.toLowerCase();
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }
+      case "title":
+        return text.toLowerCase().split(/(\s+)/).map((w) => /^\s+$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join("");
+      default:
+        return text;
+    }
+  }
+  function isLabelContext(node, ctx) {
+    const chain = ancestors(node, ctx).slice(0, 3);
+    return chain.some((a) => LABEL_KINDS.has(inferComponentKind(a.name)));
+  }
+  var typographyProRules = [
+    {
+      id: "typography/line-length",
+      types: ["TEXT"],
+      check: (node) => {
+        const text = node;
+        if (text.characters.length < 120 || text.textAutoResize === "WIDTH_AND_HEIGHT") return;
+        if (text.fontSize === figma.mixed) return;
+        const size = text.fontSize;
+        if (size <= 0) return;
+        const perLine = text.width / (size * 0.5);
+        if (perLine <= MAX_CHARS_PER_LINE) return;
+        const chars = Math.round(perLine);
+        return [
+          {
+            ruleId: "typography/line-length",
+            node,
+            currentValue: `\u2248 ${chars}`,
+            suggestion: { kind: "value", id: "70", label: `\u2264 80`, confidence: "none" },
+            fixSafety: "none",
+            params: { chars, width: Math.round(text.width), max: 80, size }
+          }
+        ];
+      }
+    },
+    {
+      id: "typography/line-height-inconsistent",
+      types: ["TEXT"],
+      check: (node, ctx) => {
+        const text = node;
+        if (text.textStyleId || text.fontSize === figma.mixed || text.fontName === figma.mixed || text.lineHeight === figma.mixed) return;
+        const size = text.fontSize;
+        const lh = lineHeightPx(text.lineHeight, size);
+        if (lh === null) return;
+        ctx.textMetrics.push({ node: text, family: text.fontName.family, size, lineHeightPx: lh });
+      },
+      finalize: (ctx) => {
+        var _a, _b, _c;
+        const groups = /* @__PURE__ */ new Map();
+        for (const m of ctx.textMetrics) {
+          const key = `${m.family}|${m.size}`;
+          groups.set(key, [...(_a = groups.get(key)) != null ? _a : [], m]);
+        }
+        const out = [];
+        for (const list of groups.values()) {
+          if (list.length < 3) continue;
+          const counts = /* @__PURE__ */ new Map();
+          for (const m of list) counts.set(m.lineHeightPx, ((_b = counts.get(m.lineHeightPx)) != null ? _b : 0) + 1);
+          if (counts.size < 2) continue;
+          const mode = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+          for (const m of list) {
+            if (m.lineHeightPx === mode) continue;
+            out.push({
+              ruleId: "typography/line-height-inconsistent",
+              node: m.node,
+              currentValue: `${m.size} / ${m.lineHeightPx}`,
+              suggestion: { kind: "value", id: String(mode), label: `${m.size} / ${mode}`, value: `${mode} px`, confidence: "close" },
+              fixSafety: "review",
+              params: { size: m.size, lineHeight: m.lineHeightPx, mode, family: m.family, count: (_c = counts.get(mode)) != null ? _c : 0 },
+              plan: { kind: "set-line-height", nodeId: m.node.id, px: mode }
+            });
+          }
+        }
+        return out;
+      }
+    },
+    {
+      id: "typography/label-case",
+      types: ["TEXT"],
+      insideInstances: true,
+      check: (node, ctx) => {
+        const text = node;
+        const chars = text.characters.trim();
+        if (!chars || chars.length > 40 || /\n/.test(chars)) return;
+        if (!isLabelContext(text, ctx)) return;
+        ctx.buttonLabels.push({ node: text, text: chars });
+      },
+      finalize: (ctx) => {
+        var _a;
+        const labels = ctx.buttonLabels.map((l) => ({ ...l, kase: labelCase(l.text) })).filter((l) => l.kase !== "other");
+        if (labels.length < 4) return;
+        const counts = /* @__PURE__ */ new Map();
+        for (const l of labels) counts.set(l.kase, ((_a = counts.get(l.kase)) != null ? _a : 0) + 1);
+        const [majority, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (n / labels.length < 0.6 || counts.size < 2) return;
+        const out = [];
+        for (const l of labels) {
+          if (l.kase === majority) continue;
+          const suggested = toCase(l.text, majority);
+          out.push({
+            ruleId: "typography/label-case",
+            node: l.node,
+            currentValue: l.text,
+            suggestion: { kind: "value", id: majority, label: suggested, confidence: "close" },
+            fixSafety: "none",
+            params: { text: l.text, suggested, share: Math.round(n / labels.length * 100) }
+          });
+        }
+        return out;
+      }
+    },
+    {
+      id: "typography/near-duplicate-styles",
+      finalize: (ctx) => {
+        const local = ctx.textStyles.filter((s) => !s.remote);
+        const out = [];
+        const reported = /* @__PURE__ */ new Set();
+        for (let i = 0; i < local.length; i++) {
+          for (let j = i + 1; j < local.length; j++) {
+            const a = local[i];
+            const b = local[j];
+            if (a.fontName.family !== b.fontName.family || a.fontName.style !== b.fontName.style) continue;
+            if (Math.abs(a.fontSize - b.fontSize) > 1) continue;
+            const la = lineHeightPx(a.lineHeight, a.fontSize);
+            const lb = lineHeightPx(b.lineHeight, b.fontSize);
+            if (!(la === null && lb === null) && (la === null || lb === null || Math.abs(la - lb) > 2)) continue;
+            const key = `${a.id}|${b.id}`;
+            if (reported.has(key)) continue;
+            reported.add(key);
+            out.push({
+              ruleId: "typography/near-duplicate-styles",
+              virtual: { id: a.id, name: a.name, type: "TEXT_STYLE", path: ["Text styles"] },
+              slot: b.id,
+              currentValue: `${a.name} \u2248 ${b.name}`,
+              fixSafety: "none",
+              params: { a: a.name, b: b.name, font: `${a.fontName.family} ${a.fontName.style}`, sizeA: a.fontSize, sizeB: b.fontSize }
+            });
+          }
+        }
+        return out;
+      }
+    }
+  ];
+
   // src/plugin/rules/index.ts
   var ALL_RULES = [
     ...colorRules,
     ...typographyRules,
+    ...typographyProRules,
     ...spacingRules,
+    ...layoutProRules,
     ...radiusRules,
     ...componentRules,
+    ...componentProRules,
+    ...tokenRules,
     ...craftRules,
+    ...craftProRules,
     ...a11yRules,
-    ...handoffRules
+    ...a11yProRules,
+    ...handoffRules,
+    ...handoffProRules
   ];
+
+  // src/plugin/reveal.ts
+  var UI_CHROME_H = 40;
+  var MARGIN = 24;
+  var MIN_REGION = 96;
+  var PANEL_INSET = 240;
+  var PANEL_INSET_MIN_WIDTH = 1100;
+  function union(rects) {
+    let x1 = Infinity;
+    let y1 = Infinity;
+    let x2 = -Infinity;
+    let y2 = -Infinity;
+    for (const r of rects) {
+      x1 = Math.min(x1, r.x);
+      y1 = Math.min(y1, r.y);
+      x2 = Math.max(x2, r.x + r.width);
+      y2 = Math.max(y2, r.y + r.height);
+    }
+    return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+  }
+  function intersects(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  function clip(a, to) {
+    const x = Math.max(a.x, to.x);
+    const y = Math.max(a.y, to.y);
+    return { x, y, w: Math.min(a.x + a.w, to.x + to.w) - x, h: Math.min(a.y + a.h, to.y + to.h) - y };
+  }
+  function revealNodes(nodes, uiSize2) {
+    figma.viewport.scrollAndZoomIntoView(nodes);
+    try {
+      const rects = nodes.map((n) => n.absoluteBoundingBox).filter((r) => Boolean(r));
+      if (!rects.length) return;
+      const box = union(rects);
+      const vb = figma.viewport.bounds;
+      const zoom = figma.viewport.zoom;
+      const vw = vb.width * zoom;
+      const vh = vb.height * zoom;
+      const pos = figma.ui.getPosition().canvasSpace;
+      const plugin = clip(
+        { x: (pos.x - vb.x) * zoom, y: (pos.y - vb.y) * zoom - UI_CHROME_H, w: uiSize2.width, h: uiSize2.height + UI_CHROME_H },
+        { x: 0, y: 0, w: vw, h: vh }
+      );
+      if (plugin.w <= 0 || plugin.h <= 0) return;
+      const target = { x: (box.x - vb.x) * zoom, y: (box.y - vb.y) * zoom, w: box.width * zoom, h: box.height * zoom };
+      if (!intersects(target, plugin)) return;
+      const inset = vw >= PANEL_INSET_MIN_WIDTH ? PANEL_INSET : 0;
+      const regions = [
+        { x: inset, y: 0, w: plugin.x - inset, h: vh },
+        { x: plugin.x + plugin.w, y: 0, w: vw - inset - (plugin.x + plugin.w), h: vh },
+        { x: inset, y: 0, w: vw - 2 * inset, h: plugin.y },
+        { x: inset, y: plugin.y + plugin.h, w: vw - 2 * inset, h: vh - (plugin.y + plugin.h) }
+      ].filter((r) => r.w >= MIN_REGION && r.h >= MIN_REGION);
+      if (!regions.length) return;
+      const fits = regions.filter((r) => r.w - 2 * MARGIN >= target.w && r.h - 2 * MARGIN >= target.h);
+      const pick = (fits.length ? fits : regions).sort((a, b) => b.w * b.h - a.w * a.h)[0];
+      let nextZoom = zoom;
+      if (!fits.length) nextZoom = Math.max(0.02, Math.min(zoom, (pick.w - 2 * MARGIN) / box.width, (pick.h - 2 * MARGIN) / box.height));
+      const regionCx = pick.x + pick.w / 2;
+      const regionCy = pick.y + pick.h / 2;
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      figma.viewport.zoom = nextZoom;
+      figma.viewport.center = { x: cx + (vw / 2 - regionCx) / nextZoom, y: cy + (vh / 2 - regionCy) / nextZoom };
+    } catch {
+    }
+  }
 
   // src/plugin/scan/context.ts
   var yieldToHost = () => typeof setTimeout === "function" ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve();
-  var isAlias = (v) => typeof v === "object" && v !== null && v.type === "VARIABLE_ALIAS";
+  var isAlias2 = (v) => typeof v === "object" && v !== null && v.type === "VARIABLE_ALIAS";
   async function resolveVariableValue(variable, modeId, depth = 0) {
     if (depth > 12) return void 0;
     const modes = Object.keys(variable.valuesByMode);
     if (!modes.length) return void 0;
     const mode = modeId && modeId in variable.valuesByMode ? modeId : modes[0];
     const value = variable.valuesByMode[mode];
-    if (isAlias(value)) {
+    if (isAlias2(value)) {
       const target = await figma.variables.getVariableByIdAsync(value.id);
       if (!target) return void 0;
       const targetCollection = await figma.variables.getVariableCollectionByIdAsync(target.variableCollectionId);
@@ -2127,6 +3603,19 @@
       componentSets: [],
       localComponents: [],
       anySetHasReactions: false,
+      scope: "page",
+      localVariables: [],
+      collectionsById: /* @__PURE__ */ new Map(),
+      colorById: /* @__PURE__ */ new Map(),
+      usedVariableIds: /* @__PURE__ */ new Set(),
+      headings: [],
+      textMetrics: [],
+      buttonLabels: [],
+      autoLayoutFrames: [],
+      destructiveNodes: [],
+      confirmPatternSeen: false,
+      docLinkSeen: false,
+      componentsForDocs: [],
       found: {},
       reportProgress,
       isCancelled
@@ -2142,6 +3631,7 @@
       figma.getLocalPaintStylesAsync(),
       figma.getLocalTextStylesAsync()
     ]);
+    ctx.localVariables = localVars;
     let i = 0;
     for (const v of localVars) {
       if (v.resolvedType !== "COLOR" && v.resolvedType !== "FLOAT") continue;
@@ -2201,6 +3691,8 @@
         ctx.warnings.push(/permission|manifest/i.test(message) ? "libraries-no-permission" : "libraries-unavailable");
       }
     }
+    for (const [id, col] of collectionCache) if (col) ctx.collectionsById.set(id, col);
+    for (const t of ctx.colors) if (!ctx.colorById.has(t.id) || t.isDefaultMode) ctx.colorById.set(t.id, t);
     buildFloatScales(ctx);
   }
   function rebuildScales(ctx) {
@@ -2210,6 +3702,7 @@
   // src/plugin/scan/engine.ts
   var BATCH_SIZE = 120;
   var MAX_LEARNED_STYLES = 300;
+  var INTERACTIVE_KINDS3 = /* @__PURE__ */ new Set(["button", "icon-button", "link", "input", "select", "checkbox", "radio", "toggle", "chip", "tab", "search"]);
   function scopeLabel(scope, roots) {
     if (scope === "file") return figma.root.name;
     if (scope === "page") return figma.currentPage.name;
@@ -2278,28 +3771,28 @@
     rebuildScales(ctx);
   }
   function toIssue(raw, ctx, ignored) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     const meta = RULE_BY_ID[raw.ruleId];
-    const id = `${raw.ruleId}::${raw.node.id}::${(_a = raw.slot) != null ? _a : ""}`;
-    const page = pageOf2(raw.node);
-    const severity = (_b = raw.severity) != null ? _b : meta.severity;
+    const target = raw.virtual ? { id: raw.virtual.id, name: raw.virtual.name, type: raw.virtual.type, path: raw.virtual.path, pageId: "" } : { id: raw.node.id, name: raw.node.name, type: raw.node.type, path: pathOf(raw.node, ctx), pageId: (_b = (_a = pageOf2(raw.node)) == null ? void 0 : _a.id) != null ? _b : "" };
+    const id = `${raw.ruleId}::${target.id}::${(_c = raw.slot) != null ? _c : ""}`;
+    const severity = (_d = raw.severity) != null ? _d : meta.severity;
     return {
       id,
       ruleId: raw.ruleId,
       category: meta.category,
       severity,
-      nodeId: raw.node.id,
-      nodeName: raw.node.name,
-      nodeType: raw.node.type,
-      nodePath: pathOf(raw.node, ctx),
-      pageId: (_c = page == null ? void 0 : page.id) != null ? _c : "",
+      nodeId: target.id,
+      nodeName: target.name,
+      nodeType: target.type,
+      nodePath: target.path,
+      pageId: target.pageId,
       currentValue: raw.currentValue,
       swatch: raw.swatch,
       suggestion: raw.suggestion,
       fixSafety: raw.fixSafety,
       params: raw.params,
       status: ignored.has(id) ? "ignored" : "open",
-      groupKey: `${raw.ruleId}|${raw.currentValue}|${(_e = (_d = raw.suggestion) == null ? void 0 : _d.id) != null ? _e : ""}`
+      groupKey: `${raw.ruleId}|${raw.currentValue}|${(_f = (_e = raw.suggestion) == null ? void 0 : _e.id) != null ? _f : ""}`
     };
   }
   async function runScan(req, report, isCancelled) {
@@ -2312,6 +3805,7 @@
       report({ ...progress, found: { ...ctx.found } });
     };
     const ctx = createContext(req.options, req.activeRules, emit, isCancelled);
+    ctx.scope = req.scope;
     const plans2 = /* @__PURE__ */ new Map();
     const issues2 = [];
     const seenIds = /* @__PURE__ */ new Set();
@@ -2325,14 +3819,27 @@
       if (issue.status === "open") ctx.found[issue.category] = ((_a2 = ctx.found[issue.category]) != null ? _a2 : 0) + 1;
       if (raw.plan || raw.alternativePlans) plans2.set(issue.id, { plan: raw.plan, alternativePlans: raw.alternativePlans });
     };
-    const rules = ALL_RULES.filter((r) => req.activeRules.has(r.id));
-    const needsCraftCollector = ["craft/missing-loading-state", "craft/missing-empty-state", "craft/missing-hover-transition", "craft/state-naming", "craft/inconsistent-motion"];
+    const allRules = req.rules;
+    const rules = allRules.filter((r) => req.activeRules.has(r.id));
+    const needsCraftCollector = [
+      "craft/missing-loading-state",
+      "craft/missing-empty-state",
+      "craft/missing-hover-transition",
+      "craft/state-naming",
+      "craft/inconsistent-motion",
+      "craft/missing-success-state",
+      "craft/duplicate-state",
+      "craft/state-matrix-thin",
+      "craft/inconsistent-easing",
+      "components/orphan-variant"
+    ];
     if (needsCraftCollector.some((id) => req.activeRules.has(id)) && !rules.some((r) => r.id === "craft/missing-state")) {
-      const collector = ALL_RULES.find((r) => r.id === "craft/missing-state");
-      rules.push(collector);
+      const collector = allRules.find((r) => r.id === "craft/missing-state");
+      if (collector) rules.push(collector);
     }
     if (req.activeRules.has("a11y/contrast-not-verifiable") && !rules.some((r) => r.id === "a11y/text-contrast")) {
-      rules.push(ALL_RULES.find((r) => r.id === "a11y/text-contrast"));
+      const contrast = allRules.find((r) => r.id === "a11y/text-contrast");
+      if (contrast) rules.push(contrast);
     }
     const checkRules = rules.filter((r) => r.check);
     const finalizeRules = rules.filter((r) => r.finalize);
@@ -2347,6 +3854,7 @@
           scope,
           scopeLabel: label2,
           pagesScanned: pages2,
+          interactiveComponents: ctx.componentSets.filter((s) => s.stateProp || INTERACTIVE_KINDS3.has(s.kind)).length,
           tokens: {
             colorVariables: ctx.colors.length,
             floatVariables: ctx.floats.length,
@@ -2406,7 +3914,7 @@
     }
     ctx.warnings.splice(0, ctx.warnings.length, ...new Set(ctx.warnings));
     const sevOrder = { error: 0, warning: 1, info: 2 };
-    const catOrder = { colors: 0, typography: 1, spacing: 2, radius: 3, components: 4, craft: 5, a11y: 6, handoff: 7 };
+    const catOrder = { colors: 0, typography: 1, spacing: 2, radius: 3, components: 4, tokens: 5, craft: 6, a11y: 7, handoff: 8 };
     issues2.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity] || catOrder[a.category] - catOrder[b.category] || a.groupKey.localeCompare(b.groupKey));
     return finish(false, req.scope, label, pages, scanned);
   }
@@ -2497,12 +4005,12 @@
     issues.clear();
     plans.clear();
     journals.clear();
-    const activeRules = resolveActiveRules(msg.preset, msg.disabledRules, msg.enabledRules);
+    const activeRules = resolveActiveRules(msg.preset, msg.disabledRules, msg.enabledRules, msg.mode);
     const ignored = new Set(readIgnored());
     let lastProgressAt = 0;
     try {
       const out = await runScan(
-        { scope: msg.scope, options: msg.options, activeRules, ignoredIssueIds: ignored },
+        { scope: msg.scope, options: msg.options, activeRules, ignoredIssueIds: ignored, rules: ALL_RULES },
         (p) => {
           const now = Date.now();
           if (now - lastProgressAt < 33 && p.phase === "scanning" && p.scanned < p.total) return;
@@ -2532,7 +4040,9 @@
       if (node && node.type !== "DOCUMENT" && node.type !== "PAGE" && !node.removed) nodes.push(node);
     }
     if (!nodes.length) {
-      figma.notify("Ce calque n\u2019existe plus.", { timeout: 2e3 });
+      const fr = settings.locale !== "en";
+      if (nodeIds.some((id) => /^VariableID:|^S:/.test(id))) figma.notify(fr ? "Cette ligne concerne une variable ou un style : ouvre le panneau Variables ou Styles." : "This row is about a variable or a style: open the Variables or Styles panel.", { timeout: 3e3 });
+      else figma.notify(fr ? "Ce calque n\u2019existe plus." : "This layer no longer exists.", { timeout: 2e3 });
       return;
     }
     programmaticSelectionKey = selectionKey(nodes);
@@ -2634,6 +4144,16 @@
         await saveSettings({ preset: msg.preset, options: msg.options, disabledRules: msg.disabledRules, enabledRules: msg.enabledRules });
         await handleScan(msg);
         break;
+      case "export-tokens": {
+        try {
+          const model = await buildTokenModel();
+          const content = msg.format === "dtcg" ? toDtcg(model) : msg.format === "css" ? toCss(model) : toTailwind(model);
+          post({ type: "tokens-exported", format: msg.format, content, variables: countVariables(model) });
+        } catch (e) {
+          figma.notify(e instanceof Error ? e.message : String(e), { error: true, timeout: 4e3 });
+        }
+        break;
+      }
       case "cancel-scan":
         cancelRequested = true;
         break;

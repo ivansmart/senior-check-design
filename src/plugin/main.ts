@@ -1,10 +1,13 @@
 /// <reference types="@figma/plugin-typings" />
 import { resolveActiveRules } from '../shared/rules-catalog';
 import type { FixOutcome, Issue, PluginToUiMessage, Settings, UiToPluginMessage } from '../shared/types';
+import { countVariables, toCss, toDtcg, toTailwind } from '../shared/tokens-export';
 import { DEFAULT_SETTINGS } from '../shared/types';
+import { buildTokenModel } from './export/tokens-model';
 import { applyPlan, FixError, type UndoEntry } from './fix/apply';
 import type { FixPlan } from './fix/plans';
 import { renderPreview, sweepPreviewClones, type PreviewItem } from './preview';
+import { ALL_RULES } from './rules';
 import { revealNodes } from './reveal';
 import { runScan, type IssuePlans } from './scan/engine';
 
@@ -105,12 +108,12 @@ async function handleScan(msg: Extract<UiToPluginMessage, { type: 'scan' }>) {
   issues.clear();
   plans.clear();
   journals.clear();
-  const activeRules = resolveActiveRules(msg.preset, msg.disabledRules, msg.enabledRules);
+  const activeRules = resolveActiveRules(msg.preset, msg.disabledRules, msg.enabledRules, msg.mode);
   const ignored = new Set(readIgnored());
   let lastProgressAt = 0;
   try {
     const out = await runScan(
-      { scope: msg.scope, options: msg.options, activeRules, ignoredIssueIds: ignored },
+      { scope: msg.scope, options: msg.options, activeRules, ignoredIssueIds: ignored, rules: ALL_RULES },
       (p) => {
         const now = Date.now();
         // Limite le débit des messages de progression (~30/s), sans perdre les changements de phase.
@@ -142,7 +145,9 @@ async function selectNodes(nodeIds: string[], pageId: string) {
     if (node && node.type !== 'DOCUMENT' && node.type !== 'PAGE' && !(node as SceneNode).removed) nodes.push(node as SceneNode);
   }
   if (!nodes.length) {
-    figma.notify('Ce calque n’existe plus.', { timeout: 2000 });
+    const fr = settings.locale !== 'en';
+    if (nodeIds.some((id) => /^VariableID:|^S:/.test(id))) figma.notify(fr ? 'Cette ligne concerne une variable ou un style : ouvre le panneau Variables ou Styles.' : 'This row is about a variable or a style: open the Variables or Styles panel.', { timeout: 3000 });
+    else figma.notify(fr ? 'Ce calque n’existe plus.' : 'This layer no longer exists.', { timeout: 2000 });
     return;
   }
   programmaticSelectionKey = selectionKey(nodes);
@@ -250,6 +255,16 @@ figma.ui.onmessage = async (msg: UiToPluginMessage) => {
       await saveSettings({ preset: msg.preset, options: msg.options, disabledRules: msg.disabledRules, enabledRules: msg.enabledRules });
       await handleScan(msg);
       break;
+    case 'export-tokens': {
+      try {
+        const model = await buildTokenModel();
+        const content = msg.format === 'dtcg' ? toDtcg(model) : msg.format === 'css' ? toCss(model) : toTailwind(model);
+        post({ type: 'tokens-exported', format: msg.format, content, variables: countVariables(model) });
+      } catch (e) {
+        figma.notify(e instanceof Error ? e.message : String(e), { error: true, timeout: 4000 });
+      }
+      break;
+    }
     case 'cancel-scan':
       cancelRequested = true;
       break;

@@ -110,3 +110,77 @@ export function buildCsvReport(issues: Issue[], L: ReportLabels): string {
   );
   return [header.map(csvCell).join(','), ...rows].join('\n');
 }
+
+// ---------------------------------------------------------------------------
+// Résumé de revue (Pro) : une page pour le lead designer ou le PO
+// ---------------------------------------------------------------------------
+
+export interface ReviewLabels {
+  title: string;
+  generated: string;
+  scope: string;
+  nodes: string;
+  health: string;
+  craft: string;
+  craftAreas: Record<'states' | 'feedback' | 'recovery' | 'motion', string>;
+  overview: string;
+  columns: { category: string; open: string; errors: string };
+  category: (c: Category) => string;
+  quickFixes: string;
+  topRules: string;
+  rule: (ruleId: string) => string;
+  occurrences: (n: number) => string;
+  nextSteps: string;
+  nextStepFor: (c: Category) => string;
+  allClear: string;
+}
+
+export interface CraftSummary {
+  total: number;
+  areas: { area: 'states' | 'feedback' | 'recovery' | 'motion'; score: number; max: number }[];
+}
+
+export function buildReviewSummary(issues: Issue[], stats: ScanStats, score: ScoreBreakdown, craft: CraftSummary | null, L: ReviewLabels, fileName: string, date: Date): string {
+  const open = issues.filter((i) => i.status === 'open');
+  const lines: string[] = [];
+  lines.push(`# ${L.title} · ${fileName}`);
+  lines.push('');
+  lines.push(`- ${L.generated} : ${date.toISOString().slice(0, 16).replace('T', ' ')}`);
+  lines.push(`- ${L.scope} : ${stats.scopeLabel}`);
+  lines.push(`- ${L.nodes} : ${stats.nodesScanned}`);
+  lines.push(`- **${L.health} : ${score.total} / 100**`);
+  if (craft) {
+    lines.push(`- **${L.craft} : ${craft.total} / 100** · ${craft.areas.map((a) => `${L.craftAreas[a.area]} ${a.score}/${a.max}`).join(' · ')}`);
+  }
+  lines.push('');
+  if (!open.length) {
+    lines.push(L.allClear);
+    return lines.join('\n') + '\n';
+  }
+  lines.push(`## ${L.overview}`);
+  lines.push('');
+  lines.push(`| ${L.columns.category} | ${L.columns.open} | ${L.columns.errors} |`);
+  lines.push('| :-- | --: | --: |');
+  const byCat = new Map<Category, { open: number; errors: number }>();
+  for (const i of open) {
+    const c = byCat.get(i.category) ?? { open: 0, errors: 0 };
+    c.open++;
+    if (i.severity === 'error') c.errors++;
+    byCat.set(i.category, c);
+  }
+  const cats = [...byCat.entries()].sort((a, b) => b[1].errors - a[1].errors || b[1].open - a[1].open);
+  for (const [cat, c] of cats) lines.push(`| ${L.category(cat)} | ${c.open} | ${c.errors} |`);
+  lines.push('');
+  lines.push(`- ${L.quickFixes} : ${open.filter((i) => i.fixSafety === 'safe').length}`);
+  lines.push('');
+  lines.push(`## ${L.topRules}`);
+  lines.push('');
+  const byRule = new Map<string, number>();
+  for (const i of open) byRule.set(i.ruleId, (byRule.get(i.ruleId) ?? 0) + 1);
+  for (const [ruleId, n] of [...byRule.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)) lines.push(`1. ${L.rule(ruleId)} · ${L.occurrences(n)}`);
+  lines.push('');
+  lines.push(`## ${L.nextSteps}`);
+  lines.push('');
+  for (const [cat] of cats.slice(0, 3)) lines.push(`- ${L.nextStepFor(cat)}`);
+  return lines.join('\n') + '\n';
+}

@@ -199,5 +199,111 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
         },
       };
     }
+    // ---- Pro ------------------------------------------------------------
+    case 'set-number': {
+      const node = (await getNode(plan.nodeId)) as unknown as Record<string, unknown> & SceneNode;
+      if (!(plan.field in node) || typeof node[plan.field] !== 'number') throw new FixError('node-type');
+      const before = node[plan.field] as number;
+      node[plan.field] = plan.value;
+      return {
+        issueId,
+        revert: async () => {
+          const n = (await getNode(plan.nodeId)) as unknown as Record<string, unknown>;
+          n[plan.field] = before;
+        },
+      };
+    }
+    case 'set-line-height': {
+      const node = (await getNode(plan.nodeId)) as TextNode;
+      if (node.type !== 'TEXT') throw new FixError('node-type');
+      if (node.lineHeight === figma.mixed) throw new FixError('mixed-text');
+      const before = node.lineHeight as LineHeight;
+      await loadFontsFor(node);
+      node.lineHeight = { unit: 'PIXELS', value: plan.px };
+      return {
+        issueId,
+        revert: async () => {
+          const n = (await getNode(plan.nodeId)) as TextNode;
+          await loadFontsFor(n);
+          n.lineHeight = before;
+        },
+      };
+    }
+    case 'set-layout-sizing': {
+      const node = await getNode(plan.nodeId);
+      if (!('layoutSizingHorizontal' in node)) throw new FixError('node-type');
+      const host = node as SceneNode & AutoLayoutChildrenMixin & LayoutMixin;
+      const before = plan.axis === 'horizontal' ? host.layoutSizingHorizontal : host.layoutSizingVertical;
+      const size = { w: host.width, h: host.height };
+      if (plan.axis === 'horizontal') host.layoutSizingHorizontal = plan.value;
+      else host.layoutSizingVertical = plan.value;
+      return {
+        issueId,
+        revert: async () => {
+          const n = (await getNode(plan.nodeId)) as SceneNode & AutoLayoutChildrenMixin & LayoutMixin;
+          if (plan.axis === 'horizontal') n.layoutSizingHorizontal = before;
+          else n.layoutSizingVertical = before;
+          if (before === 'FIXED' && 'resize' in n) n.resize(size.w, size.h);
+        },
+      };
+    }
+    case 'set-axis-sizing': {
+      const node = await getNode(plan.nodeId);
+      if (!('primaryAxisSizingMode' in node)) throw new FixError('node-type');
+      const host = node as BaseFrameMixin & SceneNode;
+      const before = plan.axis === 'primary' ? host.primaryAxisSizingMode : host.counterAxisSizingMode;
+      const size = { w: host.width, h: host.height };
+      if (plan.axis === 'primary') host.primaryAxisSizingMode = plan.value;
+      else host.counterAxisSizingMode = plan.value;
+      return {
+        issueId,
+        revert: async () => {
+          const n = (await getNode(plan.nodeId)) as BaseFrameMixin & SceneNode;
+          if (plan.axis === 'primary') n.primaryAxisSizingMode = before;
+          else n.counterAxisSizingMode = before;
+          if (before === 'FIXED') n.resize(size.w, size.h);
+        },
+      };
+    }
+    case 'set-hover-easing':
+    case 'cap-transition-duration': {
+      const node = (await getNode(plan.nodeId)) as SceneNode & ReactionMixin;
+      if (!('reactions' in node)) throw new FixError('node-type');
+      const before = clone(node.reactions) as Reaction[];
+      const next = clone(before) as Reaction[];
+      let touched = false;
+      for (const r of next) {
+        const t = r.trigger?.type;
+        const hoverOnly = plan.kind === 'set-hover-easing';
+        if (hoverOnly && t !== 'ON_HOVER' && t !== 'MOUSE_ENTER') continue;
+        const actions = (r.actions ?? (r.action ? [r.action] : [])) as Action[];
+        for (const a of actions) {
+          if (a.type !== 'NODE' || !a.transition || !('duration' in a.transition)) continue;
+          const tr = a.transition as { duration: number; easing: Easing };
+          if (plan.kind === 'set-hover-easing') {
+            tr.easing = { type: plan.easing as Easing['type'] } as Easing;
+            touched = true;
+          } else {
+            const inSeconds = tr.duration < 10;
+            const ms = inSeconds ? tr.duration * 1000 : tr.duration;
+            if (ms > plan.maxMs) {
+              tr.duration = inSeconds ? plan.maxMs / 1000 : plan.maxMs;
+              touched = true;
+            }
+          }
+        }
+        if (r.actions) (r as { actions: Action[] }).actions = actions;
+        else if (r.action) (r as { action: Action }).action = actions[0];
+      }
+      if (!touched) throw new FixError('no-transition');
+      await node.setReactionsAsync(next);
+      return {
+        issueId,
+        revert: async () => {
+          const n = (await getNode(plan.nodeId)) as SceneNode & ReactionMixin;
+          await n.setReactionsAsync(before);
+        },
+      };
+    }
   }
 }

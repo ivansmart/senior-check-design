@@ -120,6 +120,46 @@ export const craftRules: Rule[] = [
           });
         }
       }
+      // ---- Pro : états en double, matrice réduite, feedback de succès ----
+      if (ctx.activeRules.has('craft/duplicate-state')) {
+        const byCanon = new Map<string, string[]>();
+        for (const v of stateValues) {
+          const c = canonicalState(v);
+          if (c) byCanon.set(c, [...(byCanon.get(c) ?? []), v]);
+        }
+        for (const [c, values] of byCanon) {
+          if (values.length < 2) continue;
+          out.push({
+            ruleId: 'craft/duplicate-state',
+            node,
+            slot: c,
+            currentValue: values.join(' · '),
+            fixSafety: 'none',
+            params: { state: c, values: values.join(', '), component: set.name, prop: stateProp },
+          });
+        }
+      }
+      if (ctx.activeRules.has('craft/state-matrix-thin') && expected && canonical.size < 3) {
+        out.push({
+          ruleId: 'craft/state-matrix-thin',
+          node,
+          currentValue: stateValues.join(' · '),
+          fixSafety: 'none',
+          params: { count: canonical.size, component: set.name, kind, prop: stateProp },
+        });
+      }
+      if (ctx.activeRules.has('craft/missing-success-state') && (kind === 'button' || kind === 'icon-button') && !canonical.has('success')) {
+        if (looksLikeLongAction(set.name) || looksLikeLongAction(textsInside(set))) {
+          out.push({
+            ruleId: 'craft/missing-success-state',
+            node,
+            currentValue: stateValues.join(' · '),
+            suggestion: { kind: 'value', id: 'success', label: `${stateProp}=Success`, confidence: 'none' },
+            fixSafety: 'none',
+            params: { component: set.name, prop: stateProp },
+          });
+        }
+      }
       if (ctx.activeRules.has('craft/missing-empty-state') && EMPTY_STATE_KINDS.includes(kind) && !canonical.has('empty')) {
         out.push({
           ruleId: 'craft/missing-empty-state',
@@ -136,6 +176,9 @@ export const craftRules: Rule[] = [
   // Les règles ci-dessous partagent la collecte de craft/missing-state ; leur `check` est vide.
   { id: 'craft/missing-loading-state', types: ['COMPONENT_SET'] },
   { id: 'craft/missing-empty-state', types: ['COMPONENT_SET'] },
+  { id: 'craft/missing-success-state', types: ['COMPONENT_SET'] },
+  { id: 'craft/duplicate-state', types: ['COMPONENT_SET'] },
+  { id: 'craft/state-matrix-thin', types: ['COMPONENT_SET'] },
   {
     id: 'craft/missing-hover-transition',
     types: ['COMPONENT_SET'],

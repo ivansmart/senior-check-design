@@ -45,6 +45,33 @@ L'interface reprend la modale **Check designs** de Figma, puis l'étend :
 - **Détails** (ⓘ) : explication pédagogique de chaque ligne (message, pourquoi, que faire, calques concernés), avec « Voir dans le canvas » et « Ignorer ».
 - **Ce qui dépasse Check designs** : score Design Health dans l'en-tête, sévérités, trois onglets supplémentaires, export Markdown/CSV, annulation par toast en plus de `Cmd/Ctrl+Z`, thème clair/sombre et FR/EN.
 
+### Mode Classique / Pro (V2)
+
+Un commutateur **Classique · Pro** dans l'en-tête choisit le niveau d'exigence. **Classique** est l'audit de référence décrit ci-dessus. **Pro** active le vrai « Senior Check » : 36 règles supplémentaires, un onglet **Tokens**, le score **Craft Readiness**, des exports et des règles d'équipe. En mode Classique, les règles Pro sont ignorées même si un preset les liste ; le choix est mémorisé.
+
+Ce que Pro ajoute, catégorie par catégorie (toutes les règles restent déterministes et locales) :
+
+| Catégorie | Règles Pro |
+| :-- | :-- |
+| Tokens (onglet dédié) | alias cassé, alias circulaire, token jamais utilisé (périmètre fichier), tokens de même valeur, token primitif utilisé directement (suggère le sémantique de même valeur), mode non couvert, token sans scope |
+| Typographie | styles quasi identiques, ligne trop longue, interligne incohérent (fix), casse de libellé incohérente |
+| Dimensions | rythme presque identique (fix du gap), dimension fixe à passer en Fill ou en Hug (fix), textes qui se chevauchent |
+| Composants | composant obsolète utilisé, variante jamais utilisée, conteneur sans rôle, composant sans lien de documentation, composant sans statut |
+| Craft | état de succès manquant, action destructive sans confirmation ni annulation, erreur sans issue, message d'erreur générique, état en double, matrice d'états réduite, easing incohérent (fix), transition trop longue (fix), survol sans retour |
+| Accessibilité | niveau de titre sauté, contraste d'icône et de bordure de champ (3:1), bouton icône sans libellé, statut porté par la couleur seule |
+| Handoff | motif répété non composantisé, image recadrée à la main |
+
+Les règles qui ne peuvent pas conclure sans convention (statut, lien de doc, scopes, modes) ne s'activent que si le fichier pratique déjà cette convention : elles signalent les écarts, pas l'absence de politique.
+
+Fonctions Pro transverses :
+
+- **Craft Readiness** : second score dans l'en-tête, séparé du Design Health, sur quatre axes (états interactifs 50, feedback 20, récupération 15, motion 15), rapporté au nombre de composants interactifs du périmètre.
+- **Preset Preflight** : avant publication d'une librairie (tokens, composants, craft, handoff, contrastes).
+- **Exports** : résumé de revue en Markdown pour un lead ou un PO, variables locales en JSON DTCG, en custom properties CSS (un bloc par mode) et en `theme.extend` Tailwind.
+- **Règles d'équipe** : export et import d'un fichier JSON (mode, preset, règles activées ou désactivées, options) pour partager le même niveau d'exigence.
+- **Simulation de vision** dans le volet Comparer : protanopie, deutéranopie, tritanopie, achromatopsie.
+- Les lignes qui portent sur une variable ou un style (plutôt qu'un calque) s'affichent avec leur propre type ; « Voir dans le canvas » renvoie alors vers le panneau Variables.
+
 ### Presets
 
 | Preset | Objectif |
@@ -54,6 +81,7 @@ L'interface reprend la modale **Check designs** de Figma, puis l'étend :
 | Design system | Santé de la librairie |
 | Accessibilité | Contraste, cibles tactiles, états |
 | Product Craft | États, feedback, motion |
+| Preflight (Pro) | Avant publication d'une librairie : tokens, composants, craft, handoff, contrastes |
 | Strict | Audit senior complet (toutes les règles) |
 
 Chaque règle peut être activée/désactivée par rapport au preset ; les réglages sont mémorisés (`clientStorage`). Les issues ignorées sont stockées **dans le fichier** (`setPluginData`) et donc partagées avec l'équipe.

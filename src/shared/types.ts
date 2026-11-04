@@ -9,6 +9,7 @@ export type Category =
   | 'spacing'
   | 'radius'
   | 'components'
+  | 'tokens'
   | 'craft'
   | 'a11y'
   | 'handoff';
@@ -19,10 +20,14 @@ export const CATEGORIES: Category[] = [
   'spacing',
   'radius',
   'components',
+  'tokens',
   'craft',
   'a11y',
   'handoff',
 ];
+
+/** Classique : la V1 ; Pro : active les règles et fonctions de la V2 (« Senior Check »). */
+export type PluginMode = 'classic' | 'pro';
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -40,7 +45,7 @@ export type ScopeSetting = 'auto' | 'page' | 'file';
 
 export type ContrastLevel = 'AA' | 'AAA';
 
-export type PresetId = 'quick' | 'handoff' | 'design-system' | 'a11y' | 'craft' | 'strict';
+export type PresetId = 'quick' | 'handoff' | 'design-system' | 'a11y' | 'craft' | 'preflight' | 'strict';
 
 export type Locale = 'fr' | 'en';
 
@@ -113,6 +118,8 @@ export interface ScanOptions {
 
 export interface Settings {
   locale: Locale;
+  /** Classique (V1) ou Pro (V2). */
+  mode: PluginMode;
   preset: PresetId;
   scope: ScopeSetting;
   options: ScanOptions;
@@ -146,6 +153,7 @@ export const DEFAULT_OPTIONS: ScanOptions = {
 
 export const DEFAULT_SETTINGS: Settings = {
   locale: 'fr',
+  mode: 'classic',
   preset: 'quick',
   scope: 'auto',
   options: DEFAULT_OPTIONS,
@@ -172,6 +180,8 @@ export interface ScanStats {
   scope: ScanScope;
   scopeLabel: string;
   pagesScanned: number;
+  /** Composants interactifs (jeux de variantes avec états) rencontrés : base du score Craft Readiness. */
+  interactiveComponents: number;
   /** Indices disponibles pendant le scan, pour expliquer les suggestions. */
   tokens: {
     colorVariables: number;
@@ -211,7 +221,7 @@ export interface ScanProgress {
 
 export type UiToPluginMessage =
   | { type: 'ui-ready' }
-  | { type: 'scan'; scope: ScanScope; preset: PresetId; options: ScanOptions; disabledRules: string[]; enabledRules: string[] }
+  | { type: 'scan'; scope: ScanScope; preset: PresetId; options: ScanOptions; disabledRules: string[]; enabledRules: string[]; mode: PluginMode }
   | { type: 'cancel-scan' }
   | { type: 'select-node'; nodeId: string; pageId: string }
   | { type: 'select-nodes'; nodeIds: string[]; pageId: string }
@@ -227,8 +237,12 @@ export type UiToPluginMessage =
    * (si `followSelection`), sinon les cadres racines des calques concernés (au plus `maxRoots`).
    */
   | { type: 'preview'; requestId: number; items: { issueId: string; alternativeId?: string }[]; maxRoots: number; rootId?: string | null; followSelection: boolean }
+  /** Pro : export des variables locales (DTCG JSON, CSS custom properties, Tailwind). */
+  | { type: 'export-tokens'; format: TokenExportFormat }
   | { type: 'notify'; message: string; error?: boolean }
   | { type: 'open-url'; url: string };
+
+export type TokenExportFormat = 'dtcg' | 'css' | 'tailwind';
 
 // ---------------------------------------------------------------------------
 // Messages sandbox → UI
@@ -290,4 +304,5 @@ export type PluginToUiMessage =
   | { type: 'ignored-updated'; ignoredIssueIds: string[] }
   | { type: 'settings-saved'; settings: Settings }
   | { type: 'preview-done'; requestId: number; frames: PreviewFrame[]; skipped: number; roots: PreviewRoot[] }
+  | { type: 'tokens-exported'; format: TokenExportFormat; content: string; variables: number }
   | { type: 'preview-error'; requestId: number; message: string };

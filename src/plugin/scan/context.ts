@@ -2,7 +2,7 @@
 import type { RGB01 } from '../../shared/color';
 import { colorKey, rgbToHex } from '../../shared/color';
 import type { ScaleCandidate } from '../../shared/scale';
-import type { Category, ScanOptions, ScanProgress } from '../../shared/types';
+import type { Category, ScanOptions, ScanProgress, ScanScope } from '../../shared/types';
 import type { FixPlan } from '../fix/plans';
 
 export interface ColorToken {
@@ -51,10 +51,19 @@ export type Background =
   | { kind: 'complex'; reason: 'image' | 'gradient' | 'opacity' | 'mixed' }
   | { kind: 'unknown' };
 
+/** Issue « virtuelle » : porte sur une variable ou un style plutôt que sur un calque. */
+export interface VirtualTarget {
+  id: string;
+  name: string;
+  type: 'VARIABLE' | 'TEXT_STYLE' | 'PAINT_STYLE';
+  path: string[];
+}
+
 /** Issue brute produite par une règle ; le moteur complète chemin, statut et identifiant. */
 export interface RawIssue {
   ruleId: string;
-  node: SceneNode;
+  node?: SceneNode;
+  virtual?: VirtualTarget;
   /** Distingue plusieurs issues d'une même règle sur un même node. */
   slot?: string;
   severity?: 'error' | 'warning' | 'info';
@@ -104,6 +113,22 @@ export interface ScanContext {
   localComponents: { node: ComponentNode | ComponentSetNode; name: string }[];
   /** Au moins un component set a des réactions prototype (sinon on n'exige pas de transitions). */
   anySetHasReactions: boolean;
+  // ---- Pro ---------------------------------------------------------------
+  scope: ScanScope;
+  localVariables: Variable[];
+  collectionsById: Map<string, VariableCollection>;
+  /** Premier token couleur indexé par identifiant de variable (mode par défaut). */
+  colorById: Map<string, ColorToken>;
+  /** Variables liées rencontrées pendant le parcours (pour les tokens orphelins). */
+  usedVariableIds: Set<string>;
+  headings: { node: TextNode; level: number; rootId: string; y: number }[];
+  textMetrics: { node: TextNode; family: string; size: number; lineHeightPx: number }[];
+  buttonLabels: { node: TextNode; text: string }[];
+  autoLayoutFrames: { node: SceneNode; role: string; mode: string; gap: number }[];
+  destructiveNodes: SceneNode[];
+  confirmPatternSeen: boolean;
+  docLinkSeen: boolean;
+  componentsForDocs: (ComponentNode | ComponentSetNode)[];
   found: Partial<Record<Category, number>>;
   reportProgress: (p: Partial<ScanProgress>) => void;
   isCancelled: () => boolean;
@@ -284,6 +309,19 @@ export function createContext(
     componentSets: [],
     localComponents: [],
     anySetHasReactions: false,
+    scope: 'page',
+    localVariables: [],
+    collectionsById: new Map(),
+    colorById: new Map(),
+    usedVariableIds: new Set(),
+    headings: [],
+    textMetrics: [],
+    buttonLabels: [],
+    autoLayoutFrames: [],
+    destructiveNodes: [],
+    confirmPatternSeen: false,
+    docLinkSeen: false,
+    componentsForDocs: [],
     found: {},
     reportProgress,
     isCancelled,
@@ -304,6 +342,7 @@ export async function indexTokens(ctx: ScanContext): Promise<void> {
     figma.getLocalPaintStylesAsync(),
     figma.getLocalTextStylesAsync(),
   ]);
+  ctx.localVariables = localVars;
   let i = 0;
   for (const v of localVars) {
     if (v.resolvedType !== 'COLOR' && v.resolvedType !== 'FLOAT') continue;
@@ -367,6 +406,8 @@ export async function indexTokens(ctx: ScanContext): Promise<void> {
       ctx.warnings.push(/permission|manifest/i.test(message) ? 'libraries-no-permission' : 'libraries-unavailable');
     }
   }
+  for (const [id, col] of collectionCache) if (col) ctx.collectionsById.set(id, col);
+  for (const t of ctx.colors) if (!ctx.colorById.has(t.id) || t.isDefaultMode) ctx.colorById.set(t.id, t);
   buildFloatScales(ctx);
 }
 

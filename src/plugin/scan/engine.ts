@@ -2,7 +2,6 @@
 import { RULE_BY_ID } from '../../shared/rules-catalog';
 import type { Category, Issue, ScanOptions, ScanProgress, ScanResult, ScanScope } from '../../shared/types';
 import type { FixPlan } from '../fix/plans';
-import { ALL_RULES } from '../rules';
 import type { Rule } from '../rules/types';
 import { createContext, indexPaintStyle, indexTextStyle, indexTokens, rebuildScales, yieldToHost, type RawIssue, type ScanContext } from './context';
 import { isEffectivelyHidden, isEffectivelyLocked, isInsideInstance, pageOf, pathOf } from './node-info';
@@ -12,6 +11,8 @@ export interface ScanRequest {
   options: ScanOptions;
   activeRules: Set<string>;
   ignoredIssueIds: Set<string>;
+  /** Jeu de règles disponibles (ALL_RULES en production ; sous-ensemble pour les bundles de test). */
+  rules: Rule[];
 }
 
 export interface IssuePlans {
@@ -27,6 +28,7 @@ export interface EngineOutput {
 
 const BATCH_SIZE = 120;
 const MAX_LEARNED_STYLES = 300;
+const INTERACTIVE_KINDS = new Set(['button', 'icon-button', 'link', 'input', 'select', 'checkbox', 'radio', 'toggle', 'chip', 'tab', 'search']);
 
 function scopeLabel(scope: ScanScope, roots: readonly BaseNode[]): string {
   if (scope === 'file') return figma.root.name;
@@ -103,19 +105,21 @@ async function learnRemoteStyles(nodes: SceneNode[], ctx: ScanContext) {
 
 function toIssue(raw: RawIssue, ctx: ScanContext, ignored: Set<string>): Issue {
   const meta = RULE_BY_ID[raw.ruleId];
-  const id = `${raw.ruleId}::${raw.node.id}::${raw.slot ?? ''}`;
-  const page = pageOf(raw.node);
+  const target = raw.virtual
+    ? { id: raw.virtual.id, name: raw.virtual.name, type: raw.virtual.type, path: raw.virtual.path, pageId: '' }
+    : { id: raw.node!.id, name: raw.node!.name, type: raw.node!.type, path: pathOf(raw.node!, ctx), pageId: pageOf(raw.node!)?.id ?? '' };
+  const id = `${raw.ruleId}::${target.id}::${raw.slot ?? ''}`;
   const severity = raw.severity ?? meta.severity;
   return {
     id,
     ruleId: raw.ruleId,
     category: meta.category,
     severity,
-    nodeId: raw.node.id,
-    nodeName: raw.node.name,
-    nodeType: raw.node.type,
-    nodePath: pathOf(raw.node, ctx),
-    pageId: page?.id ?? '',
+    nodeId: target.id,
+    nodeName: target.name,
+    nodeType: target.type,
+    nodePath: target.path,
+    pageId: target.pageId,
     currentValue: raw.currentValue,
     swatch: raw.swatch,
     suggestion: raw.suggestion,
@@ -139,6 +143,7 @@ export async function runScan(
     report({ ...progress, found: { ...ctx.found } });
   };
   const ctx = createContext(req.options, req.activeRules, emit, isCancelled);
+  ctx.scope = req.scope;
   const plans = new Map<string, IssuePlans>();
   const issues: Issue[] = [];
   const seenIds = new Set<string>();
@@ -153,15 +158,28 @@ export async function runScan(
     if (raw.plan || raw.alternativePlans) plans.set(issue.id, { plan: raw.plan, alternativePlans: raw.alternativePlans });
   };
 
-  const rules = ALL_RULES.filter((r) => req.activeRules.has(r.id));
+  const allRules = req.rules;
+  const rules = allRules.filter((r) => req.activeRules.has(r.id));
   // Les règles "satellites" (collecte partagée) : s'assurer que la règle collectrice tourne.
-  const needsCraftCollector = ['craft/missing-loading-state', 'craft/missing-empty-state', 'craft/missing-hover-transition', 'craft/state-naming', 'craft/inconsistent-motion'];
+  const needsCraftCollector = [
+    'craft/missing-loading-state',
+    'craft/missing-empty-state',
+    'craft/missing-hover-transition',
+    'craft/state-naming',
+    'craft/inconsistent-motion',
+    'craft/missing-success-state',
+    'craft/duplicate-state',
+    'craft/state-matrix-thin',
+    'craft/inconsistent-easing',
+    'components/orphan-variant',
+  ];
   if (needsCraftCollector.some((id) => req.activeRules.has(id)) && !rules.some((r) => r.id === 'craft/missing-state')) {
-    const collector = ALL_RULES.find((r) => r.id === 'craft/missing-state')!;
-    rules.push(collector);
+    const collector = allRules.find((r) => r.id === 'craft/missing-state');
+    if (collector) rules.push(collector);
   }
   if (req.activeRules.has('a11y/contrast-not-verifiable') && !rules.some((r) => r.id === 'a11y/text-contrast')) {
-    rules.push(ALL_RULES.find((r) => r.id === 'a11y/text-contrast')!);
+    const contrast = allRules.find((r) => r.id === 'a11y/text-contrast');
+    if (contrast) rules.push(contrast);
   }
   const checkRules = rules.filter((r) => r.check);
   const finalizeRules = rules.filter((r) => r.finalize);
@@ -177,6 +195,7 @@ export async function runScan(
         scope,
         scopeLabel: label,
         pagesScanned: pages,
+        interactiveComponents: ctx.componentSets.filter((s) => s.stateProp || INTERACTIVE_KINDS.has(s.kind)).length,
         tokens: {
           colorVariables: ctx.colors.length,
           floatVariables: ctx.floats.length,
@@ -251,7 +270,7 @@ export async function runScan(
 
   // Tri : erreurs d'abord, puis catégorie, puis valeur.
   const sevOrder = { error: 0, warning: 1, info: 2 };
-  const catOrder: Record<Category, number> = { colors: 0, typography: 1, spacing: 2, radius: 3, components: 4, craft: 5, a11y: 6, handoff: 7 };
+  const catOrder: Record<Category, number> = { colors: 0, typography: 1, spacing: 2, radius: 3, components: 4, tokens: 5, craft: 6, a11y: 7, handoff: 8 };
   issues.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity] || catOrder[a.category] - catOrder[b.category] || a.groupKey.localeCompare(b.groupKey));
 
   return finish(false, req.scope, label, pages, scanned);

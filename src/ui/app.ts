@@ -1,10 +1,11 @@
-import { ALL_RULE_IDS, PRESET_IDS, RULE_BY_ID, RULES, resolveActiveRules } from '../shared/rules-catalog';
-import { buildCsvReport, buildMarkdownReport, type ReportLabels } from '../shared/report';
-import { computeScore, countBySeverity } from '../shared/score';
+import { ALL_RULE_IDS, PRESET_IDS, PRO_PRESET_IDS, RULE_BY_ID, RULES, resolveActiveRules } from '../shared/rules-catalog';
+import { buildCsvReport, buildMarkdownReport, buildReviewSummary, type ReportLabels, type ReviewLabels } from '../shared/report';
+import { computeCraftReadiness, computeScore, countBySeverity } from '../shared/score';
 import {
   DEFAULT_SETTINGS,
   type Issue,
   type PluginToUiMessage,
+  type PluginMode,
   type PreviewFrame,
   type PreviewRoot,
   type ScanProgress,
@@ -12,6 +13,7 @@ import {
   type ScanScope,
   type Settings,
   type Severity,
+  type TokenExportFormat,
   type UiToPluginMessage,
 } from '../shared/types';
 import { animateNumber, append, clear, copyText, download, el, svgIcon, type IconName } from './dom';
@@ -21,12 +23,14 @@ import { I18n, detectLocale } from './i18n';
 // Modèle d'affichage : onglets, sections (contexte), lignes (valeur → suggestion)
 // ---------------------------------------------------------------------------
 
-type Tab = 'colors' | 'dimensions' | 'typography' | 'components' | 'craft' | 'a11y' | 'handoff';
-const TABS: Tab[] = ['colors', 'dimensions', 'typography', 'components', 'craft', 'a11y', 'handoff'];
+type Tab = 'colors' | 'dimensions' | 'typography' | 'components' | 'tokens' | 'craft' | 'a11y' | 'handoff';
+const CLASSIC_TABS: Tab[] = ['colors', 'dimensions', 'typography', 'components', 'craft', 'a11y', 'handoff'];
+const PRO_TABS: Tab[] = ['colors', 'dimensions', 'typography', 'components', 'tokens', 'craft', 'a11y', 'handoff'];
 const BASE_TABS = 4; // les quatre onglets de Check designs ; les suivants sont l'extension « senior »
+const visibleTabs = (): Tab[] => (state.settings.mode === 'pro' ? PRO_TABS : CLASSIC_TABS);
 
-type Kind = 'frame' | 'componentSet' | 'component' | 'instance' | 'shape' | 'text' | 'group' | 'section' | 'layer';
-const KIND_ORDER: Kind[] = ['frame', 'componentSet', 'component', 'instance', 'shape', 'text', 'group', 'section', 'layer'];
+type Kind = 'frame' | 'componentSet' | 'component' | 'instance' | 'shape' | 'text' | 'group' | 'section' | 'variable' | 'style' | 'layer';
+const KIND_ORDER: Kind[] = ['frame', 'componentSet', 'component', 'instance', 'shape', 'text', 'group', 'section', 'variable', 'style', 'layer'];
 const KIND_ICON: Record<Kind, IconName> = {
   frame: 'frame',
   componentSet: 'component',
@@ -36,6 +40,8 @@ const KIND_ICON: Record<Kind, IconName> = {
   text: 'text',
   group: 'group',
   section: 'section',
+  variable: 'variable',
+  style: 'style',
   layer: 'layers',
 };
 
@@ -66,6 +72,11 @@ function kindOf(nodeType: string): Kind {
       return 'group';
     case 'SECTION':
       return 'section';
+    case 'VARIABLE':
+      return 'variable';
+    case 'TEXT_STYLE':
+    case 'PAINT_STYLE':
+      return 'style';
     case 'RECTANGLE':
     case 'ELLIPSE':
     case 'POLYGON':
@@ -106,6 +117,43 @@ const PROP_BY_RULE: Record<string, string> = {
   'handoff/fractional-size': 'propDims',
   'handoff/fractional-position': 'propPosition',
   'handoff/stackable-without-autolayout': 'propAutoLayout',
+  // Pro
+  'tokens/broken-alias': 'propAlias',
+  'tokens/circular-alias': 'propAlias',
+  'tokens/orphan': 'propOrphan',
+  'tokens/duplicate-value': 'propDuplicateValue',
+  'tokens/primitive-bound': 'propPrimitive',
+  'tokens/mode-gap': 'propModes',
+  'tokens/unscoped': 'propScope',
+  'typography/near-duplicate-styles': 'propNearDuplicate',
+  'typography/line-length': 'propLineLength',
+  'typography/line-height-inconsistent': 'propLineHeight',
+  'typography/label-case': 'propLabelCase',
+  'spacing/rhythm-near-miss': 'propRhythm',
+  'spacing/fixed-should-fill': 'propSizing',
+  'spacing/fixed-should-hug': 'propSizing',
+  'spacing/text-overlap': 'propOverlap',
+  'components/deprecated-in-use': 'propDeprecated',
+  'components/orphan-variant': 'propOrphanVariant',
+  'components/useless-nesting': 'propNesting',
+  'components/no-doc-link': 'propDocLink',
+  'components/no-status': 'propStatus',
+  'a11y/heading-skip': 'propHeadings',
+  'a11y/icon-contrast': 'propIconContrast',
+  'a11y/border-contrast': 'propBorderContrast',
+  'a11y/icon-only-without-label': 'propIconLabel',
+  'a11y/color-only-status': 'propColorOnly',
+  'handoff/repeated-pattern': 'propPattern',
+  'handoff/image-crop': 'propImage',
+  'craft/missing-success-state': 'propSuccess',
+  'craft/destructive-without-confirm': 'propDestructive',
+  'craft/error-without-recovery': 'propRecovery',
+  'craft/generic-error-message': 'propErrorMessage',
+  'craft/duplicate-state': 'propDuplicateState',
+  'craft/state-matrix-thin': 'propStateMatrix',
+  'craft/inconsistent-easing': 'propEasing',
+  'craft/transition-too-long': 'propDuration',
+  'craft/non-reversible-hover': 'propReversible',
 };
 const PROP_ORDER = Object.keys(PROP_BY_RULE);
 
@@ -116,6 +164,7 @@ function tabOf(issue: Issue): Tab | null {
   if (r.startsWith('spacing/') || r.startsWith('radius/')) return 'dimensions';
   if (r.startsWith('typography/')) return 'typography';
   if (r.startsWith('components/')) return 'components';
+  if (r.startsWith('tokens/')) return 'tokens';
   if (r.startsWith('craft/')) return 'craft';
   if (r.startsWith('a11y/')) return 'a11y';
   if (r.startsWith('handoff/')) return 'handoff';
@@ -196,7 +245,17 @@ const state = {
     error: null as string | null,
     width: 440,
     timer: 0,
+    vision: 'normal' as VisionMode,
   },
+};
+
+type VisionMode = 'normal' | 'protan' | 'deutan' | 'tritan' | 'achroma';
+/** Matrices de simulation (approximation linéaire courante, appliquée en sRGB). */
+const VISION_MATRIX: Record<Exclude<VisionMode, 'normal'>, number[]> = {
+  protan: [0.567, 0.433, 0, 0.558, 0.442, 0, 0, 0.242, 0.758],
+  deutan: [0.625, 0.375, 0, 0.7, 0.3, 0, 0, 0.3, 0.7],
+  tritan: [0.95, 0.05, 0, 0, 0.433, 0.567, 0, 0.475, 0.525],
+  achroma: [0.299, 0.587, 0.114, 0.299, 0.587, 0.114, 0.299, 0.587, 0.114],
 };
 
 type CompareMode = 'side' | 'overlay' | 'diff';
@@ -217,6 +276,8 @@ interface PreviewView {
   ready: boolean;
   diff: HTMLCanvasElement | null;
   diffPct: number | null;
+  /** Rendus filtrés par mode de vision, calculés à la demande. */
+  vision: Map<string, HTMLCanvasElement>;
 }
 
 const app = document.getElementById('app')!;
@@ -377,18 +438,40 @@ function renderHeader(): HTMLElement {
     ? `${t('health')} ${score ?? ''} · ${t('counts', { e: sev.error, w: sev.warning, i: sev.info })} · ${t('scanLayers', { n: state.result.stats.nodesScanned })}`
     : t('health');
   scoreEl.title = scoreTitle;
+  const pro = state.settings.mode === 'pro';
+  let craftEl: HTMLElement | null = null;
+  if (pro && state.phase === 'results' && state.result) {
+    const craft = computeCraftReadiness([...state.issues.values()], state.result.stats.interactiveComponents);
+    const areaLabel: Record<string, string> = { states: t('craftStates'), feedback: t('craftFeedback'), recovery: t('craftRecovery'), motion: t('craftMotion') };
+    craftEl = el(
+      'span',
+      { class: 'score craft num', 'data-level': scoreLevel(craft.total), title: `${t('craftScore')} ${craft.total} · ${craft.areas.map((a) => `${areaLabel[a.area]} ${a.score}/${a.max}`).join(' · ')}` },
+      `${t('craftShort')} ${craft.total}`,
+    );
+  }
+  const modeSwitch = segmented<PluginMode>(
+    [
+      { value: 'classic', label: t('modeClassic'), title: t('modeHint') },
+      { value: 'pro', label: t('modePro'), title: t('modeHint') },
+    ],
+    state.settings.mode,
+    (v) => setMode(v),
+  );
+  modeSwitch.classList.add('mode-switch');
+  modeSwitch.setAttribute('data-act', 'mode');
   if (state.collapsed) {
     return el(
       'header',
       { class: 'header' },
-      el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null),
+      el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null, craftEl),
       el('button', { class: 'icon-btn', 'data-act': 'expand', title: t('expand'), 'aria-label': t('expand'), onclick: () => toggleCollapsed(false) }, svgIcon('expand')),
     );
   }
   return el(
     'header',
     { class: 'header' },
-    el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null),
+    el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null, craftEl),
+    modeSwitch,
     el(
       'button',
       { class: 'icon-btn toggle', 'data-act': 'compare', 'aria-pressed': String(state.compare.open), title: t('compareOpen'), 'aria-label': t('compareOpen'), disabled: state.phase !== 'results', onclick: () => toggleCompare(!state.compare.open) },
@@ -412,6 +495,8 @@ function tabCount(tab: Tab): number {
         return f.typography ?? 0;
       case 'components':
         return f.components ?? 0;
+      case 'tokens':
+        return f.tokens ?? 0;
       case 'craft':
         return f.craft ?? 0;
       case 'a11y':
@@ -425,7 +510,7 @@ function tabCount(tab: Tab): number {
 
 function renderTabs(): HTMLElement {
   const tabs = el('div', { class: 'tabs', role: 'tablist' });
-  TABS.forEach((tab, idx) => {
+  visibleTabs().forEach((tab, idx) => {
     if (idx === BASE_TABS) tabs.appendChild(el('span', { class: 'tab-sep', 'aria-hidden': 'true' }));
     const count = tabCount(tab);
     tabs.appendChild(
@@ -1010,7 +1095,7 @@ function startScan(force = false) {
   state.notice = null;
   state.selectionChangedSinceScan = false;
   state.scannedSelection = scope === 'selection';
-  send({ type: 'scan', scope, preset: s.preset, options: s.options, disabledRules: s.disabledRules, enabledRules: s.enabledRules });
+  send({ type: 'scan', scope, preset: s.preset, options: s.options, disabledRules: s.disabledRules, enabledRules: s.enabledRules, mode: s.mode });
   render();
 }
 
@@ -1023,7 +1108,7 @@ function receiveResult(result: ScanResult, notice: typeof state.notice) {
   state.phase = 'results';
   refreshRows();
   // Ouvre le premier onglet avec des suggestions (comme Check designs).
-  const firstWithRows = TABS.find((tab) => openRowsOf(tab).length > 0);
+  const firstWithRows = visibleTabs().find((tab) => openRowsOf(tab).length > 0);
   state.tab = firstWithRows ?? 'colors';
   state.lastScore = 0;
   render();
@@ -1087,14 +1172,14 @@ function renderSettings(): HTMLElement {
     render();
     if (rescan) scheduleRescan();
   };
-  const active = resolveActiveRules(s.preset, s.disabledRules, s.enabledRules);
+  const active = resolveActiveRules(s.preset, s.disabledRules, s.enabledRules, s.mode);
   const rulesList = el(
     'div',
     { class: 'rule-list' },
-    ...RULES.map((r) =>
+    ...RULES.filter((r) => s.mode === 'pro' || !r.tier).map((r) =>
       checkbox(`${state.i18n.ruleTitle(r.id)}`, active.has(r.id), (on) =>
         update(() => {
-          const inPreset = resolveActiveRules(s.preset, [], []).has(r.id);
+          const inPreset = resolveActiveRules(s.preset, [], [], s.mode).has(r.id);
           s.disabledRules = s.disabledRules.filter((x) => x !== r.id);
           s.enabledRules = s.enabledRules.filter((x) => x !== r.id);
           if (inPreset && !on) s.disabledRules.push(r.id);
@@ -1125,7 +1210,7 @@ function renderSettings(): HTMLElement {
         el(
           'select',
           { onchange: (e) => update(() => ((s.preset = (e.target as HTMLSelectElement).value as Settings['preset']), (s.disabledRules = []), (s.enabledRules = []))) },
-          ...PRESET_IDS.map((id) => el('option', { value: id, selected: s.preset === id }, `${state.i18n.preset(id).name} · ${state.i18n.preset(id).hint}`)),
+          ...PRESET_IDS.filter((id) => s.mode === 'pro' || !PRO_PRESET_IDS.includes(id)).map((id) => el('option', { value: id, selected: s.preset === id }, `${state.i18n.preset(id).name} · ${state.i18n.preset(id).hint}`)),
         ),
       ),
     ),
@@ -1182,7 +1267,16 @@ function renderSettings(): HTMLElement {
         numberField(t('optMinFont'), o.minFontSize, 8, 16, (v) => update(() => (o.minFontSize = v))),
       ),
     ),
-    el('details', { class: 'accordion' }, el('summary', {}, `${t('setRules')} · ${active.size}/${ALL_RULE_IDS.length}`), el('div', { class: 'body' }, rulesList)),
+    el('details', { class: 'accordion' }, el('summary', {}, `${t('setRules')} · ${active.size}/${s.mode === 'pro' ? ALL_RULE_IDS.length : RULES.filter((r) => !r.tier).length}`), el('div', { class: 'body' }, rulesList)),
+    s.mode === 'pro'
+      ? el(
+          'div',
+          { class: 'pop-section' },
+          el('div', { class: 'k' }, t('setTeamRules')),
+          el('div', { class: 'row-btns' }, el('button', { class: 'btn btn-sm btn-secondary', onclick: () => exportTeamRules() }, svgIcon('export'), t('exportRules')), el('button', { class: 'btn btn-sm btn-secondary', onclick: () => importTeamRules() }, svgIcon('refresh'), t('importRules'))),
+          el('div', { class: 'hint mt' }, t('teamRulesHint')),
+        )
+      : null,
     el('div', { class: 'pop-section' }, el('div', { class: 'k' }, t('setLanguage')), segmented(
       [
         { value: 'fr', label: 'Français' },
@@ -1212,6 +1306,13 @@ function renderExportMenu(): HTMLElement {
     el('button', { role: 'menuitem', onclick: () => (close(), exportMarkdown(false)) }, svgIcon('export'), t('exportMd')),
     el('button', { role: 'menuitem', onclick: () => (close(), exportMarkdown(true)) }, svgIcon('check'), t('copyMd')),
     el('button', { role: 'menuitem', onclick: () => (close(), exportCsv()) }, svgIcon('export'), t('exportCsv')),
+    state.settings.mode === 'pro' ? el('div', { class: 'menu-sep' }) : null,
+    state.settings.mode === 'pro' ? el('button', { role: 'menuitem', onclick: () => (close(), exportSummary(false)) }, svgIcon('export'), t('exportSummary')) : null,
+    state.settings.mode === 'pro' ? el('button', { role: 'menuitem', onclick: () => (close(), exportSummary(true)) }, svgIcon('check'), t('copySummary')) : null,
+    state.settings.mode === 'pro' ? el('div', { class: 'menu-sep' }) : null,
+    state.settings.mode === 'pro' ? el('button', { role: 'menuitem', onclick: () => (close(), send({ type: 'export-tokens', format: 'dtcg' })) }, svgIcon('variable'), t('exportTokensDtcg')) : null,
+    state.settings.mode === 'pro' ? el('button', { role: 'menuitem', onclick: () => (close(), send({ type: 'export-tokens', format: 'css' })) }, svgIcon('variable'), t('exportTokensCss')) : null,
+    state.settings.mode === 'pro' ? el('button', { role: 'menuitem', onclick: () => (close(), send({ type: 'export-tokens', format: 'tailwind' })) }, svgIcon('variable'), t('exportTokensTailwind')) : null,
   );
   return el('div', { class: 'scrim transparent', onclick: close }, menu);
 }
@@ -1282,6 +1383,110 @@ function exportMarkdown(copy: boolean) {
     download(`${fileStem()}.md`, md, 'text/markdown;charset=utf-8');
     toast({ message: t('downloaded'), timeout: 3000 });
   }
+}
+
+function reviewLabels(): ReviewLabels {
+  const i18n = state.i18n;
+  const nextKey: Record<string, string> = { colors: 'sumNextColors', typography: 'sumNextTypography', spacing: 'sumNextSpacing', radius: 'sumNextRadius', components: 'sumNextComponents', tokens: 'sumNextTokens', craft: 'sumNextCraft', a11y: 'sumNextA11y', handoff: 'sumNextHandoff' };
+  return {
+    title: `${t('appName')} · ${t('exportSummary').replace(/\s*\(.*\)$/, '')}`,
+    generated: state.settings.locale === 'fr' ? 'Généré' : 'Generated',
+    scope: t('scope'),
+    nodes: state.settings.locale === 'fr' ? 'Calques analysés' : 'Layers checked',
+    health: t('health'),
+    craft: t('craftScore'),
+    craftAreas: { states: t('craftStates'), feedback: t('craftFeedback'), recovery: t('craftRecovery'), motion: t('craftMotion') },
+    overview: t('sumOverview'),
+    columns: { category: t('sumCategory'), open: t('sumOpen'), errors: t('sumErrors') },
+    category: (c) => i18n.category(c),
+    quickFixes: t('sumQuickFixes'),
+    topRules: t('sumTopRules'),
+    rule: (r) => i18n.ruleTitle(r),
+    occurrences: (n) => (n === 1 ? t('occurrenceOne') : t('occurrences', { n })),
+    nextSteps: t('sumNextSteps'),
+    nextStepFor: (c) => t(nextKey[c] ?? 'sumNextHandoff'),
+    allClear: t('sumAllClear'),
+  };
+}
+
+function exportSummary(copy: boolean) {
+  if (!state.result) return;
+  const issues = [...state.issues.values()];
+  const craft = computeCraftReadiness(issues, state.result.stats.interactiveComponents);
+  const md = buildReviewSummary(issues, state.result.stats, computeScore(issues, state.result.stats.nodesScanned), craft, reviewLabels(), state.fileName, new Date());
+  if (copy) copyText(md).then((ok) => toast({ message: ok ? t('copied') : t('toastFixFailed', { n: 1 }), timeout: 3000, error: !ok }));
+  else {
+    download(`${fileStem()}-resume.md`, md, 'text/markdown;charset=utf-8');
+    toast({ message: t('downloaded'), timeout: 3000 });
+  }
+}
+
+function onTokensExported(format: TokenExportFormat, content: string, variables: number) {
+  const name = format === 'dtcg' ? 'tokens.json' : format === 'css' ? 'tokens.css' : 'tailwind.tokens.config.js';
+  const mime = format === 'dtcg' ? 'application/json;charset=utf-8' : format === 'css' ? 'text/css;charset=utf-8' : 'text/javascript;charset=utf-8';
+  download(`${fileStem()}-${name}`, content, mime);
+  toast({ message: t('tokensExported', { n: variables }), timeout: 3000 });
+}
+
+interface TeamRulesFile {
+  app: 'senior-check-design';
+  version: 1;
+  mode: PluginMode;
+  preset: Settings['preset'];
+  disabledRules: string[];
+  enabledRules: string[];
+  options: Settings['options'];
+  autoApply: Settings['autoApply'];
+}
+
+function exportTeamRules() {
+  const s = state.settings;
+  const file: TeamRulesFile = { app: 'senior-check-design', version: 1, mode: s.mode, preset: s.preset, disabledRules: s.disabledRules, enabledRules: s.enabledRules, options: s.options, autoApply: s.autoApply };
+  download('senior-check-rules.json', JSON.stringify(file, null, 2), 'application/json;charset=utf-8');
+  toast({ message: t('downloaded'), timeout: 3000 });
+}
+
+function importTeamRules() {
+  const input = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text()) as Partial<TeamRulesFile>;
+      const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+      if (data.app !== 'senior-check-design' || !data.preset || !PRESET_IDS.includes(data.preset) || !isStrings(data.disabledRules) || !isStrings(data.enabledRules)) throw new Error('shape');
+      const s = state.settings;
+      s.preset = data.preset;
+      s.disabledRules = data.disabledRules.filter((id) => RULE_BY_ID[id]);
+      s.enabledRules = data.enabledRules.filter((id) => RULE_BY_ID[id]);
+      if (data.mode === 'classic' || data.mode === 'pro') s.mode = data.mode;
+      if (data.autoApply === 'exact' || data.autoApply === 'close' || data.autoApply === 'all') s.autoApply = data.autoApply;
+      if (data.options && typeof data.options === 'object') s.options = { ...DEFAULT_SETTINGS.options, ...s.options, ...data.options };
+      if (!visibleTabs().includes(state.tab)) state.tab = 'colors';
+      persistSettings();
+      toast({ message: t('rulesImported'), timeout: 3000 });
+      render();
+      scheduleRescan();
+    } catch {
+      toast({ message: t('rulesInvalid'), timeout: 4000, error: true });
+    }
+  });
+  document.body.appendChild(input);
+  input.click();
+}
+
+/** Bascule Classique / Pro : préset et onglet restent valides, puis nouvelle analyse. */
+function setMode(mode: PluginMode) {
+  const s = state.settings;
+  if (s.mode === mode) return;
+  s.mode = mode;
+  if (mode === 'classic' && PRO_PRESET_IDS.includes(s.preset)) s.preset = 'design-system';
+  if (!visibleTabs().includes(state.tab)) state.tab = 'colors';
+  state.menu = null;
+  persistSettings();
+  render();
+  scheduleRescan();
 }
 
 function exportCsv() {
@@ -1513,6 +1718,7 @@ function receivePreview(frames: PreviewFrame[], skipped: number, roots: PreviewR
       ready: false,
       diff: null,
       diffPct: null,
+      vision: new Map(),
     };
     let pending = 2;
     const loaded = () => {
@@ -1623,6 +1829,23 @@ function renderCompare(): HTMLElement {
         )
       : el('span', { class: 'cmp-frame-name ellipsis', title: frame?.name ?? '' }, frame ? `${c.roots[0]?.kind === 'selection' ? `${t('cmpSelection')} · ` : ''}${frame.name}` : ''),
     el('span', { class: 'grow' }),
+    state.settings.mode === 'pro'
+      ? el(
+          'div',
+          { class: 'select cmp-vision', title: t('cmpVision') },
+          el(
+            'select',
+            {
+              'aria-label': t('cmpVision'),
+              onchange: (e) => {
+                c.vision = (e.target as HTMLSelectElement).value as VisionMode;
+                drawCompare();
+              },
+            },
+            ...(['normal', 'protan', 'deutan', 'tritan', 'achroma'] as VisionMode[]).map((v) => el('option', { value: v, selected: c.vision === v }, t(`vision${v.charAt(0).toUpperCase()}${v.slice(1)}`))),
+          ),
+        )
+      : null,
     c.mode === 'overlay'
       ? el(
           'label',
@@ -1793,6 +2016,7 @@ function drawCompare() {
     ctx.drawImage(img, x, y, fw, fh);
     ctx.globalAlpha = 1;
   };
+  const seen = (which: 'before' | 'after'): CanvasImageSource => visionSource(frame, which);
   const border = (x: number, y: number) => {
     ctx.strokeStyle = frameBorder;
     ctx.lineWidth = 1;
@@ -1802,23 +2026,55 @@ function drawCompare() {
   if (c.mode === 'side') {
     const second = size.vertical ? { x: ox, y: oy + fh + CMP_LABEL + CMP_GAP } : { x: ox + fw + CMP_GAP, y: oy };
     label(t('cmpBefore'), ox, oy);
-    image(frame.before, ox, oy + CMP_LABEL);
+    image(seen('before'), ox, oy + CMP_LABEL);
     border(ox, oy + CMP_LABEL);
     label(t('cmpAfter'), second.x, second.y);
-    image(frame.after, second.x, second.y + CMP_LABEL);
+    image(seen('after'), second.x, second.y + CMP_LABEL);
     border(second.x, second.y + CMP_LABEL);
   } else if (c.mode === 'overlay') {
     label(`${t('cmpBefore')} ↔ ${t('cmpAfter')} · ${c.opacity} %`, ox, oy);
-    image(frame.before, ox, oy + CMP_LABEL);
-    image(frame.after, ox, oy + CMP_LABEL, c.opacity / 100);
+    image(seen('before'), ox, oy + CMP_LABEL);
+    image(seen('after'), ox, oy + CMP_LABEL, c.opacity / 100);
     border(ox, oy + CMP_LABEL);
   } else {
     label(t('cmpDiff'), ox, oy);
-    image(frame.after, ox, oy + CMP_LABEL, 0.35);
+    image(seen('after'), ox, oy + CMP_LABEL, 0.35);
     if (frame.diff) image(frame.diff, ox, oy + CMP_LABEL);
     border(ox, oy + CMP_LABEL);
   }
   updateZoomUi();
+}
+
+/** Image avant ou après, passée par la matrice du mode de vision choisi (mise en cache par cadre). */
+function visionSource(frame: PreviewView, which: 'before' | 'after'): CanvasImageSource {
+  const img = which === 'before' ? frame.before : frame.after;
+  const mode = state.compare.vision;
+  if (mode === 'normal' || state.settings.mode !== 'pro') return img;
+  const key = `${which}:${mode}`;
+  const cached = frame.vision.get(key);
+  if (cached) return cached;
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!w || !h) return img;
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext('2d')!;
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, w, h);
+  const m = VISION_MATRIX[mode];
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i];
+    const g = px[i + 1];
+    const b = px[i + 2];
+    px[i] = Math.min(255, m[0] * r + m[1] * g + m[2] * b);
+    px[i + 1] = Math.min(255, m[3] * r + m[4] * g + m[5] * b);
+    px[i + 2] = Math.min(255, m[6] * r + m[7] * g + m[8] * b);
+  }
+  ctx.putImageData(data, 0, 0);
+  frame.vision.set(key, cv);
+  return cv;
 }
 
 function updateZoomUi() {
@@ -2054,6 +2310,9 @@ window.onmessage = (event: MessageEvent) => {
       break;
     case 'preview-done':
       if (msg.requestId === state.compare.requestId) receivePreview(msg.frames, msg.skipped, msg.roots);
+      break;
+    case 'tokens-exported':
+      onTokensExported(msg.format, msg.content, msg.variables);
       break;
     case 'preview-error':
       if (msg.requestId === state.compare.requestId) {

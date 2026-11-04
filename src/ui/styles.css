@@ -1536,3 +1536,34 @@ details.accordion .body {
   white-space: nowrap;
   color: var(--text);
 }
+
+/* ---- Pro : commutateur de mode, score Craft, menus ---------------------- */
+.segmented.mode-switch {
+  flex: 0 0 auto;
+  margin-right: 4px;
+}
+.segmented.mode-switch button {
+  padding: 0 8px;
+}
+.score.craft::before {
+  background: var(--text-component);
+}
+.score.craft[data-level='mid']::before {
+  background: var(--bg-warning);
+}
+.score.craft[data-level='low']::before {
+  background: var(--bg-danger);
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+.row-btns {
+  display: flex;
+  gap: 6px;
+}
+.cmp-vision select {
+  height: 24px;
+  max-width: 132px;
+}
