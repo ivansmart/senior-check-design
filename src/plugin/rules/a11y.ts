@@ -47,8 +47,9 @@ export const a11yRules: Rule[] = [
       const size = text.fontSize as number;
       const large = isLargeText(size, isBoldStyle((text.fontName as FontName).style));
       const result = evaluateContrast(ratio, large);
-      if (result.passesAA) return;
-      const required = large ? 3 : 4.5;
+      const aaa = ctx.options.contrastLevel === 'AAA';
+      if (aaa ? result.passesAAA : result.passesAA) return;
+      const required = aaa ? (large ? 4.5 : 7) : large ? 3 : 4.5;
 
       // Token conforme le plus proche (couleur de texte compatible), proposé en "review".
       let best: { id: string; label: string; swatch: string; d: number } | undefined;
@@ -76,6 +77,7 @@ export const a11yRules: Rule[] = [
             bg: rgbToHex(bg.rgb),
             large: large ? 1 : 0,
             size: Math.round(size * 10) / 10,
+            level: ctx.options.contrastLevel,
           },
           plan: best && index >= 0 ? { kind: 'bind-paint-variable', nodeId: node.id, prop: 'fills', index, variableId: best.id } : undefined,
         },

@@ -11,6 +11,8 @@ import {
 import type { ComponentSetInfo, RawIssue, ScanContext } from '../scan/context';
 import { toMs, type Rule } from './types';
 
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 /** Extrait les états canoniques d'un component set (variantes + propriétés booléennes/variantes nommées). */
 function collectStates(set: ComponentSetNode): { stateProp: string | null; stateValues: string[]; canonical: Set<string> } {
   const defs = set.componentPropertyDefinitions;
@@ -100,6 +102,7 @@ export const craftRules: Rule[] = [
             slot: e.state,
             severity: e.severity,
             currentValue: stateValues.join(' · '),
+            suggestion: { kind: 'value', id: e.state, label: `${stateProp}=${capitalize(e.state)}`, confidence: 'none' },
             fixSafety: 'none',
             params: { state: e.state, kind, component: set.name, prop: stateProp },
           });
@@ -111,6 +114,7 @@ export const craftRules: Rule[] = [
             ruleId: 'craft/missing-loading-state',
             node,
             currentValue: stateValues.join(' · '),
+            suggestion: { kind: 'value', id: 'loading', label: `${stateProp}=Loading`, confidence: 'none' },
             fixSafety: 'none',
             params: { component: set.name, prop: stateProp },
           });
@@ -121,6 +125,7 @@ export const craftRules: Rule[] = [
           ruleId: 'craft/missing-empty-state',
           node,
           currentValue: stateValues.join(' · '),
+          suggestion: { kind: 'value', id: 'empty', label: `${stateProp}=Empty`, confidence: 'none' },
           fixSafety: 'none',
           params: { component: set.name, kind, prop: stateProp },
         });

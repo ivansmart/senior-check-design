@@ -61,7 +61,20 @@ export type IconName =
   | 'external'
   | 'play'
   | 'undo'
-  | 'sparkle';
+  | 'sparkle'
+  | 'frame'
+  | 'shape'
+  | 'text'
+  | 'component'
+  | 'instance'
+  | 'group'
+  | 'section'
+  | 'variable'
+  | 'style'
+  | 'sliders'
+  | 'contrast'
+  | 'chevron'
+  | 'layers';
 
 const ICONS: Record<IconName, string> = {
   back: '<path d="M10 3 5 8l5 5"/>',
@@ -81,6 +94,19 @@ const ICONS: Record<IconName, string> = {
   play: '<path d="M4.5 3.2v9.6L12.5 8 4.5 3.2Z"/>',
   undo: '<path d="M3.5 6.5H9a3.5 3.5 0 0 1 0 7H6"/><path d="M6 3.5 3 6.5l3 3"/>',
   sparkle: '<path d="M8 2.5l1.3 3.2 3.2 1.3-3.2 1.3L8 11.5 6.7 8.3 3.5 7l3.2-1.3Z"/>',
+  frame: '<path d="M5 2v12M11 2v12M2 5h12M2 11h12"/>',
+  shape: '<rect x="2.5" y="2.5" width="7" height="7" rx="1"/><circle cx="10.5" cy="10.5" r="3"/>',
+  text: '<path d="M3 3.5h10M8 3.5v9M5.5 12.5h5"/>',
+  component: '<path d="M8 1.8 11.2 5 8 8.2 4.8 5 8 1.8ZM8 7.8l3.2 3.2L8 14.2 4.8 11 8 7.8Z"/>',
+  instance: '<path d="M8 2.2 13.8 8 8 13.8 2.2 8 8 2.2Z"/>',
+  group: '<path d="M2.5 2.5h3M2.5 2.5v3M13.5 2.5h-3M13.5 2.5v3M2.5 13.5h3M2.5 13.5v-3M13.5 13.5h-3M13.5 13.5v-3"/><rect x="5.5" y="5.5" width="5" height="5" rx="0.5"/>',
+  section: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 6.5h12"/>',
+  variable: '<path d="M8 1.5c.4 2.6 2.4 4.6 5 5-2.6.4-4.6 2.4-5 5-.4-2.6-2.4-4.6-5-5 2.6-.4 4.6-2.4 5-5Z" fill="currentColor" stroke="none"/>',
+  style: '<circle cx="5" cy="5" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="5" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="11" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="11" r="2" fill="currentColor" stroke="none"/>',
+  sliders: '<path d="M3 4.5h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.6" fill="var(--bg)"/><circle cx="10.5" cy="11.5" r="1.6" fill="var(--bg)"/>',
+  contrast: '<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11A5.5 5.5 0 0 0 8 2.5Z" fill="currentColor" stroke="none"/>',
+  chevron: '<path d="m4.5 6.5 3.5 3.5 3.5-3.5"/>',
+  layers: '<path d="M8 2.5 14 6 8 9.5 2 6l6-3.5Z"/><path d="m2.5 9 5.5 3.3L13.5 9"/>',
 };
 
 export function clear(node: Node) {

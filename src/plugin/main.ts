@@ -8,7 +8,7 @@ import { runScan, type IssuePlans } from './scan/engine';
 
 const SETTINGS_KEY = 'scd:settings:v1';
 const IGNORED_KEY = 'scd:ignored';
-const MIN_W = 360;
+const MIN_W = 480;
 const MIN_H = 480;
 const MAX_W = 900;
 const MAX_H = 1200;
@@ -118,18 +118,22 @@ async function handleScan(msg: Extract<UiToPluginMessage, { type: 'scan' }>) {
   }
 }
 
-async function selectNode(nodeId: string, pageId: string) {
-  const node = await figma.getNodeByIdAsync(nodeId);
-  if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE' || (node as SceneNode).removed) {
-    figma.notify('Ce calque n’existe plus.', { timeout: 2000 });
-    return;
-  }
+async function selectNodes(nodeIds: string[], pageId: string) {
   if (pageId && figma.currentPage.id !== pageId) {
     const page = await figma.getNodeByIdAsync(pageId);
     if (page && page.type === 'PAGE') await figma.setCurrentPageAsync(page);
   }
-  figma.currentPage.selection = [node as SceneNode];
-  figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+  const nodes: SceneNode[] = [];
+  for (const id of nodeIds.slice(0, 200)) {
+    const node = await figma.getNodeByIdAsync(id);
+    if (node && node.type !== 'DOCUMENT' && node.type !== 'PAGE' && !(node as SceneNode).removed) nodes.push(node as SceneNode);
+  }
+  if (!nodes.length) {
+    figma.notify('Ce calque n’existe plus.', { timeout: 2000 });
+    return;
+  }
+  figma.currentPage.selection = nodes;
+  figma.viewport.scrollAndZoomIntoView(nodes);
 }
 
 function planFor(issueId: string, alternativeId?: string): FixPlan | undefined {
@@ -193,20 +197,23 @@ figma.ui.onmessage = async (msg: UiToPluginMessage) => {
       sendInit();
       break;
     case 'scan':
-      await saveSettings({ scope: msg.scope, preset: msg.preset, options: msg.options, disabledRules: msg.disabledRules, enabledRules: msg.enabledRules });
+      await saveSettings({ preset: msg.preset, options: msg.options, disabledRules: msg.disabledRules, enabledRules: msg.enabledRules });
       await handleScan(msg);
       break;
     case 'cancel-scan':
       cancelRequested = true;
       break;
     case 'select-node':
-      await selectNode(msg.nodeId, msg.pageId);
+      await selectNodes([msg.nodeId], msg.pageId);
+      break;
+    case 'select-nodes':
+      await selectNodes(msg.nodeIds, msg.pageId);
       break;
     case 'fix':
       await applyMany([{ issueId: msg.issueId, alternativeId: msg.alternativeId }], false);
       break;
     case 'fix-many':
-      await applyMany(msg.issueIds.map((issueId) => ({ issueId })), true);
+      await applyMany(msg.items, msg.items.length > 3);
       break;
     case 'undo':
       await undoBatch(msg.batchId);

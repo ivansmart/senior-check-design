@@ -27,14 +27,19 @@ npm run check
 
 ## Ce que le plugin fait
 
-### Parcours
+### Parcours (calqué sur « Check designs », puis étendu)
 
-1. **Configuration** — choix du preset, du périmètre (sélection, page active, fichier entier sur confirmation) et des options.
-2. **Analyse** — progression réelle par phase (index des tokens, collecte, analyse par lots), annulable, sans bloquer Figma.
-3. **Résultats** — Design Health, compteurs par sévérité, chips par catégorie, liste groupée *catégorie → règle + valeur → calque*, recherche et filtres.
-4. **Détail** — valeur actuelle → suggestion (avec pastilles), alternatives, localisation, pourquoi, que faire, actions.
+L'interface reprend la modale **Check designs** de Figma, puis l'étend :
 
-Chaque correction est **individuelle**, **groupée** (« appliquer aux N occurrences identiques ») ou **globale** (« Corriger les N fixes sûrs »), toujours **annulable** via le toast (et `Cmd/Ctrl+Z` grâce à `figma.commitUndo()`).
+- **Fenêtre unique** : l'analyse démarre à l'ouverture sur la sélection (sinon la page active). « Relancer » refait l'analyse sur la sélection courante ; un bandeau signale quand la sélection a changé.
+- **Onglets** : *Couleurs · Dimensions · Typo · Composants* (les quatre onglets de Check designs), puis après un séparateur l'extension senior *Craft · A11y · Handoff*. Chaque onglet porte son compteur ; l'onglet ouvert est le premier qui contient des suggestions.
+- **Lignes groupées par contexte** (« Frame › Fill », « Texte › Contraste », « Frame › Padding »…) : à gauche la valeur actuelle (pastille + valeur, nombre de calques concernés), à droite la suggestion avec badge **Match** (correspondance exacte), **Proche**, **Ambigu** ou **Manuel**, et un menu déroulant pour choisir une autre correspondance.
+- **Sélection** : clic (recentre aussi le canvas sur les calques), Cmd/Ctrl-clic, Shift-clic, clic sur l'en-tête de section, `Cmd/Ctrl+A`.
+- **Pied de page** : « Mettre à jour N couleurs sur M calques » et **Appliquer**. Sans sélection, seules les correspondances exactes sont appliquées ; une sélection explicite permet d'appliquer des correspondances proches ou choisies.
+- **Bouton contraste** (dans la barre d'onglets, comme Check designs) : affiche ou masque les suggestions de contraste dans l'onglet Couleurs ; le niveau AA/AAA se règle dans les réglages.
+- **Réglages** (icône curseurs) : périmètre, preset, niveau de contraste, nombre de calques par ligne, librairies, options d'analyse, règles, langue. Les changements relancent l'analyse.
+- **Détails** (ⓘ) : explication pédagogique de chaque ligne (message, pourquoi, que faire, calques concernés), avec « Voir dans le canvas » et « Ignorer ».
+- **Ce qui dépasse Check designs** : score Design Health dans l'en-tête, sévérités, trois onglets supplémentaires, export Markdown/CSV, annulation par toast en plus de `Cmd/Ctrl+Z`, thème clair/sombre et FR/EN.
 
 ### Presets
 

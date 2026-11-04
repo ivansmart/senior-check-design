@@ -92,16 +92,19 @@
     baseGrid: 4,
     spacingTolerance: 2,
     minTouchTarget: 24,
-    minFontSize: 12
+    minFontSize: 12,
+    contrastLevel: "AA"
   };
   var DEFAULT_SETTINGS = {
     locale: "fr",
     preset: "quick",
-    scope: "page",
+    scope: "auto",
     options: DEFAULT_OPTIONS,
+    showRowCounts: true,
+    showContrast: true,
     disabledRules: [],
     enabledRules: [],
-    window: { width: 420, height: 640 }
+    window: { width: 600, height: 640 }
   };
 
   // src/plugin/fix/apply.ts
@@ -737,8 +740,9 @@
         const size = text.fontSize;
         const large = isLargeText(size, isBoldStyle(text.fontName.style));
         const result = evaluateContrast(ratio, large);
-        if (result.passesAA) return;
-        const required = large ? 3 : 4.5;
+        const aaa = ctx.options.contrastLevel === "AAA";
+        if (aaa ? result.passesAAA : result.passesAA) return;
+        const required = aaa ? large ? 4.5 : 7 : large ? 3 : 4.5;
         let best;
         for (const t of ctx.colors) {
           if (t.alpha < 0.99) continue;
@@ -763,7 +767,8 @@
               fg: rgbToHex(effectiveFg),
               bg: rgbToHex(bg.rgb),
               large: large ? 1 : 0,
-              size: Math.round(size * 10) / 10
+              size: Math.round(size * 10) / 10,
+              level: ctx.options.contrastLevel
             },
             plan: best && index >= 0 ? { kind: "bind-paint-variable", nodeId: node.id, prop: "fills", index, variableId: best.id } : void 0
           }
@@ -1074,6 +1079,7 @@
   }
 
   // src/plugin/rules/craft.ts
+  var capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   function collectStates(set) {
     var _a;
     const defs = set.componentPropertyDefinitions;
@@ -1160,6 +1166,7 @@
               slot: e.state,
               severity: e.severity,
               currentValue: stateValues.join(" \xB7 "),
+              suggestion: { kind: "value", id: e.state, label: `${stateProp}=${capitalize(e.state)}`, confidence: "none" },
               fixSafety: "none",
               params: { state: e.state, kind, component: set.name, prop: stateProp }
             });
@@ -1171,6 +1178,7 @@
               ruleId: "craft/missing-loading-state",
               node,
               currentValue: stateValues.join(" \xB7 "),
+              suggestion: { kind: "value", id: "loading", label: `${stateProp}=Loading`, confidence: "none" },
               fixSafety: "none",
               params: { component: set.name, prop: stateProp }
             });
@@ -1181,6 +1189,7 @@
             ruleId: "craft/missing-empty-state",
             node,
             currentValue: stateValues.join(" \xB7 "),
+            suggestion: { kind: "value", id: "empty", label: `${stateProp}=Empty`, confidence: "none" },
             fixSafety: "none",
             params: { component: set.name, kind, prop: stateProp }
           });
@@ -2142,7 +2151,7 @@
   // src/plugin/main.ts
   var SETTINGS_KEY = "scd:settings:v1";
   var IGNORED_KEY = "scd:ignored";
-  var MIN_W = 360;
+  var MIN_W = 480;
   var MIN_H = 480;
   var MAX_W = 900;
   var MAX_H = 1200;
@@ -2241,18 +2250,22 @@
       scanning = false;
     }
   }
-  async function selectNode(nodeId, pageId) {
-    const node = await figma.getNodeByIdAsync(nodeId);
-    if (!node || node.type === "DOCUMENT" || node.type === "PAGE" || node.removed) {
-      figma.notify("Ce calque n\u2019existe plus.", { timeout: 2e3 });
-      return;
-    }
+  async function selectNodes(nodeIds, pageId) {
     if (pageId && figma.currentPage.id !== pageId) {
       const page = await figma.getNodeByIdAsync(pageId);
       if (page && page.type === "PAGE") await figma.setCurrentPageAsync(page);
     }
-    figma.currentPage.selection = [node];
-    figma.viewport.scrollAndZoomIntoView([node]);
+    const nodes = [];
+    for (const id of nodeIds.slice(0, 200)) {
+      const node = await figma.getNodeByIdAsync(id);
+      if (node && node.type !== "DOCUMENT" && node.type !== "PAGE" && !node.removed) nodes.push(node);
+    }
+    if (!nodes.length) {
+      figma.notify("Ce calque n\u2019existe plus.", { timeout: 2e3 });
+      return;
+    }
+    figma.currentPage.selection = nodes;
+    figma.viewport.scrollAndZoomIntoView(nodes);
   }
   function planFor(issueId, alternativeId) {
     var _a;
@@ -2312,20 +2325,23 @@
         sendInit();
         break;
       case "scan":
-        await saveSettings({ scope: msg.scope, preset: msg.preset, options: msg.options, disabledRules: msg.disabledRules, enabledRules: msg.enabledRules });
+        await saveSettings({ preset: msg.preset, options: msg.options, disabledRules: msg.disabledRules, enabledRules: msg.enabledRules });
         await handleScan(msg);
         break;
       case "cancel-scan":
         cancelRequested = true;
         break;
       case "select-node":
-        await selectNode(msg.nodeId, msg.pageId);
+        await selectNodes([msg.nodeId], msg.pageId);
+        break;
+      case "select-nodes":
+        await selectNodes(msg.nodeIds, msg.pageId);
         break;
       case "fix":
         await applyMany([{ issueId: msg.issueId, alternativeId: msg.alternativeId }], false);
         break;
       case "fix-many":
-        await applyMany(msg.issueIds.map((issueId) => ({ issueId })), true);
+        await applyMany(msg.items, msg.items.length > 3);
         break;
       case "undo":
         await undoBatch(msg.batchId);

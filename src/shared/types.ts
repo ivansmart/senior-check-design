@@ -35,6 +35,11 @@ export type IssueStatus = 'open' | 'fixed' | 'ignored';
 
 export type ScanScope = 'selection' | 'page' | 'file';
 
+/** Réglage utilisateur du périmètre : « auto » = sélection si elle existe, sinon page active. */
+export type ScopeSetting = 'auto' | 'page' | 'file';
+
+export type ContrastLevel = 'AA' | 'AAA';
+
 export type PresetId = 'quick' | 'handoff' | 'design-system' | 'a11y' | 'craft' | 'strict';
 
 export type Locale = 'fr' | 'en';
@@ -99,13 +104,19 @@ export interface ScanOptions {
   minTouchTarget: number;
   /** Taille minimale de texte (info en dessous). */
   minFontSize: number;
+  /** Niveau WCAG exigé pour le contraste texte/fond. */
+  contrastLevel: ContrastLevel;
 }
 
 export interface Settings {
   locale: Locale;
   preset: PresetId;
-  scope: ScanScope;
+  scope: ScopeSetting;
   options: ScanOptions;
+  /** Afficher le nombre de calques par ligne. */
+  showRowCounts: boolean;
+  /** Inclure les suggestions de contraste dans l'onglet Couleurs. */
+  showContrast: boolean;
   /** Règles désactivées par l'utilisateur. */
   disabledRules: string[];
   /** Règles activées en plus du preset. */
@@ -122,16 +133,19 @@ export const DEFAULT_OPTIONS: ScanOptions = {
   spacingTolerance: 2,
   minTouchTarget: 24,
   minFontSize: 12,
+  contrastLevel: 'AA',
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   locale: 'fr',
   preset: 'quick',
-  scope: 'page',
+  scope: 'auto',
   options: DEFAULT_OPTIONS,
+  showRowCounts: true,
+  showContrast: true,
   disabledRules: [],
   enabledRules: [],
-  window: { width: 420, height: 640 },
+  window: { width: 600, height: 640 },
 };
 
 export interface CategoryCount {
@@ -190,8 +204,9 @@ export type UiToPluginMessage =
   | { type: 'scan'; scope: ScanScope; preset: PresetId; options: ScanOptions; disabledRules: string[]; enabledRules: string[] }
   | { type: 'cancel-scan' }
   | { type: 'select-node'; nodeId: string; pageId: string }
+  | { type: 'select-nodes'; nodeIds: string[]; pageId: string }
   | { type: 'fix'; issueId: string; alternativeId?: string }
-  | { type: 'fix-many'; issueIds: string[] }
+  | { type: 'fix-many'; items: { issueId: string; alternativeId?: string }[] }
   | { type: 'undo'; batchId: string }
   | { type: 'ignore-issue'; issueId: string; ignored: boolean }
   | { type: 'save-settings'; settings: Partial<Settings> }
