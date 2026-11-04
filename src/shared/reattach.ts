@@ -61,6 +61,33 @@ export interface MatchResult {
 
 const norm = (s: string) => s.trim().toLowerCase();
 
+const WRAPPERS = new Set(['FRAME', 'GROUP']);
+const paintless = (node: TreeNode) =>
+  !(node.fills ?? []).some((p) => (p as { visible?: boolean }).visible !== false) && !(node.strokes ?? []).some((p) => (p as { visible?: boolean }).visible !== false);
+
+/**
+ * Texte unique d'un sous-arbre fait seulement de conteneurs sans peinture (cadre d'habillage),
+ * avec son chemin : une copie à la main pose souvent le libellé dans un cadre intermédiaire.
+ */
+function soleText(node: TreeNode, depth = 0): { node: TreeNode; path: number[] } | null {
+  if (depth > 3 || !WRAPPERS.has(node.type) || !paintless(node)) return null;
+  let found: { node: TreeNode; path: number[] } | null = null;
+  for (let i = 0; i < node.children.length; i++) {
+    const ch = node.children[i];
+    if (!ch.visible) continue;
+    let hit: { node: TreeNode; path: number[] } | null = null;
+    if (ch.type === 'TEXT') hit = { node: ch, path: [i] };
+    else if (WRAPPERS.has(ch.type)) {
+      const inner = soleText(ch, depth + 1);
+      if (!inner) return null;
+      hit = { node: inner.node, path: [i, ...inner.path] };
+    } else return null; // autre contenu visible : ce n'est pas un simple habillage
+    if (found) return null; // deux textes
+    found = hit;
+  }
+  return found;
+}
+
 /**
  * Apparie les enfants du composant (ordre de référence) avec ceux du calque détaché.
  * Un enfant du composant absent du détaché sera masqué ; un enfant du détaché absent
@@ -92,7 +119,34 @@ function matchChildren(detached: TreeNode[], component: TreeNode[], path: number
         }
       }
     }
+    // 3. habillage : le texte du composant est posé dans un cadre vide du détaché, ou l'inverse
+    //    (copie à la main) ; on apparie les textes et le cadre n'est plus un ajout.
     if (dj < 0) {
+      let handled = false;
+      if (c.type === 'TEXT') {
+        for (let j = cursor; j < detached.length && !handled; j++) {
+          if (used.has(j)) continue;
+          const sole = soleText(detached[j]);
+          if (!sole) continue;
+          used.add(j);
+          cursor = j + 1;
+          matchNode(sole.node, c, childPath, [...dPath, j, ...sole.path], out);
+          handled = true;
+        }
+      } else {
+        const cs = soleText(c);
+        for (let j = cursor; cs && j < detached.length && !handled; j++) {
+          if (used.has(j)) continue;
+          const d = detached[j];
+          const dt = d.type === 'TEXT' ? { node: d, path: [] as number[] } : soleText(d);
+          if (!dt) continue;
+          used.add(j);
+          cursor = j + 1;
+          matchNode(dt.node, cs.node, [...childPath, ...cs.path], [...dPath, j, ...dt.path], out);
+          handled = true;
+        }
+      }
+      if (handled) continue;
       // Enfant du composant sans équivalent : on le masque dans l'instance (sauf s'il l'est déjà).
       if (c.visible) out.overrides.push({ path: childPath, op: 'visible', value: false });
       out.stats.hidden++;

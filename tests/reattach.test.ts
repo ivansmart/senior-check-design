@@ -96,6 +96,26 @@ test('calque renommé : override de nom ; police mixte : impossible ; échange d
   assert.ok(rr.overrides.some((o) => o.op === 'swap' && o.componentKey === 'KEY-LIB'));
 });
 
+test('copie à la main : texte posé dans un cadre d’habillage, ou l’inverse, apparié sans ajout', () => {
+  // Composant : TEXT direct ; copie : FRAME Wrap (sans peinture) > TEXT
+  const comp = n('COMPONENT', 'Button', {}, [text('Label', 'Payer')]);
+  const hand = n('FRAME', 'CTA', {}, [n('FRAME', 'Wrap', { fills: [], strokes: [] }, [text('Texte', 'Acheter')])]);
+  const r = matchTrees(hand, comp);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.extras, []);
+  assert.ok(r.overrides.some((o) => o.op === 'text' && o.value === 'Acheter' && o.path.join('.') === '0'));
+  assert.equal(r.stats.hidden, 0);
+  // Inverse : composant FRAME Content > TEXT ; copie : TEXT direct
+  const comp2 = n('COMPONENT', 'Button', {}, [n('FRAME', 'Content', { fills: [], strokes: [] }, [text('Label', 'Payer')])]);
+  const hand2 = n('FRAME', 'CTA', {}, [text('Texte', 'Acheter')]);
+  const r2 = matchTrees(hand2, comp2);
+  assert.equal(r2.ok, true);
+  assert.ok(r2.overrides.some((o) => o.op === 'text' && o.value === 'Acheter' && o.path.join('.') === '0.0'));
+  // Un cadre avec un fond visible n'est pas un simple habillage : il reste un ajout.
+  const pill = n('FRAME', 'CTA', {}, [n('FRAME', 'Pill', { fills: [{ type: 'SOLID', visible: true }], strokes: [] }, [text('Texte', 'Acheter')])]);
+  assert.equal(matchTrees(pill, comp).ok, false);
+});
+
 test('calque ajouté dans un enfant : chemin détaché précis pour le mode forcé', () => {
   const detached = component();
   detached.type = 'FRAME';

@@ -135,6 +135,7 @@ const PROP_BY_RULE: Record<string, string> = {
   'spacing/fixed-should-hug': 'propSizing',
   'spacing/text-overlap': 'propOverlap',
   'components/reattach-instance': 'propDetached',
+  'components/lookalike-frame': 'propLookalike',
   'components/deprecated-in-use': 'propDeprecated',
   'components/orphan-variant': 'propOrphanVariant',
   'components/useless-nesting': 'propNesting',
@@ -365,8 +366,10 @@ function suggestionLabel(sug: { label: string; kind?: string }): (Node | string)
 }
 /** Ligne « proche » : corrigeable, non exacte, suggestion à distance tolérée. */
 const rowIsClose = (row: Row) => rowHasPlan(row) && row.first.fixSafety !== 'safe' && row.first.suggestion?.confidence === 'close' && !state.chosen.has(row.key);
-/** Ligne « divergente » (Pro) : instance détachée rattachable seulement avec consentement, rendu conservé. */
-const rowIsForced = (row: Row) => rowHasPlan(row) && row.first.params?.confidence === 'forced';
+/** Ligne « divergente » (Pro) : détaché divergent ou composant recréé à la main, rattachable seulement avec consentement, rendu conservé. */
+const FORCED_CONFIDENCES = new Set(['forced', 'lookalike']);
+const rowIsForced = (row: Row) => rowHasPlan(row) && FORCED_CONFIDENCES.has(String(row.first.params?.confidence));
+const rowIsLookalike = (row: Row) => row.first.params?.confidence === 'lookalike';
 /** Divergente incluse dans « Appliquer » : par l'option globale (moins les retraits), ou une à une (« Inclure quand même »). */
 const rowForcedIncluded = (row: Row) => rowIsForced(row) && (state.includeDivergent ? !state.excluded.has(row.key) : state.consented.has(row.key));
 /** Ligne incluse dans « Appliquer » sans sélection, selon le réglage `autoApply`. */
@@ -753,7 +756,7 @@ function badgeFor(row: Row, sug: ReturnType<typeof effectiveSuggestion>): HTMLEl
     case 'close':
       return el('span', { class: 'badge badge-close' }, t('badgeClose'));
     case 'ambiguous':
-      return el('span', { class: 'badge badge-close' }, rowIsForced(row) ? t('badgeDivergent') : t('badgeAmbiguous'));
+      return el('span', { class: 'badge badge-close' }, rowIsLookalike(row) ? t('badgeLookalike') : rowIsForced(row) ? t('badgeDivergent') : t('badgeAmbiguous'));
     default:
       return el('span', { class: 'badge badge-muted' }, t('badgeManual'));
   }
@@ -779,7 +782,7 @@ function renderRow(row: Row): HTMLElement {
     'div',
     { class: 'cell cur', title: state.i18n.severity(row.severity) },
     swatchEl(first.swatch) ?? el('span', { class: 'cell-icon' }, svgIcon(KIND_ICON[row.kind])),
-    el('span', { class: 'val', title: first.swatch ? first.currentValue : `${first.nodeName} · ${first.currentValue}` }, first.swatch ? formatHex(first.currentValue) : row.kind === 'componentSet' || row.kind === 'component' || row.prop === 'propName' || row.prop === 'propDetached' ? first.nodeName : first.currentValue),
+    el('span', { class: 'val', title: first.swatch ? first.currentValue : `${first.nodeName} · ${first.currentValue}` }, first.swatch ? formatHex(first.currentValue) : row.kind === 'componentSet' || row.kind === 'component' || row.prop === 'propName' || row.prop === 'propDetached' || row.prop === 'propLookalike' ? first.nodeName : first.currentValue),
     state.settings.showRowCounts && count > 1 ? el('span', { class: 'cnt num', title: t('rowItems', { n: count }) }, String(count)) : null,
   );
 

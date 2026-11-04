@@ -30,6 +30,7 @@
     { id: "components/duplicate-component", category: "components", severity: "info", aggregate: true },
     { id: "components/no-description", category: "components", severity: "info" },
     { id: "components/reattach-instance", category: "components", severity: "warning", tier: "pro" },
+    { id: "components/lookalike-frame", category: "components", severity: "warning", aggregate: true, tier: "pro" },
     { id: "components/deprecated-in-use", category: "components", severity: "warning", tier: "pro" },
     { id: "components/orphan-variant", category: "components", severity: "info", aggregate: true, tier: "pro" },
     { id: "components/useless-nesting", category: "components", severity: "info", tier: "pro" },
@@ -99,6 +100,7 @@
       "components/default-name",
       "components/heavy-overrides",
       "components/reattach-instance",
+      "components/lookalike-frame",
       "components/deprecated-in-use",
       "components/useless-nesting"
     ]),
@@ -426,6 +428,246 @@ module.exports = {
     };
   }
 
+  // src/shared/reattach.ts
+  var norm = (s) => s.trim().toLowerCase();
+  var WRAPPERS = /* @__PURE__ */ new Set(["FRAME", "GROUP"]);
+  var paintless = (node) => {
+    var _a, _b;
+    return !((_a = node.fills) != null ? _a : []).some((p) => p.visible !== false) && !((_b = node.strokes) != null ? _b : []).some((p) => p.visible !== false);
+  };
+  function soleText(node, depth = 0) {
+    if (depth > 3 || !WRAPPERS.has(node.type) || !paintless(node)) return null;
+    let found = null;
+    for (let i = 0; i < node.children.length; i++) {
+      const ch = node.children[i];
+      if (!ch.visible) continue;
+      let hit = null;
+      if (ch.type === "TEXT") hit = { node: ch, path: [i] };
+      else if (WRAPPERS.has(ch.type)) {
+        const inner = soleText(ch, depth + 1);
+        if (!inner) return null;
+        hit = { node: inner.node, path: [i, ...inner.path] };
+      } else return null;
+      if (found) return null;
+      found = hit;
+    }
+    return found;
+  }
+  function matchChildren(detached, component, path, dPath, out) {
+    const used = /* @__PURE__ */ new Set();
+    let cursor = 0;
+    for (let ci = 0; ci < component.length; ci++) {
+      const c = component[ci];
+      const childPath = [...path, ci];
+      let dj = -1;
+      for (let j = cursor; j < detached.length; j++) {
+        if (used.has(j)) continue;
+        if (detached[j].type === c.type && norm(detached[j].name) === norm(c.name)) {
+          dj = j;
+          break;
+        }
+      }
+      if (dj < 0) {
+        for (let j = cursor; j < detached.length; j++) {
+          if (used.has(j) || detached[j].type !== c.type) continue;
+          const nameBelongsElsewhere = component.some((o, oi) => oi !== ci && o.type === detached[j].type && norm(o.name) === norm(detached[j].name));
+          if (!nameBelongsElsewhere) {
+            dj = j;
+            break;
+          }
+        }
+      }
+      if (dj < 0) {
+        let handled = false;
+        if (c.type === "TEXT") {
+          for (let j = cursor; j < detached.length && !handled; j++) {
+            if (used.has(j)) continue;
+            const sole = soleText(detached[j]);
+            if (!sole) continue;
+            used.add(j);
+            cursor = j + 1;
+            matchNode(sole.node, c, childPath, [...dPath, j, ...sole.path], out);
+            handled = true;
+          }
+        } else {
+          const cs = soleText(c);
+          for (let j = cursor; cs && j < detached.length && !handled; j++) {
+            if (used.has(j)) continue;
+            const d = detached[j];
+            const dt = d.type === "TEXT" ? { node: d, path: [] } : soleText(d);
+            if (!dt) continue;
+            used.add(j);
+            cursor = j + 1;
+            matchNode(dt.node, cs.node, [...childPath, ...cs.path], [...dPath, j, ...dt.path], out);
+            handled = true;
+          }
+        }
+        if (handled) continue;
+        if (c.visible) out.overrides.push({ path: childPath, op: "visible", value: false });
+        out.stats.hidden++;
+        continue;
+      }
+      used.add(dj);
+      cursor = dj + 1;
+      matchNode(detached[dj], c, childPath, [...dPath, dj], out);
+    }
+    for (let j = 0; j < detached.length; j++) {
+      if (used.has(j)) continue;
+      out.stats.added++;
+      out.reasons.push(`added:${detached[j].name}`);
+      out.extras.push([...dPath, j]);
+    }
+  }
+  function matchNode(d, c, path, dPath, out) {
+    var _a, _b, _c, _d, _e, _f;
+    out.stats.matched++;
+    if (norm(d.name) !== norm(c.name)) out.overrides.push({ path, op: "name", value: d.name });
+    if (d.visible !== c.visible) out.overrides.push({ path, op: "visible", value: d.visible });
+    if (Math.abs(d.opacity - c.opacity) > 1e-3) out.overrides.push({ path, op: "opacity", value: d.opacity });
+    if (d.type === "TEXT") {
+      if (d.fontName === "mixed" || d.fontSize === "mixed" || d.textStyleId === "mixed") {
+        out.reasons.push(`mixed-font:${d.name}`);
+        if (((_a = d.text) != null ? _a : "") !== ((_b = c.text) != null ? _b : "")) {
+          out.overrides.push({ path, op: "text", value: (_c = d.text) != null ? _c : "" });
+          out.stats.texts++;
+        }
+      } else {
+        if (((_d = d.text) != null ? _d : "") !== ((_e = c.text) != null ? _e : "")) {
+          out.overrides.push({ path, op: "text", value: (_f = d.text) != null ? _f : "" });
+          out.stats.texts++;
+        }
+        if (d.textStyleId && d.textStyleId !== c.textStyleId) out.overrides.push({ path, op: "textStyle", styleId: d.textStyleId });
+        else if (!d.textStyleId && d.fontName && typeof d.fontSize === "number" && (fontKey(d.fontName) !== fontKey(c.fontName) || d.fontSize !== c.fontSize)) {
+          out.overrides.push({ path, op: "font", fontName: d.fontName, fontSize: d.fontSize });
+        }
+      }
+    }
+    if (d.fillsKey !== void 0 && c.fillsKey !== void 0 && d.fillsKey !== c.fillsKey) {
+      if (d.fillsKey === "mixed" || !d.fills) out.reasons.push(`mixed-paint:${d.name}`);
+      else out.overrides.push({ path, op: "fills", value: d.fills });
+    }
+    if (d.strokesKey !== void 0 && c.strokesKey !== void 0 && d.strokesKey !== c.strokesKey) {
+      if (d.strokesKey === "mixed" || !d.strokes) out.reasons.push(`mixed-paint:${d.name}`);
+      else out.overrides.push({ path, op: "strokes", value: d.strokes });
+    }
+    if (d.type === "INSTANCE" && c.type === "INSTANCE" && d.mainId !== void 0 && c.mainId !== void 0 && d.mainId !== c.mainId) {
+      if (d.mainId && !d.mainRemote) out.overrides.push({ path, op: "swap", componentId: d.mainId });
+      else if (d.mainKey) out.overrides.push({ path, op: "swap", componentKey: d.mainKey });
+      else out.reasons.push(`swap-remote:${d.name}`);
+    }
+    if (d.children.length || c.children.length) matchChildren(d.children, c.children, path, dPath, out);
+  }
+  var fontKey = (f) => f && f !== "mixed" ? `${f.family}|${f.style}` : String(f);
+  function matchTrees(detached, component) {
+    const out = { ok: true, overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
+    if (Math.abs(detached.opacity - component.opacity) > 1e-3) out.overrides.push({ path: [], op: "opacity", value: detached.opacity });
+    if (detached.fillsKey !== void 0 && component.fillsKey !== void 0 && detached.fillsKey !== component.fillsKey) {
+      if (detached.fillsKey === "mixed" || !detached.fills) out.reasons.push(`mixed-paint:${detached.name}`);
+      else out.overrides.push({ path: [], op: "fills", value: detached.fills });
+    }
+    if (detached.strokesKey !== void 0 && component.strokesKey !== void 0 && detached.strokesKey !== component.strokesKey) {
+      if (detached.strokesKey === "mixed" || !detached.strokes) out.reasons.push(`mixed-paint:${detached.name}`);
+      else out.overrides.push({ path: [], op: "strokes", value: detached.strokes });
+    }
+    matchChildren(detached.children, component.children, [], [], out);
+    out.ok = out.reasons.length === 0;
+    return out;
+  }
+  function forcedCost(result) {
+    return result.extras.length * 5 + result.reasons.length * 3 + result.overrides.length;
+  }
+  function summarizeOverrides(result) {
+    let texts = 0;
+    let visibility = 0;
+    let paints = 0;
+    let other = 0;
+    for (const o of result.overrides) {
+      if (o.op === "text") texts++;
+      else if (o.op === "visible") visibility++;
+      else if (o.op === "fills" || o.op === "strokes") paints++;
+      else other++;
+    }
+    return { texts, visibility, paints, other };
+  }
+
+  // src/plugin/reattach-live.ts
+  var TREE_MAX_DEPTH = 6;
+  var TREE_MAX_NODES = 400;
+  var MAX_FORCED_EXTRAS = 12;
+  var cloneJson = (v) => JSON.parse(JSON.stringify(v));
+  var newBudget = () => ({ left: TREE_MAX_NODES });
+  async function toTree(node, depth, budget) {
+    var _a, _b;
+    budget.left--;
+    const t = { type: node.type, name: node.name, visible: node.visible, opacity: "opacity" in node ? node.opacity : 1, children: [] };
+    if (node.type === "TEXT") {
+      t.text = node.characters;
+      t.fontName = node.fontName === figma.mixed ? "mixed" : node.fontName;
+      t.fontSize = node.fontSize === figma.mixed ? "mixed" : node.fontSize;
+      t.textStyleId = node.textStyleId === figma.mixed ? "mixed" : node.textStyleId;
+    }
+    if ("fills" in node) {
+      const fills = node.fills;
+      if (fills === figma.mixed) t.fillsKey = "mixed";
+      else {
+        t.fills = cloneJson(fills);
+        t.fillsKey = JSON.stringify(t.fills);
+      }
+    }
+    if ("strokes" in node) {
+      const strokes = node.strokes;
+      t.strokes = cloneJson(strokes);
+      t.strokesKey = JSON.stringify(t.strokes);
+    }
+    if (node.type === "INSTANCE") {
+      try {
+        const main = await node.getMainComponentAsync();
+        t.mainId = (_a = main == null ? void 0 : main.id) != null ? _a : null;
+        t.mainRemote = (_b = main == null ? void 0 : main.remote) != null ? _b : false;
+        if (main == null ? void 0 : main.remote) t.mainKey = main.key;
+      } catch {
+        t.mainId = null;
+      }
+    }
+    if ("children" in node && depth < TREE_MAX_DEPTH) {
+      for (const child of node.children) {
+        if (budget.left <= 0) break;
+        t.children.push(await toTree(child, depth + 1, budget));
+      }
+    }
+    return t;
+  }
+  function variantLabel(comp) {
+    var _a;
+    const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
+    return set ? `${set.name} / ${comp.name}` : comp.name;
+  }
+  function reattachPlan(frame, comp, result, forced = false) {
+    return {
+      kind: "reattach-instance",
+      nodeId: frame.id,
+      name: frame.name,
+      componentId: comp.remote ? void 0 : comp.id,
+      componentKey: comp.remote ? comp.key : void 0,
+      overrides: result.overrides,
+      extras: forced && result.extras.length ? result.extras : void 0,
+      forced: forced || void 0
+    };
+  }
+  var reasonDetail = (reasons) => reasons.map((r) => r.slice(r.indexOf(":") + 1)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(", ");
+  function nodeDepth(node) {
+    let d = 0;
+    let p = node.parent;
+    while (p && p.type !== "PAGE" && p.type !== "DOCUMENT") {
+      d++;
+      p = p.parent;
+    }
+    return d;
+  }
+  function sortForApply(items, info) {
+    return items.map((item, index) => ({ item, index, ...info(item) })).sort((a, b) => Number(a.reattach) - Number(b.reattach) || (a.reattach ? b.depth - a.depth : 0) || a.index - b.index).map((x) => x.item);
+  }
+
   // src/plugin/fix/apply.ts
   var FixError = class extends Error {
     constructor(reason) {
@@ -560,7 +802,11 @@ module.exports = {
         for (let p = parent; p && p.type !== "PAGE" && p.type !== "DOCUMENT"; p = p.parent) if (p.type === "INSTANCE") throw new FixError("inside-instance");
         const component = await resolveComponent(plan);
         const host = parent;
-        const extras = ((_a = plan.extras) != null ? _a : []).map((path) => followPath(frame, path)).filter((n) => Boolean(n));
+        const live = matchTrees(await toTree(frame, 0, newBudget()), await toTree(component, 0, newBudget()));
+        const useLive = live.ok || plan.forced === true;
+        const overrides = useLive ? live.overrides : plan.overrides;
+        const extraPaths = useLive ? live.extras : (_a = plan.extras) != null ? _a : [];
+        const extras = extraPaths.map((path) => followPath(frame, path)).filter((n) => Boolean(n));
         const instance = component.createInstance();
         const wrapper = extras.length ? figma.createFrame() : null;
         const placed = wrapper != null ? wrapper : instance;
@@ -598,7 +844,7 @@ module.exports = {
           }
         } catch {
         }
-        const ordered = [...plan.overrides].sort((a, b) => (a.op === "visible" ? 1 : 0) - (b.op === "visible" ? 1 : 0));
+        const ordered = [...overrides].sort((a, b) => (a.op === "visible" ? 1 : 0) - (b.op === "visible" ? 1 : 0));
         for (const op of ordered) {
           const target = followPath(instance, op.path);
           if (!target) continue;
@@ -989,7 +1235,7 @@ module.exports = {
     let applied = 0;
     let failed = 0;
     try {
-      const paths = inside.map(({ item, node }) => ({ item, path: indexPath(root, node) }));
+      const paths = sortForApply(inside, ({ item, node }) => ({ reattach: item.plan.kind === "reattach-instance", depth: nodeDepth(node) })).map(({ item, node }) => ({ item, path: indexPath(root, node) }));
       clone2 = root.clone();
       clone2.setPluginData(PREVIEW_TAG, "1");
       clone2.name = root.name;
@@ -1993,172 +2239,8 @@ module.exports = {
     }
   ];
 
-  // src/shared/reattach.ts
-  var norm = (s) => s.trim().toLowerCase();
-  function matchChildren(detached, component, path, dPath, out) {
-    const used = /* @__PURE__ */ new Set();
-    let cursor = 0;
-    for (let ci = 0; ci < component.length; ci++) {
-      const c = component[ci];
-      const childPath = [...path, ci];
-      let dj = -1;
-      for (let j = cursor; j < detached.length; j++) {
-        if (used.has(j)) continue;
-        if (detached[j].type === c.type && norm(detached[j].name) === norm(c.name)) {
-          dj = j;
-          break;
-        }
-      }
-      if (dj < 0) {
-        for (let j = cursor; j < detached.length; j++) {
-          if (used.has(j) || detached[j].type !== c.type) continue;
-          const nameBelongsElsewhere = component.some((o, oi) => oi !== ci && o.type === detached[j].type && norm(o.name) === norm(detached[j].name));
-          if (!nameBelongsElsewhere) {
-            dj = j;
-            break;
-          }
-        }
-      }
-      if (dj < 0) {
-        if (c.visible) out.overrides.push({ path: childPath, op: "visible", value: false });
-        out.stats.hidden++;
-        continue;
-      }
-      used.add(dj);
-      cursor = dj + 1;
-      matchNode(detached[dj], c, childPath, [...dPath, dj], out);
-    }
-    for (let j = 0; j < detached.length; j++) {
-      if (used.has(j)) continue;
-      out.stats.added++;
-      out.reasons.push(`added:${detached[j].name}`);
-      out.extras.push([...dPath, j]);
-    }
-  }
-  function matchNode(d, c, path, dPath, out) {
-    var _a, _b, _c, _d, _e, _f;
-    out.stats.matched++;
-    if (norm(d.name) !== norm(c.name)) out.overrides.push({ path, op: "name", value: d.name });
-    if (d.visible !== c.visible) out.overrides.push({ path, op: "visible", value: d.visible });
-    if (Math.abs(d.opacity - c.opacity) > 1e-3) out.overrides.push({ path, op: "opacity", value: d.opacity });
-    if (d.type === "TEXT") {
-      if (d.fontName === "mixed" || d.fontSize === "mixed" || d.textStyleId === "mixed") {
-        out.reasons.push(`mixed-font:${d.name}`);
-        if (((_a = d.text) != null ? _a : "") !== ((_b = c.text) != null ? _b : "")) {
-          out.overrides.push({ path, op: "text", value: (_c = d.text) != null ? _c : "" });
-          out.stats.texts++;
-        }
-      } else {
-        if (((_d = d.text) != null ? _d : "") !== ((_e = c.text) != null ? _e : "")) {
-          out.overrides.push({ path, op: "text", value: (_f = d.text) != null ? _f : "" });
-          out.stats.texts++;
-        }
-        if (d.textStyleId && d.textStyleId !== c.textStyleId) out.overrides.push({ path, op: "textStyle", styleId: d.textStyleId });
-        else if (!d.textStyleId && d.fontName && typeof d.fontSize === "number" && (fontKey(d.fontName) !== fontKey(c.fontName) || d.fontSize !== c.fontSize)) {
-          out.overrides.push({ path, op: "font", fontName: d.fontName, fontSize: d.fontSize });
-        }
-      }
-    }
-    if (d.fillsKey !== void 0 && c.fillsKey !== void 0 && d.fillsKey !== c.fillsKey) {
-      if (d.fillsKey === "mixed" || !d.fills) out.reasons.push(`mixed-paint:${d.name}`);
-      else out.overrides.push({ path, op: "fills", value: d.fills });
-    }
-    if (d.strokesKey !== void 0 && c.strokesKey !== void 0 && d.strokesKey !== c.strokesKey) {
-      if (d.strokesKey === "mixed" || !d.strokes) out.reasons.push(`mixed-paint:${d.name}`);
-      else out.overrides.push({ path, op: "strokes", value: d.strokes });
-    }
-    if (d.type === "INSTANCE" && c.type === "INSTANCE" && d.mainId !== void 0 && c.mainId !== void 0 && d.mainId !== c.mainId) {
-      if (d.mainId && !d.mainRemote) out.overrides.push({ path, op: "swap", componentId: d.mainId });
-      else if (d.mainKey) out.overrides.push({ path, op: "swap", componentKey: d.mainKey });
-      else out.reasons.push(`swap-remote:${d.name}`);
-    }
-    if (d.children.length || c.children.length) matchChildren(d.children, c.children, path, dPath, out);
-  }
-  var fontKey = (f) => f && f !== "mixed" ? `${f.family}|${f.style}` : String(f);
-  function matchTrees(detached, component) {
-    const out = { ok: true, overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
-    if (Math.abs(detached.opacity - component.opacity) > 1e-3) out.overrides.push({ path: [], op: "opacity", value: detached.opacity });
-    if (detached.fillsKey !== void 0 && component.fillsKey !== void 0 && detached.fillsKey !== component.fillsKey) {
-      if (detached.fillsKey === "mixed" || !detached.fills) out.reasons.push(`mixed-paint:${detached.name}`);
-      else out.overrides.push({ path: [], op: "fills", value: detached.fills });
-    }
-    if (detached.strokesKey !== void 0 && component.strokesKey !== void 0 && detached.strokesKey !== component.strokesKey) {
-      if (detached.strokesKey === "mixed" || !detached.strokes) out.reasons.push(`mixed-paint:${detached.name}`);
-      else out.overrides.push({ path: [], op: "strokes", value: detached.strokes });
-    }
-    matchChildren(detached.children, component.children, [], [], out);
-    out.ok = out.reasons.length === 0;
-    return out;
-  }
-  function forcedCost(result) {
-    return result.extras.length * 5 + result.reasons.length * 3 + result.overrides.length;
-  }
-  function summarizeOverrides(result) {
-    let texts = 0;
-    let visibility = 0;
-    let paints = 0;
-    let other = 0;
-    for (const o of result.overrides) {
-      if (o.op === "text") texts++;
-      else if (o.op === "visible") visibility++;
-      else if (o.op === "fills" || o.op === "strokes") paints++;
-      else other++;
-    }
-    return { texts, visibility, paints, other };
-  }
-
   // src/plugin/rules/components-pro.ts
-  var TREE_MAX_DEPTH = 6;
-  var TREE_MAX_NODES = 400;
   var MAX_VARIANT_CANDIDATES = 12;
-  var MAX_FORCED_EXTRAS = 12;
-  var cloneJson = (v) => JSON.parse(JSON.stringify(v));
-  async function toTree(node, depth, budget) {
-    var _a, _b;
-    budget.left--;
-    const t = { type: node.type, name: node.name, visible: node.visible, opacity: "opacity" in node ? node.opacity : 1, children: [] };
-    if (node.type === "TEXT") {
-      t.text = node.characters;
-      t.fontName = node.fontName === figma.mixed ? "mixed" : node.fontName;
-      t.fontSize = node.fontSize === figma.mixed ? "mixed" : node.fontSize;
-      t.textStyleId = node.textStyleId === figma.mixed ? "mixed" : node.textStyleId;
-    }
-    if ("fills" in node) {
-      const fills = node.fills;
-      if (fills === figma.mixed) t.fillsKey = "mixed";
-      else {
-        t.fills = cloneJson(fills);
-        t.fillsKey = JSON.stringify(t.fills);
-      }
-    }
-    if ("strokes" in node) {
-      const strokes = node.strokes;
-      t.strokes = cloneJson(strokes);
-      t.strokesKey = JSON.stringify(t.strokes);
-    }
-    if (node.type === "INSTANCE") {
-      try {
-        const main = await node.getMainComponentAsync();
-        t.mainId = (_a = main == null ? void 0 : main.id) != null ? _a : null;
-        t.mainRemote = (_b = main == null ? void 0 : main.remote) != null ? _b : false;
-        if (main == null ? void 0 : main.remote) t.mainKey = main.key;
-      } catch {
-        t.mainId = null;
-      }
-    }
-    if ("children" in node && depth < TREE_MAX_DEPTH) {
-      for (const child of node.children) {
-        if (budget.left <= 0) break;
-        t.children.push(await toTree(child, depth + 1, budget));
-      }
-    }
-    return t;
-  }
-  function variantLabel(comp) {
-    var _a;
-    const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
-    return set ? `${set.name} / ${comp.name}` : comp.name;
-  }
   async function originComponent(info) {
     try {
       if (info.type === "local") {
@@ -2174,33 +2256,23 @@ module.exports = {
     var _a, _b;
     return { ruleId: "components/reattach-instance", node: frame, currentValue: frame.name, fixSafety: "none", params: { confidence: "none", reason, detail, origin: (_b = (_a = frame.detachedInfo) == null ? void 0 : _a.type) != null ? _b : "local" } };
   }
-  function reattachPlan(frame, comp, result, forced = false) {
-    return {
-      kind: "reattach-instance",
-      nodeId: frame.id,
-      name: frame.name,
-      componentId: comp.remote ? void 0 : comp.id,
-      componentKey: comp.remote ? comp.key : void 0,
-      overrides: result.overrides,
-      extras: forced && result.extras.length ? result.extras : void 0,
-      forced: forced || void 0
-    };
-  }
-  var reasonDetail = (reasons) => reasons.map((r) => r.slice(r.indexOf(":") + 1)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(", ");
   async function checkReattach(frame, ctx) {
     var _a, _b;
     const info = frame.detachedInfo;
     if (!info) return;
     if (ancestors(frame, ctx).some((a) => a.type === "INSTANCE")) return [manualReattach(frame, "inside-instance")];
     const origin = await originComponent(info);
-    if (!origin) return [manualReattach(frame, "component-missing")];
+    if (!origin) {
+      ctx.reattachMissingOrigin.add(frame.id);
+      return [manualReattach(frame, "component-missing")];
+    }
     const set = ((_a = origin.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? origin.parent : null;
     const candidates = [origin, ...set ? set.children.filter((c) => c.type === "COMPONENT" && c.id !== origin.id) : []].slice(0, MAX_VARIANT_CANDIDATES);
-    const detachedTree = await toTree(frame, 0, { left: TREE_MAX_NODES });
+    const detachedTree = await toTree(frame, 0, newBudget());
     const matches = [];
     const all = [];
     for (const comp of candidates) {
-      const result = matchTrees(detachedTree, await toTree(comp, 0, { left: TREE_MAX_NODES }));
+      const result = matchTrees(detachedTree, await toTree(comp, 0, newBudget()));
       all.push({ comp, result });
       if (result.ok) matches.push({ comp, result });
     }
@@ -2375,6 +2447,503 @@ module.exports = {
         if (withStatus.length / all.length < 0.3) return;
         const sample = (_c = (_b = STATUS_RE.exec(`${withStatus[0].name} ${(_a = withStatus[0].node.description) != null ? _a : ""}`)) == null ? void 0 : _b[0]) != null ? _c : "";
         return all.filter((c) => !withStatus.includes(c)).map((c) => ({ ruleId: "components/no-status", node: c.node, currentValue: c.name, fixSafety: "none", params: { component: c.name, example: sample } }));
+      }
+    }
+  ];
+
+  // src/shared/lookalike.ts
+  var LOOKALIKE_MIN = 0.8;
+  var LOOKALIKE_MARGIN = 0.04;
+  var LOOKALIKE_MAX_SIZE_DIFF = 0.25;
+  function jaccard(a, b) {
+    if (!a.length && !b.length) return 1;
+    const A = new Set(a);
+    const B = new Set(b);
+    let inter = 0;
+    for (const x of A) if (B.has(x)) inter++;
+    return inter / (A.size + B.size - inter);
+  }
+  function multiJaccard(a, b) {
+    var _a, _b;
+    if (!a.length && !b.length) return 1;
+    const count = (xs) => {
+      var _a2;
+      const m = /* @__PURE__ */ new Map();
+      for (const x of xs) m.set(x, ((_a2 = m.get(x)) != null ? _a2 : 0) + 1);
+      return m;
+    };
+    const A = count(a);
+    const B = count(b);
+    let inter = 0;
+    let union2 = 0;
+    for (const k of /* @__PURE__ */ new Set([...A.keys(), ...B.keys()])) {
+      const x = (_a = A.get(k)) != null ? _a : 0;
+      const y = (_b = B.get(k)) != null ? _b : 0;
+      inter += Math.min(x, y);
+      union2 += Math.max(x, y);
+    }
+    return union2 ? inter / union2 : 1;
+  }
+  function sizeDiff(a, b) {
+    const dx = Math.abs(a.w - b.w) / Math.max(1, b.w) * (b.hug[0] ? 0.4 : 1);
+    const dy = Math.abs(a.h - b.h) / Math.max(1, b.h) * (b.hug[1] ? 0.4 : 1);
+    return Math.max(dx, dy);
+  }
+  function similarity(a, b) {
+    const size = 1 - Math.min(1, sizeDiff(a, b) * 2.5);
+    const radius = 1 - Math.min(1, Math.abs(a.radius - b.radius) / 8);
+    const fill = a.fill === b.fill ? 1 : 0;
+    const stroke = a.stroke === b.stroke ? 1 : 0;
+    const padClose = a.pad.every((v, i) => Math.abs(v - b.pad[i]) <= 2) && Math.abs(a.gap - b.gap) <= 2;
+    const layout = a.layout === b.layout ? a.layout === "NONE" || padClose ? 1 : 0.6 : 0;
+    const kinds = multiJaccard(a.kinds, b.kinds);
+    const colors = jaccard(a.colors, b.colors);
+    const fonts = jaccard(a.fonts, b.fonts);
+    const effects = a.effects === b.effects ? 1 : 0.5;
+    return 0.22 * size + 0.1 * radius + 0.18 * fill + 0.08 * stroke + 0.12 * layout + 0.1 * kinds + 0.1 * colors + 0.07 * fonts + 0.03 * effects;
+  }
+  function plausible(a, b) {
+    if (sizeDiff(a, b) > LOOKALIKE_MAX_SIZE_DIFF) return false;
+    const surface = a.fill !== null && a.fill === b.fill || a.stroke !== null && a.stroke === b.stroke;
+    if (!surface) return false;
+    const content = (multiJaccard(a.kinds, b.kinds) + jaccard(a.colors, b.colors) + jaccard(a.fonts, b.fonts)) / 3;
+    return content >= 0.5;
+  }
+  var tokens = (s) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1));
+  function nameOverlap(a, b) {
+    const A = tokens(a);
+    let n = 0;
+    for (const t of tokens(b)) if (A.has(t)) n++;
+    return n;
+  }
+  function bestLookalike(sig, candidates, prefer = () => 0) {
+    const byFamily = /* @__PURE__ */ new Map();
+    for (const c of candidates) {
+      if (!plausible(sig, c.sig)) continue;
+      const s = similarity(sig, c.sig);
+      if (s < LOOKALIKE_MIN) continue;
+      const cur = byFamily.get(c.family);
+      if (!cur || s > cur.s || s === cur.s && prefer(c.item) > prefer(cur.c.item)) byFamily.set(c.family, { c, s });
+    }
+    const ranked = [...byFamily.values()].sort((a, b) => b.s - a.s || prefer(b.c.item) - prefer(a.c.item));
+    if (!ranked.length) return null;
+    const best = ranked[0];
+    const alternatives = ranked.slice(1).filter((x) => best.s - x.s <= LOOKALIKE_MARGIN).slice(0, 3).map((x) => ({ item: x.c.item, score: x.s }));
+    return { item: best.c.item, score: best.s, alternatives };
+  }
+
+  // src/plugin/scan/context.ts
+  var yieldToHost = () => typeof setTimeout === "function" ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve();
+  var isAlias = (v) => typeof v === "object" && v !== null && v.type === "VARIABLE_ALIAS";
+  async function resolveVariableValue(variable, modeId, depth = 0) {
+    if (depth > 12) return void 0;
+    const modes = Object.keys(variable.valuesByMode);
+    if (!modes.length) return void 0;
+    const mode = modeId && modeId in variable.valuesByMode ? modeId : modes[0];
+    const value = variable.valuesByMode[mode];
+    if (isAlias(value)) {
+      const target = await figma.variables.getVariableByIdAsync(value.id);
+      if (!target) return void 0;
+      const targetCollection = await figma.variables.getVariableCollectionByIdAsync(target.variableCollectionId);
+      const targetMode = modeId && target.valuesByMode[modeId] !== void 0 ? modeId : targetCollection == null ? void 0 : targetCollection.defaultModeId;
+      return resolveVariableValue(target, targetMode, depth + 1);
+    }
+    return value;
+  }
+  var toRgb01 = (v) => ({
+    rgb: { r: v.r, g: v.g, b: v.b },
+    alpha: "a" in v ? v.a : 1
+  });
+  function pushColor(ctx, token) {
+    var _a;
+    ctx.colors.push(token);
+    const key = colorKey(token.rgb, token.alpha);
+    const list = (_a = ctx.colorByKey.get(key)) != null ? _a : [];
+    list.push(token);
+    ctx.colorByKey.set(key, list);
+  }
+  async function indexVariable(ctx, variable, source, collectionCache) {
+    var _a, _b, _c, _d;
+    let collection = collectionCache.get(variable.variableCollectionId);
+    if (collection === void 0) {
+      collection = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
+      collectionCache.set(variable.variableCollectionId, collection);
+    }
+    const collectionName = (_a = collection == null ? void 0 : collection.name) != null ? _a : "";
+    const modes = (_b = collection == null ? void 0 : collection.modes) != null ? _b : Object.keys(variable.valuesByMode).map((modeId) => ({ modeId, name: "" }));
+    const defaultModeId = (_d = collection == null ? void 0 : collection.defaultModeId) != null ? _d : (_c = modes[0]) == null ? void 0 : _c.modeId;
+    if (variable.resolvedType === "COLOR") {
+      const seen = /* @__PURE__ */ new Set();
+      for (const mode of modes) {
+        const value = await resolveVariableValue(variable, mode.modeId);
+        if (!value || typeof value !== "object" || !("r" in value)) continue;
+        const { rgb, alpha } = toRgb01(value);
+        const key = colorKey(rgb, alpha);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pushColor(ctx, {
+          id: variable.id,
+          name: variable.name,
+          collection: collectionName,
+          source,
+          remote: variable.remote,
+          rgb,
+          alpha,
+          scopes: variable.scopes,
+          modeName: modes.length > 1 ? mode.name : void 0,
+          isDefaultMode: mode.modeId === defaultModeId
+        });
+      }
+    } else if (variable.resolvedType === "FLOAT") {
+      const value = await resolveVariableValue(variable, defaultModeId);
+      if (typeof value !== "number" || !Number.isFinite(value)) return;
+      ctx.floats.push({
+        id: variable.id,
+        name: variable.name,
+        collection: collectionName,
+        source,
+        remote: variable.remote,
+        value,
+        scopes: variable.scopes
+      });
+    }
+  }
+  var hasScope = (scopes, ...wanted) => scopes.some((s) => wanted.includes(s));
+  function buildFloatScales(ctx) {
+    const spacingScoped = ctx.floats.filter((f) => hasScope(f.scopes, "GAP", "WIDTH_HEIGHT"));
+    const radiusScoped = ctx.floats.filter((f) => hasScope(f.scopes, "CORNER_RADIUS"));
+    const fontScoped = ctx.floats.filter((f) => hasScope(f.scopes, "FONT_SIZE"));
+    const unscoped = ctx.floats.filter((f) => f.scopes.includes("ALL_SCOPES"));
+    const spacingByName = unscoped.filter((f) => /spac|gap|pad|inset|\bsize\b|dimension|grid/i.test(f.name));
+    const radiusByName = unscoped.filter((f) => /radius|corner|round/i.test(f.name));
+    const fontByName = unscoped.filter((f) => /font.?size|text.?size|type.?scale|\bfs\b/i.test(f.name));
+    const spacing = spacingScoped.length ? [...spacingScoped, ...spacingByName] : spacingByName;
+    const radius = radiusScoped.length ? [...radiusScoped, ...radiusByName] : radiusByName;
+    const font = fontScoped.length ? [...fontScoped, ...fontByName] : fontByName;
+    const dedupe = (list) => {
+      const seen = /* @__PURE__ */ new Set();
+      return list.filter((f) => seen.has(f.id) ? false : (seen.add(f.id), true));
+    };
+    ctx.spacingScale = dedupe(spacing).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
+    ctx.radiusScale = dedupe(radius).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
+    const sizes = /* @__PURE__ */ new Set([...dedupe(font).map((f) => f.value), ...ctx.textStyles.map((s) => s.fontSize)]);
+    ctx.fontSizeScale = [...sizes].filter((v) => v > 0).sort((a, b) => a - b);
+  }
+  async function indexPaintStyle(ctx, style) {
+    var _a, _b;
+    const visible = style.paints.filter((p) => p.visible !== false);
+    if (visible.length !== 1 || visible[0].type !== "SOLID") return;
+    const paint = visible[0];
+    const info = {
+      id: style.id,
+      name: style.name,
+      remote: style.remote,
+      rgb: { r: paint.color.r, g: paint.color.g, b: paint.color.b },
+      alpha: (_a = paint.opacity) != null ? _a : 1
+    };
+    ctx.paintStyles.push(info);
+    const key = colorKey(info.rgb, info.alpha);
+    ctx.paintStyleByKey.set(key, [...(_b = ctx.paintStyleByKey.get(key)) != null ? _b : [], info]);
+  }
+  function indexTextStyle(ctx, style) {
+    if (ctx.textStyles.some((s) => s.id === style.id)) return;
+    ctx.textStyles.push({
+      id: style.id,
+      name: style.name,
+      remote: style.remote,
+      fontName: style.fontName,
+      fontSize: style.fontSize,
+      lineHeight: style.lineHeight,
+      letterSpacing: style.letterSpacing
+    });
+  }
+  function createContext(options, activeRules, reportProgress, isCancelled) {
+    return {
+      options,
+      activeRules,
+      colors: [],
+      colorByKey: /* @__PURE__ */ new Map(),
+      floats: [],
+      spacingScale: [],
+      radiusScale: [],
+      fontSizeScale: [],
+      textStyles: [],
+      paintStyles: [],
+      paintStyleByKey: /* @__PURE__ */ new Map(),
+      libraries: [],
+      warnings: [],
+      pageOf: /* @__PURE__ */ new Map(),
+      ancestorsCache: /* @__PURE__ */ new Map(),
+      backgroundCache: /* @__PURE__ */ new Map(),
+      componentSets: [],
+      localComponents: [],
+      anySetHasReactions: false,
+      lookalikeFrames: [],
+      lookalikeComponents: [],
+      reattachMissingOrigin: /* @__PURE__ */ new Set(),
+      scope: "page",
+      localVariables: [],
+      collectionsById: /* @__PURE__ */ new Map(),
+      colorById: /* @__PURE__ */ new Map(),
+      usedVariableIds: /* @__PURE__ */ new Set(),
+      headings: [],
+      textMetrics: [],
+      buttonLabels: [],
+      autoLayoutFrames: [],
+      destructiveNodes: [],
+      confirmPatternSeen: false,
+      docLinkSeen: false,
+      componentsForDocs: [],
+      instanceKindCache: /* @__PURE__ */ new Map(),
+      found: {},
+      reportProgress,
+      isCancelled
+    };
+  }
+  var MAX_LIBRARY_VARIABLES = 800;
+  var IMPORT_BATCH = 40;
+  async function indexTokens(ctx) {
+    const collectionCache = /* @__PURE__ */ new Map();
+    ctx.reportProgress({ phase: "indexing", detail: "local" });
+    const [localVars, paintStyles, textStyles] = await Promise.all([
+      figma.variables.getLocalVariablesAsync(),
+      figma.getLocalPaintStylesAsync(),
+      figma.getLocalTextStylesAsync()
+    ]);
+    ctx.localVariables = localVars;
+    let i = 0;
+    for (const v of localVars) {
+      if (v.resolvedType !== "COLOR" && v.resolvedType !== "FLOAT") continue;
+      await indexVariable(ctx, v, "Local", collectionCache);
+      if (++i % 60 === 0) {
+        await yieldToHost();
+        if (ctx.isCancelled()) return;
+      }
+    }
+    for (const s of paintStyles) await indexPaintStyle(ctx, s);
+    for (const s of textStyles) indexTextStyle(ctx, s);
+    if (ctx.options.includeLibraries) {
+      try {
+        const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+        if (collections.length) ctx.reportProgress({ phase: "indexing", detail: collections[0].libraryName });
+        const listed = await Promise.all(
+          collections.map(async (col) => {
+            try {
+              const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
+              return { col, vars: vars.filter((lv) => lv.resolvedType === "COLOR" || lv.resolvedType === "FLOAT") };
+            } catch {
+              ctx.warnings.push(`library:${col.libraryName}`);
+              return { col, vars: [] };
+            }
+          })
+        );
+        if (ctx.isCancelled()) return;
+        const queue = [];
+        for (const { col, vars } of listed) {
+          if (!vars.length) continue;
+          if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
+          for (const lv of vars) queue.push({ key: lv.key, libraryName: col.libraryName });
+        }
+        if (queue.length > MAX_LIBRARY_VARIABLES) {
+          ctx.warnings.push("library-cap");
+          queue.length = MAX_LIBRARY_VARIABLES;
+        }
+        for (let i2 = 0; i2 < queue.length; i2 += IMPORT_BATCH) {
+          const batch = queue.slice(i2, i2 + IMPORT_BATCH);
+          ctx.reportProgress({ phase: "indexing", detail: batch[0].libraryName, scanned: i2, total: queue.length });
+          const imported = await Promise.all(
+            batch.map(async ({ key, libraryName }) => {
+              try {
+                return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
+              } catch {
+                return null;
+              }
+            })
+          );
+          for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+          await yieldToHost();
+          if (ctx.isCancelled()) return;
+        }
+        if (queue.length) ctx.reportProgress({ phase: "indexing", detail: queue[queue.length - 1].libraryName, scanned: queue.length, total: queue.length });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        ctx.warnings.push(/permission|manifest/i.test(message) ? "libraries-no-permission" : "libraries-unavailable");
+      }
+    }
+    for (const [id, col] of collectionCache) if (col) ctx.collectionsById.set(id, col);
+    for (const t of ctx.colors) if (!ctx.colorById.has(t.id) || t.isDefaultMode) ctx.colorById.set(t.id, t);
+    buildFloatScales(ctx);
+  }
+  function rebuildScales(ctx) {
+    buildFloatScales(ctx);
+  }
+
+  // src/plugin/rules/lookalike.ts
+  var RULE_ID = "components/lookalike-frame";
+  var MAX_FRAMES = 1500;
+  var MAX_COMPONENTS = 600;
+  var MAX_SIG_NODES = 120;
+  var SIG_DEPTH = 3;
+  var MAX_SIDE = 1200;
+  var MIN_SIDE = 8;
+  var BUDGET_MS = 4e3;
+  var KIND = {
+    TEXT: "TEXT",
+    INSTANCE: "INSTANCE",
+    FRAME: "FRAME",
+    GROUP: "FRAME",
+    RECTANGLE: "RECT",
+    ELLIPSE: "SHAPE",
+    VECTOR: "SHAPE",
+    BOOLEAN_OPERATION: "SHAPE",
+    LINE: "SHAPE",
+    STAR: "SHAPE",
+    POLYGON: "SHAPE"
+  };
+  function paintKey(paints) {
+    if (paints === figma.mixed) return "mixed";
+    const p = paints.find((x) => {
+      var _a;
+      return x.visible !== false && ((_a = x.opacity) != null ? _a : 1) > 0;
+    });
+    if (!p) return null;
+    if (p.type === "SOLID") return rgbToHex(p.color).slice(0, 7).toLowerCase();
+    return p.type === "IMAGE" ? "image" : "gradient";
+  }
+  function signature(node) {
+    const kids = node.children.filter((c) => c.visible);
+    if (!kids.length) return null;
+    const strokeColor = paintKey(node.strokes);
+    const hugPrimary = node.layoutMode !== "NONE" && node.primaryAxisSizingMode === "AUTO";
+    const hugCounter = node.layoutMode !== "NONE" && node.counterAxisSizingMode === "AUTO";
+    const sig = {
+      w: node.width,
+      h: node.height,
+      hug: node.layoutMode === "VERTICAL" ? [hugCounter, hugPrimary] : [hugPrimary, hugCounter],
+      radius: node.cornerRadius === figma.mixed ? node.topLeftRadius : node.cornerRadius,
+      layout: node.layoutMode,
+      pad: node.layoutMode === "NONE" ? [0, 0, 0, 0] : [node.paddingTop, node.paddingRight, node.paddingBottom, node.paddingLeft],
+      gap: node.layoutMode === "NONE" ? 0 : node.itemSpacing,
+      fill: paintKey(node.fills),
+      stroke: strokeColor ? `${strokeColor}@${node.strokeWeight === figma.mixed ? "mixed" : node.strokeWeight}` : null,
+      effects: node.effects.filter((e) => e.visible).length,
+      kinds: kids.map((c) => {
+        var _a;
+        return (_a = KIND[c.type]) != null ? _a : "OTHER";
+      }).sort(),
+      fonts: [],
+      colors: [],
+      nodes: 0
+    };
+    const fonts = /* @__PURE__ */ new Set();
+    const colors = /* @__PURE__ */ new Set();
+    let count = 0;
+    const walk = (n, depth) => {
+      if (++count > MAX_SIG_NODES) return false;
+      if (n.type === "TEXT" && n.fontName !== figma.mixed && n.fontSize !== figma.mixed) fonts.add(`${n.fontName.family}|${n.fontName.style}|${n.fontSize}`);
+      if ("fills" in n) {
+        const k = paintKey(n.fills);
+        if (k && k.startsWith("#") && colors.size < 12) colors.add(k);
+      }
+      if ("children" in n && depth < SIG_DEPTH) {
+        for (const c of n.children) if (c.visible && !walk(c, depth + 1)) return false;
+      }
+      return true;
+    };
+    for (const c of kids) if (!walk(c, 1)) return null;
+    sig.nodes = count;
+    sig.fonts = [...fonts].sort();
+    sig.colors = [...colors].sort();
+    return sig;
+  }
+  var fits = (n) => n.width <= MAX_SIDE && n.height <= MAX_SIDE && n.width >= MIN_SIDE && n.height >= MIN_SIDE;
+  var lookalikeRules = [
+    {
+      id: RULE_ID,
+      types: ["FRAME", "COMPONENT"],
+      check: (node, ctx) => {
+        if (node.type === "COMPONENT") {
+          if (ctx.lookalikeComponents.length < MAX_COMPONENTS && fits(node)) ctx.lookalikeComponents.push(node);
+          return;
+        }
+        const frame = node;
+        if (!fits(frame) || !frame.children.some((c) => c.visible)) return;
+        if (ancestors(frame, ctx).some((a) => a.type === "COMPONENT" || a.type === "COMPONENT_SET" || a.type === "INSTANCE")) return;
+        if (ctx.lookalikeFrames.length >= MAX_FRAMES) {
+          ctx.warnings.push(`rule-partial:${RULE_ID}`);
+          return;
+        }
+        ctx.lookalikeFrames.push(frame);
+      },
+      finalize: async (ctx) => {
+        var _a, _b, _c;
+        const frames = ctx.lookalikeFrames.filter((f) => !f.removed && (!f.detachedInfo || ctx.reattachMissingOrigin.has(f.id)));
+        if (!frames.length) return;
+        const comps = ctx.scope === "selection" ? figma.currentPage.findAllWithCriteria({ types: ["COMPONENT"] }).filter(fits).slice(0, MAX_COMPONENTS) : ctx.lookalikeComponents;
+        const t0 = Date.now();
+        const candidates = [];
+        for (let i = 0; i < comps.length; i++) {
+          const comp = comps[i];
+          const sig = signature(comp);
+          if (sig) candidates.push({ sig, family: ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent.id : comp.id, item: comp });
+          if (i % 50 === 49) await yieldToHost();
+        }
+        if (!candidates.length) return;
+        const out = [];
+        for (let i = 0; i < frames.length; i++) {
+          if (Date.now() - t0 > BUDGET_MS) {
+            ctx.warnings.push(`rule-partial:${RULE_ID}`);
+            break;
+          }
+          if (i % 20 === 19) await yieldToHost();
+          const frame = frames[i];
+          const sig = signature(frame);
+          if (!sig) continue;
+          const found = bestLookalike(sig, candidates, (comp2) => nameOverlap(frame.name, variantLabel(comp2)));
+          if (!found) continue;
+          const comp = found.item;
+          const frameTree = await toTree(frame, 0, newBudget());
+          const result = matchTrees(frameTree, await toTree(comp, 0, newBudget()));
+          const label = variantLabel(comp);
+          const score = Math.round(found.score * 100);
+          if (result.extras.length > MAX_FORCED_EXTRAS) {
+            out.push({ ruleId: RULE_ID, node: frame, currentValue: frame.name, fixSafety: "none", params: { confidence: "none", component: label, score, detail: reasonDetail(result.reasons) } });
+            continue;
+          }
+          const sum = summarizeOverrides(result);
+          const alternatives = [];
+          const alternativePlans = {};
+          for (const alt of found.alternatives) {
+            const altResult = matchTrees(frameTree, await toTree(alt.item, 0, newBudget()));
+            if (altResult.extras.length > MAX_FORCED_EXTRAS) continue;
+            const id = `comp:${alt.item.id}`;
+            alternatives.push({ id, label: variantLabel(alt.item), value: `${Math.round(alt.score * 100)} %` });
+            alternativePlans[id] = reattachPlan(frame, alt.item, altResult, true);
+          }
+          out.push({
+            ruleId: RULE_ID,
+            node: frame,
+            currentValue: frame.name,
+            suggestion: { kind: "component", id: comp.id, label, confidence: "ambiguous", source: "Local", alternatives: alternatives.length ? alternatives : void 0 },
+            fixSafety: "review",
+            params: {
+              confidence: "lookalike",
+              component: label,
+              score,
+              total: result.overrides.length,
+              extras: result.extras.length,
+              texts: sum.texts,
+              visibility: sum.visibility,
+              paints: sum.paints,
+              detail: reasonDetail(result.reasons),
+              ambiguous: alternatives.length,
+              alt: (_c = (_b = alternatives[0]) == null ? void 0 : _b.label) != null ? _c : ""
+            },
+            plan: reattachPlan(frame, comp, result, true),
+            alternativePlans: alternatives.length ? alternativePlans : void 0
+          });
+        }
+        return out;
       }
     }
   ];
@@ -2942,10 +3511,10 @@ module.exports = {
 
   // src/plugin/rules/handoff-pro.ts
   var MIN_REPEATS = 3;
-  function signature(node, depth) {
+  function signature2(node, depth) {
     const base = `${node.type}:${roleName(node.name)}:${Math.round(node.width / 4)}x${Math.round(node.height / 4)}`;
     if (depth === 0 || !("children" in node)) return base;
-    const kids = node.children.slice(0, 12).map((c) => signature(c, depth - 1));
+    const kids = node.children.slice(0, 12).map((c) => signature2(c, depth - 1));
     return `${base}[${kids.join(",")}]`;
   }
   var handoffProRules = [
@@ -2958,7 +3527,7 @@ module.exports = {
         if (children.length < MIN_REPEATS) return;
         const groups = /* @__PURE__ */ new Map();
         for (const c of children) {
-          const sig = signature(c, 2);
+          const sig = signature2(c, 2);
           groups.set(sig, [...(_a = groups.get(sig)) != null ? _a : [], c]);
         }
         const out = [];
@@ -3320,7 +3889,7 @@ module.exports = {
   ];
 
   // src/plugin/rules/tokens.ts
-  var isAlias = (v) => typeof v === "object" && v !== null && "type" in v && v.type === "VARIABLE_ALIAS";
+  var isAlias2 = (v) => typeof v === "object" && v !== null && "type" in v && v.type === "VARIABLE_ALIAS";
   function virtualOf(v, ctx) {
     var _a;
     const col = ctx.collectionsById.get(v.variableCollectionId);
@@ -3341,7 +3910,7 @@ module.exports = {
   }
   var PAINT_TYPES2 = ["FRAME", "COMPONENT", "INSTANCE", "RECTANGLE", "ELLIPSE", "POLYGON", "STAR", "VECTOR", "TEXT", "LINE", "BOOLEAN_OPERATION", "SECTION", "GROUP", "COMPONENT_SET"];
   var valueKey = (v) => {
-    if (isAlias(v)) return `alias:${v.id}`;
+    if (isAlias2(v)) return `alias:${v.id}`;
     if (typeof v === "object" && v !== null && "r" in v) {
       const c = v;
       return colorKey({ r: c.r, g: c.g, b: c.b }, "a" in c ? c.a : 1);
@@ -3367,7 +3936,7 @@ module.exports = {
       finalize: (ctx) => {
         if (ctx.scope !== "file") return;
         const aliased = /* @__PURE__ */ new Set();
-        for (const v of ctx.localVariables) for (const val of Object.values(v.valuesByMode)) if (isAlias(val)) aliased.add(val.id);
+        for (const v of ctx.localVariables) for (const val of Object.values(v.valuesByMode)) if (isAlias2(val)) aliased.add(val.id);
         const out = [];
         for (const v of ctx.localVariables) {
           if (ctx.usedVariableIds.has(v.id) || aliased.has(v.id)) continue;
@@ -3383,7 +3952,7 @@ module.exports = {
         const out = [];
         for (const v of ctx.localVariables) {
           for (const [modeId, val] of Object.entries(v.valuesByMode)) {
-            if (!isAlias(val)) continue;
+            if (!isAlias2(val)) continue;
             const target = await figma.variables.getVariableByIdAsync(val.id);
             if (target) continue;
             const col = ctx.collectionsById.get(v.variableCollectionId);
@@ -3403,7 +3972,7 @@ module.exports = {
         const reported = /* @__PURE__ */ new Set();
         for (const v of ctx.localVariables) {
           for (const [modeId, val] of Object.entries(v.valuesByMode)) {
-            if (!isAlias(val)) continue;
+            if (!isAlias2(val)) continue;
             const seen = /* @__PURE__ */ new Set([v.id]);
             let cur = byId.get(val.id);
             const chain = [v.name];
@@ -3418,7 +3987,7 @@ module.exports = {
               }
               seen.add(cur.id);
               const next = (_a = cur.valuesByMode[modeId]) != null ? _a : Object.values(cur.valuesByMode)[0];
-              cur = isAlias(next) ? byId.get(next.id) : void 0;
+              cur = isAlias2(next) ? byId.get(next.id) : void 0;
             }
           }
         }
@@ -3835,6 +4404,7 @@ module.exports = {
     ...radiusRules,
     ...componentRules,
     ...componentProRules,
+    ...lookalikeRules,
     ...tokenRules,
     ...craftRules,
     ...craftProRules,
@@ -3897,10 +4467,10 @@ module.exports = {
         { x: inset, y: plugin.y + plugin.h, w: vw - 2 * inset, h: vh - (plugin.y + plugin.h) }
       ].filter((r) => r.w >= MIN_REGION && r.h >= MIN_REGION);
       if (!regions.length) return;
-      const fits = regions.filter((r) => r.w - 2 * MARGIN >= target.w && r.h - 2 * MARGIN >= target.h);
-      const pick = (fits.length ? fits : regions).sort((a, b) => b.w * b.h - a.w * a.h)[0];
+      const fits2 = regions.filter((r) => r.w - 2 * MARGIN >= target.w && r.h - 2 * MARGIN >= target.h);
+      const pick = (fits2.length ? fits2 : regions).sort((a, b) => b.w * b.h - a.w * a.h)[0];
       let nextZoom = zoom;
-      if (!fits.length) nextZoom = Math.max(0.02, Math.min(zoom, (pick.w - 2 * MARGIN) / box.width, (pick.h - 2 * MARGIN) / box.height));
+      if (!fits2.length) nextZoom = Math.max(0.02, Math.min(zoom, (pick.w - 2 * MARGIN) / box.width, (pick.h - 2 * MARGIN) / box.height));
       const regionCx = pick.x + pick.w / 2;
       const regionCy = pick.y + pick.h / 2;
       const cx = box.x + box.width / 2;
@@ -3911,249 +4481,6 @@ module.exports = {
       figma.viewport.center = center;
     } catch {
     }
-  }
-
-  // src/plugin/scan/context.ts
-  var yieldToHost = () => typeof setTimeout === "function" ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve();
-  var isAlias2 = (v) => typeof v === "object" && v !== null && v.type === "VARIABLE_ALIAS";
-  async function resolveVariableValue(variable, modeId, depth = 0) {
-    if (depth > 12) return void 0;
-    const modes = Object.keys(variable.valuesByMode);
-    if (!modes.length) return void 0;
-    const mode = modeId && modeId in variable.valuesByMode ? modeId : modes[0];
-    const value = variable.valuesByMode[mode];
-    if (isAlias2(value)) {
-      const target = await figma.variables.getVariableByIdAsync(value.id);
-      if (!target) return void 0;
-      const targetCollection = await figma.variables.getVariableCollectionByIdAsync(target.variableCollectionId);
-      const targetMode = modeId && target.valuesByMode[modeId] !== void 0 ? modeId : targetCollection == null ? void 0 : targetCollection.defaultModeId;
-      return resolveVariableValue(target, targetMode, depth + 1);
-    }
-    return value;
-  }
-  var toRgb01 = (v) => ({
-    rgb: { r: v.r, g: v.g, b: v.b },
-    alpha: "a" in v ? v.a : 1
-  });
-  function pushColor(ctx, token) {
-    var _a;
-    ctx.colors.push(token);
-    const key = colorKey(token.rgb, token.alpha);
-    const list = (_a = ctx.colorByKey.get(key)) != null ? _a : [];
-    list.push(token);
-    ctx.colorByKey.set(key, list);
-  }
-  async function indexVariable(ctx, variable, source, collectionCache) {
-    var _a, _b, _c, _d;
-    let collection = collectionCache.get(variable.variableCollectionId);
-    if (collection === void 0) {
-      collection = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
-      collectionCache.set(variable.variableCollectionId, collection);
-    }
-    const collectionName = (_a = collection == null ? void 0 : collection.name) != null ? _a : "";
-    const modes = (_b = collection == null ? void 0 : collection.modes) != null ? _b : Object.keys(variable.valuesByMode).map((modeId) => ({ modeId, name: "" }));
-    const defaultModeId = (_d = collection == null ? void 0 : collection.defaultModeId) != null ? _d : (_c = modes[0]) == null ? void 0 : _c.modeId;
-    if (variable.resolvedType === "COLOR") {
-      const seen = /* @__PURE__ */ new Set();
-      for (const mode of modes) {
-        const value = await resolveVariableValue(variable, mode.modeId);
-        if (!value || typeof value !== "object" || !("r" in value)) continue;
-        const { rgb, alpha } = toRgb01(value);
-        const key = colorKey(rgb, alpha);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        pushColor(ctx, {
-          id: variable.id,
-          name: variable.name,
-          collection: collectionName,
-          source,
-          remote: variable.remote,
-          rgb,
-          alpha,
-          scopes: variable.scopes,
-          modeName: modes.length > 1 ? mode.name : void 0,
-          isDefaultMode: mode.modeId === defaultModeId
-        });
-      }
-    } else if (variable.resolvedType === "FLOAT") {
-      const value = await resolveVariableValue(variable, defaultModeId);
-      if (typeof value !== "number" || !Number.isFinite(value)) return;
-      ctx.floats.push({
-        id: variable.id,
-        name: variable.name,
-        collection: collectionName,
-        source,
-        remote: variable.remote,
-        value,
-        scopes: variable.scopes
-      });
-    }
-  }
-  var hasScope = (scopes, ...wanted) => scopes.some((s) => wanted.includes(s));
-  function buildFloatScales(ctx) {
-    const spacingScoped = ctx.floats.filter((f) => hasScope(f.scopes, "GAP", "WIDTH_HEIGHT"));
-    const radiusScoped = ctx.floats.filter((f) => hasScope(f.scopes, "CORNER_RADIUS"));
-    const fontScoped = ctx.floats.filter((f) => hasScope(f.scopes, "FONT_SIZE"));
-    const unscoped = ctx.floats.filter((f) => f.scopes.includes("ALL_SCOPES"));
-    const spacingByName = unscoped.filter((f) => /spac|gap|pad|inset|\bsize\b|dimension|grid/i.test(f.name));
-    const radiusByName = unscoped.filter((f) => /radius|corner|round/i.test(f.name));
-    const fontByName = unscoped.filter((f) => /font.?size|text.?size|type.?scale|\bfs\b/i.test(f.name));
-    const spacing = spacingScoped.length ? [...spacingScoped, ...spacingByName] : spacingByName;
-    const radius = radiusScoped.length ? [...radiusScoped, ...radiusByName] : radiusByName;
-    const font = fontScoped.length ? [...fontScoped, ...fontByName] : fontByName;
-    const dedupe = (list) => {
-      const seen = /* @__PURE__ */ new Set();
-      return list.filter((f) => seen.has(f.id) ? false : (seen.add(f.id), true));
-    };
-    ctx.spacingScale = dedupe(spacing).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
-    ctx.radiusScale = dedupe(radius).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
-    const sizes = /* @__PURE__ */ new Set([...dedupe(font).map((f) => f.value), ...ctx.textStyles.map((s) => s.fontSize)]);
-    ctx.fontSizeScale = [...sizes].filter((v) => v > 0).sort((a, b) => a - b);
-  }
-  async function indexPaintStyle(ctx, style) {
-    var _a, _b;
-    const visible = style.paints.filter((p) => p.visible !== false);
-    if (visible.length !== 1 || visible[0].type !== "SOLID") return;
-    const paint = visible[0];
-    const info = {
-      id: style.id,
-      name: style.name,
-      remote: style.remote,
-      rgb: { r: paint.color.r, g: paint.color.g, b: paint.color.b },
-      alpha: (_a = paint.opacity) != null ? _a : 1
-    };
-    ctx.paintStyles.push(info);
-    const key = colorKey(info.rgb, info.alpha);
-    ctx.paintStyleByKey.set(key, [...(_b = ctx.paintStyleByKey.get(key)) != null ? _b : [], info]);
-  }
-  function indexTextStyle(ctx, style) {
-    if (ctx.textStyles.some((s) => s.id === style.id)) return;
-    ctx.textStyles.push({
-      id: style.id,
-      name: style.name,
-      remote: style.remote,
-      fontName: style.fontName,
-      fontSize: style.fontSize,
-      lineHeight: style.lineHeight,
-      letterSpacing: style.letterSpacing
-    });
-  }
-  function createContext(options, activeRules, reportProgress, isCancelled) {
-    return {
-      options,
-      activeRules,
-      colors: [],
-      colorByKey: /* @__PURE__ */ new Map(),
-      floats: [],
-      spacingScale: [],
-      radiusScale: [],
-      fontSizeScale: [],
-      textStyles: [],
-      paintStyles: [],
-      paintStyleByKey: /* @__PURE__ */ new Map(),
-      libraries: [],
-      warnings: [],
-      pageOf: /* @__PURE__ */ new Map(),
-      ancestorsCache: /* @__PURE__ */ new Map(),
-      backgroundCache: /* @__PURE__ */ new Map(),
-      componentSets: [],
-      localComponents: [],
-      anySetHasReactions: false,
-      scope: "page",
-      localVariables: [],
-      collectionsById: /* @__PURE__ */ new Map(),
-      colorById: /* @__PURE__ */ new Map(),
-      usedVariableIds: /* @__PURE__ */ new Set(),
-      headings: [],
-      textMetrics: [],
-      buttonLabels: [],
-      autoLayoutFrames: [],
-      destructiveNodes: [],
-      confirmPatternSeen: false,
-      docLinkSeen: false,
-      componentsForDocs: [],
-      instanceKindCache: /* @__PURE__ */ new Map(),
-      found: {},
-      reportProgress,
-      isCancelled
-    };
-  }
-  var MAX_LIBRARY_VARIABLES = 800;
-  var IMPORT_BATCH = 40;
-  async function indexTokens(ctx) {
-    const collectionCache = /* @__PURE__ */ new Map();
-    ctx.reportProgress({ phase: "indexing", detail: "local" });
-    const [localVars, paintStyles, textStyles] = await Promise.all([
-      figma.variables.getLocalVariablesAsync(),
-      figma.getLocalPaintStylesAsync(),
-      figma.getLocalTextStylesAsync()
-    ]);
-    ctx.localVariables = localVars;
-    let i = 0;
-    for (const v of localVars) {
-      if (v.resolvedType !== "COLOR" && v.resolvedType !== "FLOAT") continue;
-      await indexVariable(ctx, v, "Local", collectionCache);
-      if (++i % 60 === 0) {
-        await yieldToHost();
-        if (ctx.isCancelled()) return;
-      }
-    }
-    for (const s of paintStyles) await indexPaintStyle(ctx, s);
-    for (const s of textStyles) indexTextStyle(ctx, s);
-    if (ctx.options.includeLibraries) {
-      try {
-        const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
-        if (collections.length) ctx.reportProgress({ phase: "indexing", detail: collections[0].libraryName });
-        const listed = await Promise.all(
-          collections.map(async (col) => {
-            try {
-              const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
-              return { col, vars: vars.filter((lv) => lv.resolvedType === "COLOR" || lv.resolvedType === "FLOAT") };
-            } catch {
-              ctx.warnings.push(`library:${col.libraryName}`);
-              return { col, vars: [] };
-            }
-          })
-        );
-        if (ctx.isCancelled()) return;
-        const queue = [];
-        for (const { col, vars } of listed) {
-          if (!vars.length) continue;
-          if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
-          for (const lv of vars) queue.push({ key: lv.key, libraryName: col.libraryName });
-        }
-        if (queue.length > MAX_LIBRARY_VARIABLES) {
-          ctx.warnings.push("library-cap");
-          queue.length = MAX_LIBRARY_VARIABLES;
-        }
-        for (let i2 = 0; i2 < queue.length; i2 += IMPORT_BATCH) {
-          const batch = queue.slice(i2, i2 + IMPORT_BATCH);
-          ctx.reportProgress({ phase: "indexing", detail: batch[0].libraryName, scanned: i2, total: queue.length });
-          const imported = await Promise.all(
-            batch.map(async ({ key, libraryName }) => {
-              try {
-                return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
-              } catch {
-                return null;
-              }
-            })
-          );
-          for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
-          await yieldToHost();
-          if (ctx.isCancelled()) return;
-        }
-        if (queue.length) ctx.reportProgress({ phase: "indexing", detail: queue[queue.length - 1].libraryName, scanned: queue.length, total: queue.length });
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        ctx.warnings.push(/permission|manifest/i.test(message) ? "libraries-no-permission" : "libraries-unavailable");
-      }
-    }
-    for (const [id, col] of collectionCache) if (col) ctx.collectionsById.set(id, col);
-    for (const t of ctx.colors) if (!ctx.colorById.has(t.id) || t.isDefaultMode) ctx.colorById.set(t.id, t);
-    buildFloatScales(ctx);
-  }
-  function rebuildScales(ctx) {
-    buildFloatScales(ctx);
   }
 
   // src/plugin/scan/engine.ts
@@ -4547,7 +4874,19 @@ module.exports = {
     figma.commitUndo();
     applying = true;
     let done = 0;
-    for (const { issueId, alternativeId } of entries) {
+    const infos = await Promise.all(
+      entries.map(async (e) => {
+        const plan = planFor(e.issueId, e.alternativeId);
+        if ((plan == null ? void 0 : plan.kind) !== "reattach-instance") return { reattach: false, depth: 0 };
+        const node = await figma.getNodeByIdAsync(plan.nodeId);
+        return { reattach: true, depth: node ? nodeDepth(node) : 0 };
+      })
+    );
+    const ordered = sortForApply(
+      entries.map((e, i) => ({ e, info: infos[i] })),
+      (x) => x.info
+    ).map((x) => x.e);
+    for (const { issueId, alternativeId } of ordered) {
       const issue = issues.get(issueId);
       const plan = planFor(issueId, alternativeId);
       if (!issue || !plan) {

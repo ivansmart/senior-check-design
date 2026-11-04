@@ -12,6 +12,7 @@
 import type { PreviewFrame, PreviewRoot, PreviewSkipped } from '../shared/types';
 import { applyPlan } from './fix/apply';
 import type { FixPlan } from './fix/plans';
+import { nodeDepth, sortForApply } from './reattach-live';
 
 export interface PreviewItem {
   issueId: string;
@@ -181,7 +182,8 @@ async function renderRoot(root: SceneNode, located: Located[]): Promise<RenderRe
   let applied = 0;
   let failed = 0;
   try {
-    const paths = inside.map(({ item, node }) => ({ item, path: indexPath(root, node) }));
+    // Même ordre que l'application réelle : valeurs d'abord, puis rattachements du plus profond au moins profond.
+    const paths = sortForApply(inside, ({ item, node }) => ({ reattach: item.plan.kind === 'reattach-instance', depth: nodeDepth(node) })).map(({ item, node }) => ({ item, path: indexPath(root, node) }));
     clone = root.clone();
     clone.setPluginData(PREVIEW_TAG, '1');
     clone.name = root.name;

@@ -7,6 +7,7 @@ import { buildTokenModel } from './export/tokens-model';
 import { applyPlan, FixError, type UndoEntry } from './fix/apply';
 import type { FixPlan } from './fix/plans';
 import { MAX_PREVIEW_NODES, renderPreview, sweepPreviewClones, type PreviewItem } from './preview';
+import { nodeDepth, sortForApply } from './reattach-live';
 import { ALL_RULES } from './rules';
 import { revealNodes } from './reveal';
 import { runScan, type IssuePlans } from './scan/engine';
@@ -179,7 +180,20 @@ async function applyMany(entries: { issueId: string; alternativeId?: string }[],
   figma.commitUndo();
   applying = true;
   let done = 0;
-  for (const { issueId, alternativeId } of entries) {
+  // Ordre du lot : corrections de valeurs d'abord, puis rattachements du plus profond au moins profond.
+  const infos = await Promise.all(
+    entries.map(async (e) => {
+      const plan = planFor(e.issueId, e.alternativeId);
+      if (plan?.kind !== 'reattach-instance') return { reattach: false, depth: 0 };
+      const node = await figma.getNodeByIdAsync(plan.nodeId);
+      return { reattach: true, depth: node ? nodeDepth(node) : 0 };
+    }),
+  );
+  const ordered = sortForApply(
+    entries.map((e, i) => ({ e, info: infos[i] })),
+    (x) => x.info,
+  ).map((x) => x.e);
+  for (const { issueId, alternativeId } of ordered) {
     const issue = issues.get(issueId);
     const plan = planFor(issueId, alternativeId);
     if (!issue || !plan) {

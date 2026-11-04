@@ -1,67 +1,13 @@
 /// <reference types="@figma/plugin-typings" />
 /** Composants (Pro) : rattachement des instances détachées, obsolètes encore utilisés, variantes orphelines, imbrications inutiles, documentation et statut. */
 import { DEPRECATED_RE, STATUS_RE } from '../../shared/names';
-import { forcedCost, matchTrees, summarizeOverrides, type MatchResult, type TreeNode } from '../../shared/reattach';
-import type { FixPlan } from '../fix/plans';
+import { forcedCost, matchTrees, summarizeOverrides, type MatchResult } from '../../shared/reattach';
+import { MAX_FORCED_EXTRAS, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
 import type { RawIssue, ScanContext } from '../scan/context';
 import { ancestors } from '../scan/node-info';
 import type { Rule } from './types';
 
-/** Bornes de l'arbre comparé pour le rattachement (profondeur et nombre de calques). */
-const TREE_MAX_DEPTH = 6;
-const TREE_MAX_NODES = 400;
 const MAX_VARIANT_CANDIDATES = 12;
-/** Au-delà, le détaché n'a plus grand-chose du composant : on reste manuel. */
-const MAX_FORCED_EXTRAS = 12;
-
-const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v));
-
-/** Arbre sérialisable d'un calque, borné, pour la comparaison détaché / variante. */
-async function toTree(node: SceneNode, depth: number, budget: { left: number }): Promise<TreeNode> {
-  budget.left--;
-  const t: TreeNode = { type: node.type, name: node.name, visible: node.visible, opacity: 'opacity' in node ? (node as BlendMixin).opacity : 1, children: [] };
-  if (node.type === 'TEXT') {
-    t.text = node.characters;
-    t.fontName = node.fontName === figma.mixed ? 'mixed' : node.fontName;
-    t.fontSize = node.fontSize === figma.mixed ? 'mixed' : node.fontSize;
-    t.textStyleId = node.textStyleId === figma.mixed ? 'mixed' : node.textStyleId;
-  }
-  if ('fills' in node) {
-    const fills = (node as GeometryMixin).fills;
-    if (fills === figma.mixed) t.fillsKey = 'mixed';
-    else {
-      t.fills = cloneJson(fills as readonly Paint[]) as unknown[];
-      t.fillsKey = JSON.stringify(t.fills);
-    }
-  }
-  if ('strokes' in node) {
-    const strokes = (node as GeometryMixin).strokes;
-    t.strokes = cloneJson(strokes as readonly Paint[]) as unknown[];
-    t.strokesKey = JSON.stringify(t.strokes);
-  }
-  if (node.type === 'INSTANCE') {
-    try {
-      const main = await node.getMainComponentAsync();
-      t.mainId = main?.id ?? null;
-      t.mainRemote = main?.remote ?? false;
-      if (main?.remote) t.mainKey = main.key;
-    } catch {
-      t.mainId = null;
-    }
-  }
-  if ('children' in node && depth < TREE_MAX_DEPTH) {
-    for (const child of (node as SceneNode & ChildrenMixin).children) {
-      if (budget.left <= 0) break;
-      t.children.push(await toTree(child, depth + 1, budget));
-    }
-  }
-  return t;
-}
-
-function variantLabel(comp: ComponentNode): string {
-  const set = comp.parent?.type === 'COMPONENT_SET' ? comp.parent : null;
-  return set ? `${set.name} / ${comp.name}` : comp.name;
-}
 
 async function originComponent(info: DetachedInfo): Promise<ComponentNode | null> {
   try {
@@ -79,39 +25,23 @@ function manualReattach(frame: FrameNode, reason: string, detail = ''): RawIssue
   return { ruleId: 'components/reattach-instance', node: frame, currentValue: frame.name, fixSafety: 'none', params: { confidence: 'none', reason, detail, origin: frame.detachedInfo?.type ?? 'local' } };
 }
 
-function reattachPlan(frame: FrameNode, comp: ComponentNode, result: MatchResult, forced = false): FixPlan {
-  return {
-    kind: 'reattach-instance',
-    nodeId: frame.id,
-    name: frame.name,
-    componentId: comp.remote ? undefined : comp.id,
-    componentKey: comp.remote ? comp.key : undefined,
-    overrides: result.overrides,
-    extras: forced && result.extras.length ? result.extras : undefined,
-    forced: forced || undefined,
-  };
-}
-
-const reasonDetail = (reasons: string[]) =>
-  reasons
-    .map((r) => r.slice(r.indexOf(':') + 1))
-    .filter((v, i, a) => a.indexOf(v) === i)
-    .slice(0, 3)
-    .join(', ');
-
 async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIssue[] | void> {
   const info = frame.detachedInfo;
   if (!info) return;
   if (ancestors(frame, ctx).some((a) => a.type === 'INSTANCE')) return [manualReattach(frame, 'inside-instance')];
   const origin = await originComponent(info);
-  if (!origin) return [manualReattach(frame, 'component-missing')];
+  if (!origin) {
+    // Origine introuvable : la règle de ressemblance pourra encore proposer un composant local.
+    ctx.reattachMissingOrigin.add(frame.id);
+    return [manualReattach(frame, 'component-missing')];
+  }
   const set = origin.parent?.type === 'COMPONENT_SET' ? origin.parent : null;
   const candidates: ComponentNode[] = [origin, ...(set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT' && c.id !== origin.id) : [])].slice(0, MAX_VARIANT_CANDIDATES);
-  const detachedTree = await toTree(frame, 0, { left: TREE_MAX_NODES });
+  const detachedTree = await toTree(frame, 0, newBudget());
   const matches: { comp: ComponentNode; result: MatchResult }[] = [];
   const all: { comp: ComponentNode; result: MatchResult }[] = [];
   for (const comp of candidates) {
-    const result = matchTrees(detachedTree, await toTree(comp, 0, { left: TREE_MAX_NODES }));
+    const result = matchTrees(detachedTree, await toTree(comp, 0, newBudget()));
     all.push({ comp, result });
     if (result.ok) matches.push({ comp, result });
   }

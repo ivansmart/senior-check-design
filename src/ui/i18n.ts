@@ -186,6 +186,8 @@ const fr: Dictionary = {
     propSize: 'Taille',
     propMixed: 'Styles mélangés',
     propDetached: 'Instance détachée',
+    propLookalike: 'Composant recréé',
+    badgeLookalike: 'Ressemblance',
     propName: 'Nom',
     propOverrides: 'Overrides',
     propDescription: 'Description',
@@ -792,6 +794,19 @@ const fr: Dictionary = {
         'component-missing': 'Recréer le composant ou activer la librairie, puis relancer l’analyse.',
       },
     },
+    'components/lookalike-frame': {
+      title: 'Composant recréé à la main',
+      message: {
+        lookalike: '« {value} » ressemble à « {component} » ({score} % : taille, fond, rayons, mise en page, contenu) sans en être une instance. Rattachable en conservant le rendu : {total} overrides, {extras} calque(s) gardé(s) au-dessus.',
+        'lookalike-ambiguous': '« {value} » ressemble à « {component} » ({score} %) sans en être une instance ; « {alt} » lui ressemble autant : choisis le bon composant dans le menu de la ligne. Rattachable en conservant le rendu : {total} overrides, {extras} calque(s) gardé(s) au-dessus.',
+        none: '« {value} » ressemble à « {component} » ({score} %) mais sa structure en est trop éloignée ({detail}). Remplacement manuel.',
+      },
+      why: 'Un composant recréé à la main n’est pas relié au système : il ne reçoit aucune mise à jour et crée un doublon visuel à maintenir. La ressemblance est estimée sur les propriétés (taille, fond, contour, rayons, mise en page, types d’enfants, couleurs, polices), pas sur les pixels : à confirmer.',
+      suggestion: {
+        default: 'Vérifie dans Comparer qu’il s’agit bien du même composant, puis « Inclure quand même » ici ou le lien du pied de page. La correction ne se fait qu’avec « Appliquer ». Si ce n’est pas le même composant, ignore cette ligne.',
+        none: 'Remplacer à la main par une instance de « {component} », ou ignorer cette ligne si ce n’est pas le même composant.',
+      },
+    },
     'components/deprecated-in-use': {
       title: 'Composant obsolète utilisé',
       message: 'Instance de « {component} », marqué comme obsolète.',
@@ -1105,6 +1120,8 @@ const en: Dictionary = {
     propSize: 'Size',
     propMixed: 'Mixed styles',
     propDetached: 'Detached instance',
+    propLookalike: 'Recreated component',
+    badgeLookalike: 'Lookalike',
     propName: 'Name',
     propOverrides: 'Overrides',
     propDescription: 'Description',
@@ -1703,6 +1720,19 @@ const en: Dictionary = {
         'component-missing': 'Recreate the component or enable the library, then run the check again.',
       },
     },
+    'components/lookalike-frame': {
+      title: 'Hand-made copy of a component',
+      message: {
+        lookalike: '“{value}” looks like “{component}” ({score}%: size, fill, radii, layout, content) without being an instance. Re-attachable while keeping the rendering: {total} overrides, {extras} layer(s) kept above.',
+        'lookalike-ambiguous': '“{value}” looks like “{component}” ({score}%) without being an instance; “{alt}” looks just as close: pick the right component in the row menu. Re-attachable while keeping the rendering: {total} overrides, {extras} layer(s) kept above.',
+        none: '“{value}” looks like “{component}” ({score}%) but its structure is too different ({detail}). Manual replacement.',
+      },
+      why: 'A hand-made copy is not linked to the system: it receives no update and creates a visual duplicate to maintain. The resemblance is estimated from properties (size, fill, stroke, radii, layout, child types, colors, fonts), not pixels: confirm it.',
+      suggestion: {
+        default: 'Check in Compare that it really is the same component, then “Include anyway” here or the footer link. Fixing only happens with “Apply”. If it is not the same component, ignore this row.',
+        none: 'Replace by hand with an instance of “{component}”, or ignore this row if it is not the same component.',
+      },
+    },
     'components/deprecated-in-use': {
       title: 'Deprecated component in use',
       message: 'Instance of “{component}”, marked as deprecated.',
@@ -1882,6 +1912,8 @@ function variantKeys(issue: Issue): (string | undefined)[] {
   if (confidence === 'none' && p.hasTokens === 0) keys.push('noTokens');
   if (confidence === 'none' && p.hasStyles === 0) keys.push('noStyles');
   if (!issue.suggestion && issue.ruleId === 'a11y/text-contrast') keys.push('none');
+  // Ressemblance avec un autre candidat au menu : message dédié.
+  if (confidence === 'lookalike' && typeof p.ambiguous === 'number' && p.ambiguous > 0) keys.push('lookalike-ambiguous');
   keys.push(confidence);
   if (typeof p.state === 'string') keys.push(p.state);
   if (typeof p.reason === 'string') keys.push(p.reason);

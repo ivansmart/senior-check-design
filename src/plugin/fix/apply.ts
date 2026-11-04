@@ -1,5 +1,6 @@
 /// <reference types="@figma/plugin-typings" />
-import type { OverrideOp } from '../../shared/reattach';
+import { matchTrees, type OverrideOp } from '../../shared/reattach';
+import { newBudget, toTree } from '../reattach-live';
 import type { FixPlan } from './plans';
 
 /** Entrée du journal d'annulation : une closure qui restaure l'état exact d'avant. */
@@ -156,8 +157,15 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
       for (let p: BaseNode | null = parent; p && p.type !== 'PAGE' && p.type !== 'DOCUMENT'; p = p.parent) if (p.type === 'INSTANCE') throw new FixError('inside-instance');
       const component = await resolveComponent(plan);
       const host = parent as BaseNode & ChildrenMixin;
+      // Correspondance recalculée sur l'état courant du calque : les corrections appliquées juste
+      // avant (couleurs, styles, enfants déjà rattachés) sont prises en compte au lieu du plan figé
+      // à l'analyse. Un plan non forcé garde ses overrides d'analyse si le calque a changé de structure.
+      const live = matchTrees(await toTree(frame, 0, newBudget()), await toTree(component, 0, newBudget()));
+      const useLive = live.ok || plan.forced === true;
+      const overrides = useLive ? live.overrides : plan.overrides;
+      const extraPaths = useLive ? live.extras : (plan.extras ?? []);
       // Calques à conserver au-dessus de l'instance (mode forcé), résolus avant tout déplacement.
-      const extras = (plan.extras ?? []).map((path) => followPath(frame, path)).filter((n): n is SceneNode => Boolean(n));
+      const extras = extraPaths.map((path) => followPath(frame, path)).filter((n): n is SceneNode => Boolean(n));
       const instance = component.createInstance();
       // Avec des calques conservés, un cadre transparent de la taille du détaché tient lieu d'objet unique.
       const wrapper = extras.length ? figma.createFrame() : null;
@@ -200,7 +208,7 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
         /* valeur de sizing non applicable dans ce contexte */
       }
       // Overrides : d'abord le contenu, puis la visibilité (un calque masqué garde son texte).
-      const ordered = [...plan.overrides].sort((a, b) => (a.op === 'visible' ? 1 : 0) - (b.op === 'visible' ? 1 : 0));
+      const ordered = [...overrides].sort((a, b) => (a.op === 'visible' ? 1 : 0) - (b.op === 'visible' ? 1 : 0));
       for (const op of ordered) {
         const target = followPath(instance, op.path);
         if (!target) continue;

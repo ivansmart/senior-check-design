@@ -3,6 +3,7 @@ import { a11yProRules } from './a11y-pro';
 import { colorRules } from './colors';
 import { componentRules } from './components';
 import { componentProRules } from './components-pro';
+import { lookalikeRules } from './lookalike';
 import { craftRules } from './craft';
 import { craftProRules } from './craft-pro';
 import { handoffRules } from './handoff';
@@ -23,6 +24,7 @@ export const ALL_RULES: Rule[] = [
   ...radiusRules,
   ...componentRules,
   ...componentProRules,
+  ...lookalikeRules,
   ...tokenRules,
   ...craftRules,
   ...craftProRules,
