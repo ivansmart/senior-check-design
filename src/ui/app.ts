@@ -1350,6 +1350,8 @@ function renderSettings(): HTMLElement {
         checkbox(t('optIgnoreHidden'), o.ignoreHidden, (v) => update(() => (o.ignoreHidden = v))),
         checkbox(t('optIgnoreLocked'), o.ignoreLocked, (v) => update(() => (o.ignoreLocked = v))),
         checkbox(t('optInsideInstances'), o.scanInsideInstances, (v) => update(() => (o.scanInsideInstances = v))),
+        s.mode === 'pro' ? checkbox(t('optComponentsAllPages'), o.componentsFromAllPages, (v) => update(() => (o.componentsFromAllPages = v))) : null,
+        s.mode === 'pro' ? el('div', { class: 'hint' }, t('optComponentsAllPagesHint')) : null,
         el('div', { class: 'field' }, el('span', {}, t('optBaseGrid')), segmented(
           [
             { value: '4', label: '4 px' },

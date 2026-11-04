@@ -9,14 +9,14 @@ import { rgbToHex } from '../../shared/color';
 import { bestLookalike, nameOverlap, type LookalikeCandidate, type VisualSig } from '../../shared/lookalike';
 import { matchTrees, summarizeOverrides } from '../../shared/reattach';
 import { MAX_FORCED_EXTRAS, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
+import { addComponent, buildComponentIndex, familyOf, noteInstance } from '../scan/component-index';
 import { yieldToHost, type RawIssue, type ScanContext } from '../scan/context';
 import { ancestors } from '../scan/node-info';
 import type { Rule } from './types';
 
 const RULE_ID = 'components/lookalike-frame';
-/** Bornes : nombre de cadres candidats, de composants, de calques lus par signature, côté maximal, temps total. */
+/** Bornes : nombre de cadres candidats, de calques lus par signature, côté maximal, temps total. */
 const MAX_FRAMES = 1500;
-const MAX_COMPONENTS = 600;
 const MAX_SIG_NODES = 120;
 const SIG_DEPTH = 3;
 const MAX_SIDE = 1200;
@@ -94,10 +94,15 @@ const fits = (n: SceneNode) => n.width <= MAX_SIDE && n.height <= MAX_SIDE && n.
 export const lookalikeRules: Rule[] = [
   {
     id: RULE_ID,
-    types: ['FRAME', 'COMPONENT'],
-    check: (node, ctx) => {
+    types: ['FRAME', 'COMPONENT', 'INSTANCE'],
+    check: async (node, ctx) => {
+      // Candidats : composants locaux rencontrés, et composants de librairie qu'utilisent les instances.
       if (node.type === 'COMPONENT') {
-        if (ctx.lookalikeComponents.length < MAX_COMPONENTS && fits(node)) ctx.lookalikeComponents.push(node);
+        addComponent(ctx, node, 'local');
+        return;
+      }
+      if (node.type === 'INSTANCE') {
+        await noteInstance(ctx, node);
         return;
       }
       const frame = node as FrameNode;
@@ -113,17 +118,16 @@ export const lookalikeRules: Rule[] = [
       // Les détachés dont l'origine est connue passent par le rattachement ; ici, les autres.
       const frames = ctx.lookalikeFrames.filter((f) => !f.removed && (!f.detachedInfo || ctx.reattachMissingOrigin.has(f.id)));
       if (!frames.length) return;
-      // En périmètre sélection, les composants de la page restent des candidats (index natif, borné).
-      const comps =
-        ctx.scope === 'selection'
-          ? (figma.currentPage.findAllWithCriteria({ types: ['COMPONENT'] }) as ComponentNode[]).filter(fits).slice(0, MAX_COMPONENTS)
-          : ctx.lookalikeComponents;
+      // Candidats : page analysée, autres pages (option), librairies via les instances du fichier.
+      const index = await buildComponentIndex(ctx);
+      if (index.partial) ctx.warnings.push(`rule-partial:${RULE_ID}`);
+      const comps = index.components.filter(fits);
       const t0 = Date.now();
       const candidates: LookalikeCandidate<ComponentNode>[] = [];
       for (let i = 0; i < comps.length; i++) {
         const comp = comps[i];
         const sig = signature(comp);
-        if (sig) candidates.push({ sig, family: comp.parent?.type === 'COMPONENT_SET' ? comp.parent.id : comp.id, item: comp });
+        if (sig) candidates.push({ sig, family: familyOf(comp), item: comp });
         if (i % 50 === 49) await yieldToHost();
       }
       if (!candidates.length) return;
@@ -163,7 +167,7 @@ export const lookalikeRules: Rule[] = [
           ruleId: RULE_ID,
           node: frame,
           currentValue: frame.name,
-          suggestion: { kind: 'component', id: comp.id, label, confidence: 'ambiguous', source: 'Local', alternatives: alternatives.length ? alternatives : undefined },
+          suggestion: { kind: 'component', id: comp.id, label, confidence: 'ambiguous', source: comp.remote ? 'Library' : 'Local', alternatives: alternatives.length ? alternatives : undefined },
           fixSafety: 'review',
           params: {
             confidence: 'lookalike',

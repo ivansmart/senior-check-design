@@ -26,6 +26,9 @@ export interface TreeNode {
   /** Clés de comparaison des remplissages et contours (JSON), 'mixed' si illisibles. */
   fillsKey?: string;
   strokesKey?: string;
+  /** Clés visuelles (voir paint-key) : si elles sont égales, aucun override même quand le JSON diffère (token lié ou non). */
+  fillsVisual?: string;
+  strokesVisual?: string;
   /** Valeurs brutes à reporter (sérialisables). */
   fills?: unknown[];
   strokes?: unknown[];
@@ -60,6 +63,10 @@ export interface MatchResult {
 }
 
 const norm = (s: string) => s.trim().toLowerCase();
+
+/** Peintures différentes à l'écran : clés JSON différentes et, quand elles existent, clés visuelles différentes. */
+const paintsDiffer = (dKey?: string, cKey?: string, dVisual?: string, cVisual?: string) =>
+  dKey !== undefined && cKey !== undefined && dKey !== cKey && (dVisual === undefined || cVisual === undefined || dVisual !== cVisual);
 
 const WRAPPERS = new Set(['FRAME', 'GROUP']);
 const paintless = (node: TreeNode) =>
@@ -188,11 +195,11 @@ function matchNode(d: TreeNode, c: TreeNode, path: number[], dPath: number[], ou
       }
     }
   }
-  if (d.fillsKey !== undefined && c.fillsKey !== undefined && d.fillsKey !== c.fillsKey) {
+  if (paintsDiffer(d.fillsKey, c.fillsKey, d.fillsVisual, c.fillsVisual)) {
     if (d.fillsKey === 'mixed' || !d.fills) out.reasons.push(`mixed-paint:${d.name}`);
     else out.overrides.push({ path, op: 'fills', value: d.fills });
   }
-  if (d.strokesKey !== undefined && c.strokesKey !== undefined && d.strokesKey !== c.strokesKey) {
+  if (paintsDiffer(d.strokesKey, c.strokesKey, d.strokesVisual, c.strokesVisual)) {
     if (d.strokesKey === 'mixed' || !d.strokes) out.reasons.push(`mixed-paint:${d.name}`);
     else out.overrides.push({ path, op: 'strokes', value: d.strokes });
   }
@@ -214,11 +221,11 @@ const fontKey = (f: TreeNode['fontName']) => (f && f !== 'mixed' ? `${f.family}|
 export function matchTrees(detached: TreeNode, component: TreeNode): MatchResult {
   const out: MatchResult = { ok: true, overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
   if (Math.abs(detached.opacity - component.opacity) > 0.001) out.overrides.push({ path: [], op: 'opacity', value: detached.opacity });
-  if (detached.fillsKey !== undefined && component.fillsKey !== undefined && detached.fillsKey !== component.fillsKey) {
+  if (paintsDiffer(detached.fillsKey, component.fillsKey, detached.fillsVisual, component.fillsVisual)) {
     if (detached.fillsKey === 'mixed' || !detached.fills) out.reasons.push(`mixed-paint:${detached.name}`);
     else out.overrides.push({ path: [], op: 'fills', value: detached.fills });
   }
-  if (detached.strokesKey !== undefined && component.strokesKey !== undefined && detached.strokesKey !== component.strokesKey) {
+  if (paintsDiffer(detached.strokesKey, component.strokesKey, detached.strokesVisual, component.strokesVisual)) {
     if (detached.strokesKey === 'mixed' || !detached.strokes) out.reasons.push(`mixed-paint:${detached.name}`);
     else out.overrides.push({ path: [], op: 'strokes', value: detached.strokes });
   }

@@ -113,9 +113,12 @@ export interface ScanContext {
   localComponents: { node: ComponentNode | ComponentSetNode; name: string }[];
   /** Au moins un component set a des réactions prototype (sinon on n'exige pas de transitions). */
   anySetHasReactions: boolean;
-  /** Composants recréés à la main (Pro) : cadres candidats et composants locaux rencontrés. */
+  /** Composants recréés à la main (Pro) : cadres candidats. */
   lookalikeFrames: FrameNode[];
-  lookalikeComponents: ComponentNode[];
+  /** Composants candidats (locaux, autres pages, librairie via les instances), par id ; voir scan/component-index. */
+  componentPool: Map<string, { comp: ComponentNode; source: 'local' | 'otherPages' | 'library' }>;
+  instanceLookups: { count: number; ms: number };
+  componentIndex: import('./component-index').ComponentIndex | null;
   /** Détachés dont le composant d'origine est introuvable : candidats à la ressemblance. */
   reattachMissingOrigin: Set<string>;
   // ---- Pro ---------------------------------------------------------------
@@ -317,7 +320,9 @@ export function createContext(
     localComponents: [],
     anySetHasReactions: false,
     lookalikeFrames: [],
-    lookalikeComponents: [],
+    componentPool: new Map(),
+    instanceLookups: { count: 0, ms: 0 },
+    componentIndex: null,
     reattachMissingOrigin: new Set(),
     scope: 'page',
     localVariables: [],

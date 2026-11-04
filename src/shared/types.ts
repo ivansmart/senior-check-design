@@ -117,6 +117,8 @@ export interface ScanOptions {
   minFontSize: number;
   /** Niveau WCAG exigé pour le contraste texte/fond. */
   contrastLevel: ContrastLevel;
+  /** Pro : chercher les composants candidats (rattachement, ressemblance) sur toutes les pages du fichier, pas seulement la page analysée. */
+  componentsFromAllPages: boolean;
 }
 
 export interface Settings {
@@ -156,6 +158,7 @@ export const DEFAULT_OPTIONS: ScanOptions = {
   minTouchTarget: 24,
   minFontSize: 12,
   contrastLevel: 'AA',
+  componentsFromAllPages: true,
 };
 
 export const DEFAULT_SETTINGS: Settings = {

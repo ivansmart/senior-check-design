@@ -3,11 +3,13 @@
 import { DEPRECATED_RE, STATUS_RE } from '../../shared/names';
 import { forcedCost, matchTrees, summarizeOverrides, type MatchResult } from '../../shared/reattach';
 import { MAX_FORCED_EXTRAS, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
+import { addComponent } from '../scan/component-index';
 import type { RawIssue, ScanContext } from '../scan/context';
-import { ancestors } from '../scan/node-info';
+import { ancestors, pageOf } from '../scan/node-info';
 import type { Rule } from './types';
 
-const MAX_VARIANT_CANDIDATES = 12;
+/** Variantes sœurs comparées au détaché (un jeu plus grand est tronqué dans l'ordre du jeu). */
+const MAX_VARIANT_CANDIDATES = 40;
 
 async function originComponent(info: DetachedInfo): Promise<ComponentNode | null> {
   try {
@@ -35,6 +37,8 @@ async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIss
     ctx.reattachMissingOrigin.add(frame.id);
     return [manualReattach(frame, 'component-missing')];
   }
+  // L'origine (et ses variantes sœurs) rejoint l'index des candidats : utile aux autres cadres, y compris pour une librairie.
+  addComponent(ctx, origin, origin.remote ? 'library' : pageOf(origin)?.id === figma.currentPage.id ? 'local' : 'otherPages');
   const set = origin.parent?.type === 'COMPONENT_SET' ? origin.parent : null;
   const candidates: ComponentNode[] = [origin, ...(set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT' && c.id !== origin.id) : [])].slice(0, MAX_VARIANT_CANDIDATES);
   const detachedTree = await toTree(frame, 0, newBudget());

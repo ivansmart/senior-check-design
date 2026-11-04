@@ -304,7 +304,8 @@ module.exports = {
     spacingTolerance: 2,
     minTouchTarget: 24,
     minFontSize: 12,
-    contrastLevel: "AA"
+    contrastLevel: "AA",
+    componentsFromAllPages: true
   };
   var DEFAULT_SETTINGS = {
     locale: "fr",
@@ -430,6 +431,7 @@ module.exports = {
 
   // src/shared/reattach.ts
   var norm = (s) => s.trim().toLowerCase();
+  var paintsDiffer = (dKey, cKey, dVisual, cVisual) => dKey !== void 0 && cKey !== void 0 && dKey !== cKey && (dVisual === void 0 || cVisual === void 0 || dVisual !== cVisual);
   var WRAPPERS = /* @__PURE__ */ new Set(["FRAME", "GROUP"]);
   var paintless = (node) => {
     var _a, _b;
@@ -542,11 +544,11 @@ module.exports = {
         }
       }
     }
-    if (d.fillsKey !== void 0 && c.fillsKey !== void 0 && d.fillsKey !== c.fillsKey) {
+    if (paintsDiffer(d.fillsKey, c.fillsKey, d.fillsVisual, c.fillsVisual)) {
       if (d.fillsKey === "mixed" || !d.fills) out.reasons.push(`mixed-paint:${d.name}`);
       else out.overrides.push({ path, op: "fills", value: d.fills });
     }
-    if (d.strokesKey !== void 0 && c.strokesKey !== void 0 && d.strokesKey !== c.strokesKey) {
+    if (paintsDiffer(d.strokesKey, c.strokesKey, d.strokesVisual, c.strokesVisual)) {
       if (d.strokesKey === "mixed" || !d.strokes) out.reasons.push(`mixed-paint:${d.name}`);
       else out.overrides.push({ path, op: "strokes", value: d.strokes });
     }
@@ -561,11 +563,11 @@ module.exports = {
   function matchTrees(detached, component) {
     const out = { ok: true, overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
     if (Math.abs(detached.opacity - component.opacity) > 1e-3) out.overrides.push({ path: [], op: "opacity", value: detached.opacity });
-    if (detached.fillsKey !== void 0 && component.fillsKey !== void 0 && detached.fillsKey !== component.fillsKey) {
+    if (paintsDiffer(detached.fillsKey, component.fillsKey, detached.fillsVisual, component.fillsVisual)) {
       if (detached.fillsKey === "mixed" || !detached.fills) out.reasons.push(`mixed-paint:${detached.name}`);
       else out.overrides.push({ path: [], op: "fills", value: detached.fills });
     }
-    if (detached.strokesKey !== void 0 && component.strokesKey !== void 0 && detached.strokesKey !== component.strokesKey) {
+    if (paintsDiffer(detached.strokesKey, component.strokesKey, detached.strokesVisual, component.strokesVisual)) {
       if (detached.strokesKey === "mixed" || !detached.strokes) out.reasons.push(`mixed-paint:${detached.name}`);
       else out.overrides.push({ path: [], op: "strokes", value: detached.strokes });
     }
@@ -590,6 +592,30 @@ module.exports = {
     return { texts, visibility, paints, other };
   }
 
+  // src/shared/paint-key.ts
+  var hex = (c) => "#" + [c.r, c.g, c.b].map((v) => Math.round(Math.min(1, Math.max(0, Number(v) || 0)) * 255).toString(16).padStart(2, "0")).join("");
+  var pct = (v) => Math.round((typeof v === "number" ? v : 1) * 100);
+  function visualPaintKey(paints) {
+    var _a, _b, _c, _d;
+    if (!paints) return "";
+    const parts = [];
+    for (const raw of paints) {
+      const p = raw;
+      if (p.visible === false) continue;
+      const op = pct(p.opacity);
+      if (p.type === "SOLID" && p.color) parts.push(`S|${hex(p.color)}|${op}`);
+      else if (typeof p.type === "string" && p.type.startsWith("GRADIENT")) {
+        const stops = ((_a = p.gradientStops) != null ? _a : []).map((s) => {
+          var _a2, _b2;
+          return `${s.color ? hex(s.color) : ""}@${pct((_a2 = s.color) == null ? void 0 : _a2.a)}:${pct((_b2 = s.position) != null ? _b2 : 0)}`;
+        }).join(",");
+        parts.push(`${p.type}|${op}|${stops}`);
+      } else if (p.type === "IMAGE") parts.push(`I|${(_b = p.imageHash) != null ? _b : ""}|${(_c = p.scaleMode) != null ? _c : ""}|${op}`);
+      else parts.push(`${(_d = p.type) != null ? _d : "?"}|${op}`);
+    }
+    return parts.join(";");
+  }
+
   // src/plugin/reattach-live.ts
   var TREE_MAX_DEPTH = 6;
   var TREE_MAX_NODES = 400;
@@ -612,12 +638,14 @@ module.exports = {
       else {
         t.fills = cloneJson(fills);
         t.fillsKey = JSON.stringify(t.fills);
+        t.fillsVisual = visualPaintKey(t.fills);
       }
     }
     if ("strokes" in node) {
       const strokes = node.strokes;
       t.strokes = cloneJson(strokes);
       t.strokesKey = JSON.stringify(t.strokes);
+      t.strokesVisual = visualPaintKey(t.strokes);
     }
     if (node.type === "INSTANCE") {
       try {
@@ -2035,7 +2063,7 @@ module.exports = {
       const { rgb, alpha } = await resolveSolidPaint(paint, node);
       const match = matchColor(rgb, alpha, ctx, usageFor(node, prop));
       const suggestion = toSuggestion(match);
-      const hex = rgbToHex(rgb, alpha);
+      const hex2 = rgbToHex(rgb, alpha);
       const hasTokens = ctx.colors.length > 0 || ctx.paintStyles.length > 0;
       let severity = "warning";
       let fixSafety = "none";
@@ -2060,8 +2088,8 @@ module.exports = {
         node,
         slot: `${prop}[${i}]`,
         severity,
-        currentValue: hex,
-        swatch: hex,
+        currentValue: hex2,
+        swatch: hex2,
         suggestion,
         fixSafety,
         params: {
@@ -2239,8 +2267,338 @@ module.exports = {
     }
   ];
 
+  // src/plugin/scan/context.ts
+  var yieldToHost = () => typeof setTimeout === "function" ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve();
+  var isAlias = (v) => typeof v === "object" && v !== null && v.type === "VARIABLE_ALIAS";
+  async function resolveVariableValue(variable, modeId, depth = 0) {
+    if (depth > 12) return void 0;
+    const modes = Object.keys(variable.valuesByMode);
+    if (!modes.length) return void 0;
+    const mode = modeId && modeId in variable.valuesByMode ? modeId : modes[0];
+    const value = variable.valuesByMode[mode];
+    if (isAlias(value)) {
+      const target = await figma.variables.getVariableByIdAsync(value.id);
+      if (!target) return void 0;
+      const targetCollection = await figma.variables.getVariableCollectionByIdAsync(target.variableCollectionId);
+      const targetMode = modeId && target.valuesByMode[modeId] !== void 0 ? modeId : targetCollection == null ? void 0 : targetCollection.defaultModeId;
+      return resolveVariableValue(target, targetMode, depth + 1);
+    }
+    return value;
+  }
+  var toRgb01 = (v) => ({
+    rgb: { r: v.r, g: v.g, b: v.b },
+    alpha: "a" in v ? v.a : 1
+  });
+  function pushColor(ctx, token) {
+    var _a;
+    ctx.colors.push(token);
+    const key = colorKey(token.rgb, token.alpha);
+    const list = (_a = ctx.colorByKey.get(key)) != null ? _a : [];
+    list.push(token);
+    ctx.colorByKey.set(key, list);
+  }
+  async function indexVariable(ctx, variable, source, collectionCache) {
+    var _a, _b, _c, _d;
+    let collection = collectionCache.get(variable.variableCollectionId);
+    if (collection === void 0) {
+      collection = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
+      collectionCache.set(variable.variableCollectionId, collection);
+    }
+    const collectionName = (_a = collection == null ? void 0 : collection.name) != null ? _a : "";
+    const modes = (_b = collection == null ? void 0 : collection.modes) != null ? _b : Object.keys(variable.valuesByMode).map((modeId) => ({ modeId, name: "" }));
+    const defaultModeId = (_d = collection == null ? void 0 : collection.defaultModeId) != null ? _d : (_c = modes[0]) == null ? void 0 : _c.modeId;
+    if (variable.resolvedType === "COLOR") {
+      const seen = /* @__PURE__ */ new Set();
+      for (const mode of modes) {
+        const value = await resolveVariableValue(variable, mode.modeId);
+        if (!value || typeof value !== "object" || !("r" in value)) continue;
+        const { rgb, alpha } = toRgb01(value);
+        const key = colorKey(rgb, alpha);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pushColor(ctx, {
+          id: variable.id,
+          name: variable.name,
+          collection: collectionName,
+          source,
+          remote: variable.remote,
+          rgb,
+          alpha,
+          scopes: variable.scopes,
+          modeName: modes.length > 1 ? mode.name : void 0,
+          isDefaultMode: mode.modeId === defaultModeId
+        });
+      }
+    } else if (variable.resolvedType === "FLOAT") {
+      const value = await resolveVariableValue(variable, defaultModeId);
+      if (typeof value !== "number" || !Number.isFinite(value)) return;
+      ctx.floats.push({
+        id: variable.id,
+        name: variable.name,
+        collection: collectionName,
+        source,
+        remote: variable.remote,
+        value,
+        scopes: variable.scopes
+      });
+    }
+  }
+  var hasScope = (scopes, ...wanted) => scopes.some((s) => wanted.includes(s));
+  function buildFloatScales(ctx) {
+    const spacingScoped = ctx.floats.filter((f) => hasScope(f.scopes, "GAP", "WIDTH_HEIGHT"));
+    const radiusScoped = ctx.floats.filter((f) => hasScope(f.scopes, "CORNER_RADIUS"));
+    const fontScoped = ctx.floats.filter((f) => hasScope(f.scopes, "FONT_SIZE"));
+    const unscoped = ctx.floats.filter((f) => f.scopes.includes("ALL_SCOPES"));
+    const spacingByName = unscoped.filter((f) => /spac|gap|pad|inset|\bsize\b|dimension|grid/i.test(f.name));
+    const radiusByName = unscoped.filter((f) => /radius|corner|round/i.test(f.name));
+    const fontByName = unscoped.filter((f) => /font.?size|text.?size|type.?scale|\bfs\b/i.test(f.name));
+    const spacing = spacingScoped.length ? [...spacingScoped, ...spacingByName] : spacingByName;
+    const radius = radiusScoped.length ? [...radiusScoped, ...radiusByName] : radiusByName;
+    const font = fontScoped.length ? [...fontScoped, ...fontByName] : fontByName;
+    const dedupe = (list) => {
+      const seen = /* @__PURE__ */ new Set();
+      return list.filter((f) => seen.has(f.id) ? false : (seen.add(f.id), true));
+    };
+    ctx.spacingScale = dedupe(spacing).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
+    ctx.radiusScale = dedupe(radius).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
+    const sizes = /* @__PURE__ */ new Set([...dedupe(font).map((f) => f.value), ...ctx.textStyles.map((s) => s.fontSize)]);
+    ctx.fontSizeScale = [...sizes].filter((v) => v > 0).sort((a, b) => a - b);
+  }
+  async function indexPaintStyle(ctx, style) {
+    var _a, _b;
+    const visible = style.paints.filter((p) => p.visible !== false);
+    if (visible.length !== 1 || visible[0].type !== "SOLID") return;
+    const paint = visible[0];
+    const info = {
+      id: style.id,
+      name: style.name,
+      remote: style.remote,
+      rgb: { r: paint.color.r, g: paint.color.g, b: paint.color.b },
+      alpha: (_a = paint.opacity) != null ? _a : 1
+    };
+    ctx.paintStyles.push(info);
+    const key = colorKey(info.rgb, info.alpha);
+    ctx.paintStyleByKey.set(key, [...(_b = ctx.paintStyleByKey.get(key)) != null ? _b : [], info]);
+  }
+  function indexTextStyle(ctx, style) {
+    if (ctx.textStyles.some((s) => s.id === style.id)) return;
+    ctx.textStyles.push({
+      id: style.id,
+      name: style.name,
+      remote: style.remote,
+      fontName: style.fontName,
+      fontSize: style.fontSize,
+      lineHeight: style.lineHeight,
+      letterSpacing: style.letterSpacing
+    });
+  }
+  function createContext(options, activeRules, reportProgress, isCancelled) {
+    return {
+      options,
+      activeRules,
+      colors: [],
+      colorByKey: /* @__PURE__ */ new Map(),
+      floats: [],
+      spacingScale: [],
+      radiusScale: [],
+      fontSizeScale: [],
+      textStyles: [],
+      paintStyles: [],
+      paintStyleByKey: /* @__PURE__ */ new Map(),
+      libraries: [],
+      warnings: [],
+      pageOf: /* @__PURE__ */ new Map(),
+      ancestorsCache: /* @__PURE__ */ new Map(),
+      backgroundCache: /* @__PURE__ */ new Map(),
+      componentSets: [],
+      localComponents: [],
+      anySetHasReactions: false,
+      lookalikeFrames: [],
+      componentPool: /* @__PURE__ */ new Map(),
+      instanceLookups: { count: 0, ms: 0 },
+      componentIndex: null,
+      reattachMissingOrigin: /* @__PURE__ */ new Set(),
+      scope: "page",
+      localVariables: [],
+      collectionsById: /* @__PURE__ */ new Map(),
+      colorById: /* @__PURE__ */ new Map(),
+      usedVariableIds: /* @__PURE__ */ new Set(),
+      headings: [],
+      textMetrics: [],
+      buttonLabels: [],
+      autoLayoutFrames: [],
+      destructiveNodes: [],
+      confirmPatternSeen: false,
+      docLinkSeen: false,
+      componentsForDocs: [],
+      instanceKindCache: /* @__PURE__ */ new Map(),
+      found: {},
+      reportProgress,
+      isCancelled
+    };
+  }
+  var MAX_LIBRARY_VARIABLES = 800;
+  var IMPORT_BATCH = 40;
+  async function indexTokens(ctx) {
+    const collectionCache = /* @__PURE__ */ new Map();
+    ctx.reportProgress({ phase: "indexing", detail: "local" });
+    const [localVars, paintStyles, textStyles] = await Promise.all([
+      figma.variables.getLocalVariablesAsync(),
+      figma.getLocalPaintStylesAsync(),
+      figma.getLocalTextStylesAsync()
+    ]);
+    ctx.localVariables = localVars;
+    let i = 0;
+    for (const v of localVars) {
+      if (v.resolvedType !== "COLOR" && v.resolvedType !== "FLOAT") continue;
+      await indexVariable(ctx, v, "Local", collectionCache);
+      if (++i % 60 === 0) {
+        await yieldToHost();
+        if (ctx.isCancelled()) return;
+      }
+    }
+    for (const s of paintStyles) await indexPaintStyle(ctx, s);
+    for (const s of textStyles) indexTextStyle(ctx, s);
+    if (ctx.options.includeLibraries) {
+      try {
+        const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+        if (collections.length) ctx.reportProgress({ phase: "indexing", detail: collections[0].libraryName });
+        const listed = await Promise.all(
+          collections.map(async (col) => {
+            try {
+              const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
+              return { col, vars: vars.filter((lv) => lv.resolvedType === "COLOR" || lv.resolvedType === "FLOAT") };
+            } catch {
+              ctx.warnings.push(`library:${col.libraryName}`);
+              return { col, vars: [] };
+            }
+          })
+        );
+        if (ctx.isCancelled()) return;
+        const queue = [];
+        for (const { col, vars } of listed) {
+          if (!vars.length) continue;
+          if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
+          for (const lv of vars) queue.push({ key: lv.key, libraryName: col.libraryName });
+        }
+        if (queue.length > MAX_LIBRARY_VARIABLES) {
+          ctx.warnings.push("library-cap");
+          queue.length = MAX_LIBRARY_VARIABLES;
+        }
+        for (let i2 = 0; i2 < queue.length; i2 += IMPORT_BATCH) {
+          const batch = queue.slice(i2, i2 + IMPORT_BATCH);
+          ctx.reportProgress({ phase: "indexing", detail: batch[0].libraryName, scanned: i2, total: queue.length });
+          const imported = await Promise.all(
+            batch.map(async ({ key, libraryName }) => {
+              try {
+                return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
+              } catch {
+                return null;
+              }
+            })
+          );
+          for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+          await yieldToHost();
+          if (ctx.isCancelled()) return;
+        }
+        if (queue.length) ctx.reportProgress({ phase: "indexing", detail: queue[queue.length - 1].libraryName, scanned: queue.length, total: queue.length });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        ctx.warnings.push(/permission|manifest/i.test(message) ? "libraries-no-permission" : "libraries-unavailable");
+      }
+    }
+    for (const [id, col] of collectionCache) if (col) ctx.collectionsById.set(id, col);
+    for (const t of ctx.colors) if (!ctx.colorById.has(t.id) || t.isDefaultMode) ctx.colorById.set(t.id, t);
+    buildFloatScales(ctx);
+  }
+  function rebuildScales(ctx) {
+    buildFloatScales(ctx);
+  }
+
+  // src/plugin/scan/component-index.ts
+  var MAX_COMPONENTS = 800;
+  var MAX_INSTANCE_LOOKUPS = 1500;
+  var INSTANCE_LOOKUP_BUDGET_MS = 1500;
+  var PAGES_BUDGET_MS = 3e3;
+  var familyOf = (comp) => {
+    var _a;
+    return ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent.id : comp.id;
+  };
+  function addComponent(ctx, comp, source) {
+    var _a;
+    if (ctx.componentPool.size >= MAX_COMPONENTS) return false;
+    const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
+    const members = set ? set.children.filter((c) => c.type === "COMPONENT") : [comp];
+    for (const c of members) {
+      if (ctx.componentPool.has(c.id)) continue;
+      if (ctx.componentPool.size >= MAX_COMPONENTS) return false;
+      ctx.componentPool.set(c.id, { comp: c, source: c.remote ? "library" : source });
+    }
+    return true;
+  }
+  async function noteInstance(ctx, instance) {
+    if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) return false;
+    ctx.instanceLookups.count++;
+    const t0 = Date.now();
+    try {
+      const main = await instance.getMainComponentAsync();
+      if (main && !main.removed) addComponent(ctx, main, main.remote ? "library" : "local");
+    } catch {
+    }
+    ctx.instanceLookups.ms += Date.now() - t0;
+    return true;
+  }
+  async function indexPage(ctx, page, source) {
+    let complete = true;
+    for (const c of page.findAllWithCriteria({ types: ["COMPONENT"] })) {
+      if (!addComponent(ctx, c, source)) {
+        complete = false;
+        break;
+      }
+    }
+    for (const inst of page.findAllWithCriteria({ types: ["INSTANCE"] })) {
+      if (!await noteInstance(ctx, inst)) {
+        complete = false;
+        break;
+      }
+    }
+    return complete;
+  }
+  async function buildComponentIndex(ctx) {
+    if (ctx.componentIndex) return ctx.componentIndex;
+    let partial = false;
+    if (ctx.scope === "selection" && !await indexPage(ctx, figma.currentPage, "local")) partial = true;
+    if (ctx.options.componentsFromAllPages && ctx.scope !== "file") {
+      const t0 = Date.now();
+      for (const page of figma.root.children) {
+        if (page.id === figma.currentPage.id) continue;
+        if (Date.now() - t0 > PAGES_BUDGET_MS || ctx.isCancelled()) {
+          partial = true;
+          break;
+        }
+        try {
+          await page.loadAsync();
+        } catch {
+          continue;
+        }
+        if (!await indexPage(ctx, page, "otherPages")) partial = true;
+        await yieldToHost();
+      }
+    }
+    if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) partial = true;
+    const sources = { local: 0, otherPages: 0, library: 0 };
+    const components = [];
+    for (const { comp, source } of ctx.componentPool.values()) {
+      if (comp.removed) continue;
+      components.push(comp);
+      sources[source]++;
+    }
+    ctx.componentIndex = { components, partial, sources };
+    return ctx.componentIndex;
+  }
+
   // src/plugin/rules/components-pro.ts
-  var MAX_VARIANT_CANDIDATES = 12;
+  var MAX_VARIANT_CANDIDATES = 40;
   async function originComponent(info) {
     try {
       if (info.type === "local") {
@@ -2257,7 +2615,7 @@ module.exports = {
     return { ruleId: "components/reattach-instance", node: frame, currentValue: frame.name, fixSafety: "none", params: { confidence: "none", reason, detail, origin: (_b = (_a = frame.detachedInfo) == null ? void 0 : _a.type) != null ? _b : "local" } };
   }
   async function checkReattach(frame, ctx) {
-    var _a, _b;
+    var _a, _b, _c;
     const info = frame.detachedInfo;
     if (!info) return;
     if (ancestors(frame, ctx).some((a) => a.type === "INSTANCE")) return [manualReattach(frame, "inside-instance")];
@@ -2266,7 +2624,8 @@ module.exports = {
       ctx.reattachMissingOrigin.add(frame.id);
       return [manualReattach(frame, "component-missing")];
     }
-    const set = ((_a = origin.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? origin.parent : null;
+    addComponent(ctx, origin, origin.remote ? "library" : ((_a = pageOf2(origin)) == null ? void 0 : _a.id) === figma.currentPage.id ? "local" : "otherPages");
+    const set = ((_b = origin.parent) == null ? void 0 : _b.type) === "COMPONENT_SET" ? origin.parent : null;
     const candidates = [origin, ...set ? set.children.filter((c) => c.type === "COMPONENT" && c.id !== origin.id) : []].slice(0, MAX_VARIANT_CANDIDATES);
     const detachedTree = await toTree(frame, 0, newBudget());
     const matches = [];
@@ -2279,7 +2638,7 @@ module.exports = {
     if (!matches.length) {
       all.sort((a, b) => forcedCost(a.result) - forcedCost(b.result) || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
       const best2 = all[0];
-      if (!best2 || best2.result.extras.length > MAX_FORCED_EXTRAS) return [manualReattach(frame, "structure", reasonDetail((_b = best2 == null ? void 0 : best2.result.reasons) != null ? _b : []))];
+      if (!best2 || best2.result.extras.length > MAX_FORCED_EXTRAS) return [manualReattach(frame, "structure", reasonDetail((_c = best2 == null ? void 0 : best2.result.reasons) != null ? _c : []))];
       const sum2 = summarizeOverrides(best2.result);
       const label2 = variantLabel(best2.comp);
       return [
@@ -2532,256 +2891,9 @@ module.exports = {
     return { item: best.c.item, score: best.s, alternatives };
   }
 
-  // src/plugin/scan/context.ts
-  var yieldToHost = () => typeof setTimeout === "function" ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve();
-  var isAlias = (v) => typeof v === "object" && v !== null && v.type === "VARIABLE_ALIAS";
-  async function resolveVariableValue(variable, modeId, depth = 0) {
-    if (depth > 12) return void 0;
-    const modes = Object.keys(variable.valuesByMode);
-    if (!modes.length) return void 0;
-    const mode = modeId && modeId in variable.valuesByMode ? modeId : modes[0];
-    const value = variable.valuesByMode[mode];
-    if (isAlias(value)) {
-      const target = await figma.variables.getVariableByIdAsync(value.id);
-      if (!target) return void 0;
-      const targetCollection = await figma.variables.getVariableCollectionByIdAsync(target.variableCollectionId);
-      const targetMode = modeId && target.valuesByMode[modeId] !== void 0 ? modeId : targetCollection == null ? void 0 : targetCollection.defaultModeId;
-      return resolveVariableValue(target, targetMode, depth + 1);
-    }
-    return value;
-  }
-  var toRgb01 = (v) => ({
-    rgb: { r: v.r, g: v.g, b: v.b },
-    alpha: "a" in v ? v.a : 1
-  });
-  function pushColor(ctx, token) {
-    var _a;
-    ctx.colors.push(token);
-    const key = colorKey(token.rgb, token.alpha);
-    const list = (_a = ctx.colorByKey.get(key)) != null ? _a : [];
-    list.push(token);
-    ctx.colorByKey.set(key, list);
-  }
-  async function indexVariable(ctx, variable, source, collectionCache) {
-    var _a, _b, _c, _d;
-    let collection = collectionCache.get(variable.variableCollectionId);
-    if (collection === void 0) {
-      collection = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
-      collectionCache.set(variable.variableCollectionId, collection);
-    }
-    const collectionName = (_a = collection == null ? void 0 : collection.name) != null ? _a : "";
-    const modes = (_b = collection == null ? void 0 : collection.modes) != null ? _b : Object.keys(variable.valuesByMode).map((modeId) => ({ modeId, name: "" }));
-    const defaultModeId = (_d = collection == null ? void 0 : collection.defaultModeId) != null ? _d : (_c = modes[0]) == null ? void 0 : _c.modeId;
-    if (variable.resolvedType === "COLOR") {
-      const seen = /* @__PURE__ */ new Set();
-      for (const mode of modes) {
-        const value = await resolveVariableValue(variable, mode.modeId);
-        if (!value || typeof value !== "object" || !("r" in value)) continue;
-        const { rgb, alpha } = toRgb01(value);
-        const key = colorKey(rgb, alpha);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        pushColor(ctx, {
-          id: variable.id,
-          name: variable.name,
-          collection: collectionName,
-          source,
-          remote: variable.remote,
-          rgb,
-          alpha,
-          scopes: variable.scopes,
-          modeName: modes.length > 1 ? mode.name : void 0,
-          isDefaultMode: mode.modeId === defaultModeId
-        });
-      }
-    } else if (variable.resolvedType === "FLOAT") {
-      const value = await resolveVariableValue(variable, defaultModeId);
-      if (typeof value !== "number" || !Number.isFinite(value)) return;
-      ctx.floats.push({
-        id: variable.id,
-        name: variable.name,
-        collection: collectionName,
-        source,
-        remote: variable.remote,
-        value,
-        scopes: variable.scopes
-      });
-    }
-  }
-  var hasScope = (scopes, ...wanted) => scopes.some((s) => wanted.includes(s));
-  function buildFloatScales(ctx) {
-    const spacingScoped = ctx.floats.filter((f) => hasScope(f.scopes, "GAP", "WIDTH_HEIGHT"));
-    const radiusScoped = ctx.floats.filter((f) => hasScope(f.scopes, "CORNER_RADIUS"));
-    const fontScoped = ctx.floats.filter((f) => hasScope(f.scopes, "FONT_SIZE"));
-    const unscoped = ctx.floats.filter((f) => f.scopes.includes("ALL_SCOPES"));
-    const spacingByName = unscoped.filter((f) => /spac|gap|pad|inset|\bsize\b|dimension|grid/i.test(f.name));
-    const radiusByName = unscoped.filter((f) => /radius|corner|round/i.test(f.name));
-    const fontByName = unscoped.filter((f) => /font.?size|text.?size|type.?scale|\bfs\b/i.test(f.name));
-    const spacing = spacingScoped.length ? [...spacingScoped, ...spacingByName] : spacingByName;
-    const radius = radiusScoped.length ? [...radiusScoped, ...radiusByName] : radiusByName;
-    const font = fontScoped.length ? [...fontScoped, ...fontByName] : fontByName;
-    const dedupe = (list) => {
-      const seen = /* @__PURE__ */ new Set();
-      return list.filter((f) => seen.has(f.id) ? false : (seen.add(f.id), true));
-    };
-    ctx.spacingScale = dedupe(spacing).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
-    ctx.radiusScale = dedupe(radius).filter((f) => f.value >= 0 && f.value <= 512).map((f) => ({ value: f.value, ref: f }));
-    const sizes = /* @__PURE__ */ new Set([...dedupe(font).map((f) => f.value), ...ctx.textStyles.map((s) => s.fontSize)]);
-    ctx.fontSizeScale = [...sizes].filter((v) => v > 0).sort((a, b) => a - b);
-  }
-  async function indexPaintStyle(ctx, style) {
-    var _a, _b;
-    const visible = style.paints.filter((p) => p.visible !== false);
-    if (visible.length !== 1 || visible[0].type !== "SOLID") return;
-    const paint = visible[0];
-    const info = {
-      id: style.id,
-      name: style.name,
-      remote: style.remote,
-      rgb: { r: paint.color.r, g: paint.color.g, b: paint.color.b },
-      alpha: (_a = paint.opacity) != null ? _a : 1
-    };
-    ctx.paintStyles.push(info);
-    const key = colorKey(info.rgb, info.alpha);
-    ctx.paintStyleByKey.set(key, [...(_b = ctx.paintStyleByKey.get(key)) != null ? _b : [], info]);
-  }
-  function indexTextStyle(ctx, style) {
-    if (ctx.textStyles.some((s) => s.id === style.id)) return;
-    ctx.textStyles.push({
-      id: style.id,
-      name: style.name,
-      remote: style.remote,
-      fontName: style.fontName,
-      fontSize: style.fontSize,
-      lineHeight: style.lineHeight,
-      letterSpacing: style.letterSpacing
-    });
-  }
-  function createContext(options, activeRules, reportProgress, isCancelled) {
-    return {
-      options,
-      activeRules,
-      colors: [],
-      colorByKey: /* @__PURE__ */ new Map(),
-      floats: [],
-      spacingScale: [],
-      radiusScale: [],
-      fontSizeScale: [],
-      textStyles: [],
-      paintStyles: [],
-      paintStyleByKey: /* @__PURE__ */ new Map(),
-      libraries: [],
-      warnings: [],
-      pageOf: /* @__PURE__ */ new Map(),
-      ancestorsCache: /* @__PURE__ */ new Map(),
-      backgroundCache: /* @__PURE__ */ new Map(),
-      componentSets: [],
-      localComponents: [],
-      anySetHasReactions: false,
-      lookalikeFrames: [],
-      lookalikeComponents: [],
-      reattachMissingOrigin: /* @__PURE__ */ new Set(),
-      scope: "page",
-      localVariables: [],
-      collectionsById: /* @__PURE__ */ new Map(),
-      colorById: /* @__PURE__ */ new Map(),
-      usedVariableIds: /* @__PURE__ */ new Set(),
-      headings: [],
-      textMetrics: [],
-      buttonLabels: [],
-      autoLayoutFrames: [],
-      destructiveNodes: [],
-      confirmPatternSeen: false,
-      docLinkSeen: false,
-      componentsForDocs: [],
-      instanceKindCache: /* @__PURE__ */ new Map(),
-      found: {},
-      reportProgress,
-      isCancelled
-    };
-  }
-  var MAX_LIBRARY_VARIABLES = 800;
-  var IMPORT_BATCH = 40;
-  async function indexTokens(ctx) {
-    const collectionCache = /* @__PURE__ */ new Map();
-    ctx.reportProgress({ phase: "indexing", detail: "local" });
-    const [localVars, paintStyles, textStyles] = await Promise.all([
-      figma.variables.getLocalVariablesAsync(),
-      figma.getLocalPaintStylesAsync(),
-      figma.getLocalTextStylesAsync()
-    ]);
-    ctx.localVariables = localVars;
-    let i = 0;
-    for (const v of localVars) {
-      if (v.resolvedType !== "COLOR" && v.resolvedType !== "FLOAT") continue;
-      await indexVariable(ctx, v, "Local", collectionCache);
-      if (++i % 60 === 0) {
-        await yieldToHost();
-        if (ctx.isCancelled()) return;
-      }
-    }
-    for (const s of paintStyles) await indexPaintStyle(ctx, s);
-    for (const s of textStyles) indexTextStyle(ctx, s);
-    if (ctx.options.includeLibraries) {
-      try {
-        const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
-        if (collections.length) ctx.reportProgress({ phase: "indexing", detail: collections[0].libraryName });
-        const listed = await Promise.all(
-          collections.map(async (col) => {
-            try {
-              const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(col.key);
-              return { col, vars: vars.filter((lv) => lv.resolvedType === "COLOR" || lv.resolvedType === "FLOAT") };
-            } catch {
-              ctx.warnings.push(`library:${col.libraryName}`);
-              return { col, vars: [] };
-            }
-          })
-        );
-        if (ctx.isCancelled()) return;
-        const queue = [];
-        for (const { col, vars } of listed) {
-          if (!vars.length) continue;
-          if (!ctx.libraries.includes(col.libraryName)) ctx.libraries.push(col.libraryName);
-          for (const lv of vars) queue.push({ key: lv.key, libraryName: col.libraryName });
-        }
-        if (queue.length > MAX_LIBRARY_VARIABLES) {
-          ctx.warnings.push("library-cap");
-          queue.length = MAX_LIBRARY_VARIABLES;
-        }
-        for (let i2 = 0; i2 < queue.length; i2 += IMPORT_BATCH) {
-          const batch = queue.slice(i2, i2 + IMPORT_BATCH);
-          ctx.reportProgress({ phase: "indexing", detail: batch[0].libraryName, scanned: i2, total: queue.length });
-          const imported = await Promise.all(
-            batch.map(async ({ key, libraryName }) => {
-              try {
-                return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
-              } catch {
-                return null;
-              }
-            })
-          );
-          for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
-          await yieldToHost();
-          if (ctx.isCancelled()) return;
-        }
-        if (queue.length) ctx.reportProgress({ phase: "indexing", detail: queue[queue.length - 1].libraryName, scanned: queue.length, total: queue.length });
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        ctx.warnings.push(/permission|manifest/i.test(message) ? "libraries-no-permission" : "libraries-unavailable");
-      }
-    }
-    for (const [id, col] of collectionCache) if (col) ctx.collectionsById.set(id, col);
-    for (const t of ctx.colors) if (!ctx.colorById.has(t.id) || t.isDefaultMode) ctx.colorById.set(t.id, t);
-    buildFloatScales(ctx);
-  }
-  function rebuildScales(ctx) {
-    buildFloatScales(ctx);
-  }
-
   // src/plugin/rules/lookalike.ts
   var RULE_ID = "components/lookalike-frame";
   var MAX_FRAMES = 1500;
-  var MAX_COMPONENTS = 600;
   var MAX_SIG_NODES = 120;
   var SIG_DEPTH = 3;
   var MAX_SIDE = 1200;
@@ -2860,10 +2972,14 @@ module.exports = {
   var lookalikeRules = [
     {
       id: RULE_ID,
-      types: ["FRAME", "COMPONENT"],
-      check: (node, ctx) => {
+      types: ["FRAME", "COMPONENT", "INSTANCE"],
+      check: async (node, ctx) => {
         if (node.type === "COMPONENT") {
-          if (ctx.lookalikeComponents.length < MAX_COMPONENTS && fits(node)) ctx.lookalikeComponents.push(node);
+          addComponent(ctx, node, "local");
+          return;
+        }
+        if (node.type === "INSTANCE") {
+          await noteInstance(ctx, node);
           return;
         }
         const frame = node;
@@ -2876,16 +2992,18 @@ module.exports = {
         ctx.lookalikeFrames.push(frame);
       },
       finalize: async (ctx) => {
-        var _a, _b, _c;
+        var _a, _b;
         const frames = ctx.lookalikeFrames.filter((f) => !f.removed && (!f.detachedInfo || ctx.reattachMissingOrigin.has(f.id)));
         if (!frames.length) return;
-        const comps = ctx.scope === "selection" ? figma.currentPage.findAllWithCriteria({ types: ["COMPONENT"] }).filter(fits).slice(0, MAX_COMPONENTS) : ctx.lookalikeComponents;
+        const index = await buildComponentIndex(ctx);
+        if (index.partial) ctx.warnings.push(`rule-partial:${RULE_ID}`);
+        const comps = index.components.filter(fits);
         const t0 = Date.now();
         const candidates = [];
         for (let i = 0; i < comps.length; i++) {
           const comp = comps[i];
           const sig = signature(comp);
-          if (sig) candidates.push({ sig, family: ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent.id : comp.id, item: comp });
+          if (sig) candidates.push({ sig, family: familyOf(comp), item: comp });
           if (i % 50 === 49) await yieldToHost();
         }
         if (!candidates.length) return;
@@ -2924,7 +3042,7 @@ module.exports = {
             ruleId: RULE_ID,
             node: frame,
             currentValue: frame.name,
-            suggestion: { kind: "component", id: comp.id, label, confidence: "ambiguous", source: "Local", alternatives: alternatives.length ? alternatives : void 0 },
+            suggestion: { kind: "component", id: comp.id, label, confidence: "ambiguous", source: comp.remote ? "Library" : "Local", alternatives: alternatives.length ? alternatives : void 0 },
             fixSafety: "review",
             params: {
               confidence: "lookalike",
@@ -2937,7 +3055,7 @@ module.exports = {
               paints: sum.paints,
               detail: reasonDetail(result.reasons),
               ambiguous: alternatives.length,
-              alt: (_c = (_b = alternatives[0]) == null ? void 0 : _b.label) != null ? _c : ""
+              alt: (_b = (_a = alternatives[0]) == null ? void 0 : _a.label) != null ? _b : ""
             },
             plan: reattachPlan(frame, comp, result, true),
             alternativePlans: alternatives.length ? alternativePlans : void 0

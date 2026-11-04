@@ -3,6 +3,7 @@
  * Rattachement d'instances : partie liée à l'API Figma, partagée entre les règles
  * (détection) et l'application des corrections (recalcul sur l'état courant).
  */
+import { visualPaintKey } from '../shared/paint-key';
 import type { MatchResult, TreeNode } from '../shared/reattach';
 import type { FixPlan } from './fix/plans';
 
@@ -32,12 +33,14 @@ export async function toTree(node: SceneNode, depth: number, budget: { left: num
     else {
       t.fills = cloneJson(fills as readonly Paint[]) as unknown[];
       t.fillsKey = JSON.stringify(t.fills);
+      t.fillsVisual = visualPaintKey(t.fills);
     }
   }
   if ('strokes' in node) {
     const strokes = (node as GeometryMixin).strokes;
     t.strokes = cloneJson(strokes as readonly Paint[]) as unknown[];
     t.strokesKey = JSON.stringify(t.strokes);
+    t.strokesVisual = visualPaintKey(t.strokes);
   }
   if (node.type === 'INSTANCE') {
     try {
