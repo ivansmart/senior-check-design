@@ -2659,6 +2659,7 @@ module.exports = {
       componentPool: /* @__PURE__ */ new Map(),
       instanceLookups: { count: 0, ms: 0 },
       instanceLookupKeys: /* @__PURE__ */ new Set(),
+      familiesIndexed: /* @__PURE__ */ new Set(),
       componentIndex: null,
       reattachMissingOrigin: /* @__PURE__ */ new Set(),
       componentTrees: /* @__PURE__ */ new Map(),
@@ -2798,7 +2799,12 @@ module.exports = {
   function addComponent(ctx, comp, source) {
     var _a;
     if (ctx.componentPool.size >= MAX_COMPONENTS) return false;
+    if (ctx.componentPool.has(comp.id)) return true;
     const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
+    if (set) {
+      if (ctx.familiesIndexed.has(set.id)) return true;
+      ctx.familiesIndexed.add(set.id);
+    }
     let members = set ? set.children.filter((c) => c.type === "COMPONENT") : [comp];
     if (members.length > MAX_PER_FAMILY) {
       const step = members.length / MAX_PER_FAMILY;
@@ -3152,6 +3158,10 @@ module.exports = {
     const dy = a.stretch[1] ? 0 : Math.abs(a.h - b.h) / Math.max(1, b.h) * (b.hug[1] ? 0.4 : 1);
     return soft ? Math.min(dx, dy) : Math.max(dx, dy);
   }
+  function rootPlausible(a, b) {
+    if (sizeDiff(a, b, true) > LOOKALIKE_MAX_SIZE_DIFF) return false;
+    return a.fill !== null && a.fill === b.fill || a.stroke !== null && a.stroke === b.stroke;
+  }
   var strokeWeight = (s) => s ? Number(s.split("@")[1]) || 0 : 0;
   function similarity(a, b) {
     const strong = contentStrong(a, b);
@@ -3207,6 +3217,9 @@ module.exports = {
   var MAX_SIDE = 1200;
   var MIN_SIDE = 8;
   var BUDGET_MS = 4e3;
+  var SIG_CACHE_MS = 12e4;
+  var SIG_CACHE_MAX = 6e3;
+  var sigCache = /* @__PURE__ */ new Map();
   var KIND = {
     TEXT: "TEXT",
     INSTANCE: "INSTANCE",
@@ -3250,9 +3263,8 @@ module.exports = {
     }
     return any;
   }
-  function signature(node) {
-    const kids = node.children.filter((c) => c.visible);
-    if (!kids.length) return null;
+  function rootSignature(node) {
+    if (!node.children.some((c) => c.visible)) return null;
     const strokeColor = paintKey(node.strokes);
     const hugPrimary = node.layoutMode !== "NONE" && node.primaryAxisSizingMode === "AUTO";
     const hugCounter = node.layoutMode !== "NONE" && node.counterAxisSizingMode === "AUTO";
@@ -3261,17 +3273,24 @@ module.exports = {
       stretch = [node.layoutSizingHorizontal === "FILL", node.layoutSizingVertical === "FILL"];
     } catch {
     }
-    const sig = {
+    return {
       w: node.width,
       h: node.height,
       hug: node.layoutMode === "VERTICAL" ? [hugCounter, hugPrimary] : [hugPrimary, hugCounter],
       stretch,
+      fill: paintKey(node.fills),
+      stroke: strokeColor ? `${strokeColor}@${node.strokeWeight === figma.mixed ? "mixed" : node.strokeWeight}` : null
+    };
+  }
+  function signature(node, root = rootSignature(node)) {
+    const kids = node.children.filter((c) => c.visible);
+    if (!kids.length || !root) return null;
+    const sig = {
+      ...root,
       radius: node.cornerRadius === figma.mixed ? node.topLeftRadius : node.cornerRadius,
       layout: node.layoutMode,
       pad: node.layoutMode === "NONE" ? [0, 0, 0, 0] : [node.paddingTop, node.paddingRight, node.paddingBottom, node.paddingLeft],
       gap: node.layoutMode === "NONE" ? 0 : node.itemSpacing,
-      fill: paintKey(node.fills),
-      stroke: strokeColor ? `${strokeColor}@${node.strokeWeight === figma.mixed ? "mixed" : node.strokeWeight}` : null,
       effects: node.effects.filter((e) => e.visible).length,
       kinds: kids.map((c) => {
         var _a;
@@ -3338,6 +3357,24 @@ module.exports = {
     return sig;
   }
   var fits = (n) => n.width <= MAX_SIDE && n.height <= MAX_SIDE && n.width >= MIN_SIDE && n.height >= MIN_SIDE;
+  var fingerprint = (n) => `${n.width}|${n.height}|${n.layoutMode}`;
+  function cachedRoot(comp) {
+    const fp = fingerprint(comp);
+    const hit = sigCache.get(comp.id);
+    if (hit && hit.fp === fp && Date.now() - hit.at < SIG_CACHE_MS) return hit;
+    if (sigCache.size >= SIG_CACHE_MAX) {
+      const now = Date.now();
+      for (const [id, entry2] of sigCache) if (now - entry2.at >= SIG_CACHE_MS) sigCache.delete(id);
+      if (sigCache.size >= SIG_CACHE_MAX) sigCache.clear();
+    }
+    const entry = { at: Date.now(), fp, root: rootSignature(comp) };
+    sigCache.set(comp.id, entry);
+    return entry;
+  }
+  function cachedSignature(comp, entry) {
+    if (entry.sig === void 0) entry.sig = entry.root ? signature(comp, entry.root) : null;
+    return entry.sig;
+  }
   var lookalikeRules = [
     {
       id: RULE_ID,
@@ -3368,18 +3405,17 @@ module.exports = {
         if (index.partial) ctx.warnings.push(`rule-partial:${RULE_ID}`);
         const comps = index.components.filter(fits);
         const t0 = Date.now();
-        const candidates = [];
+        const roots = [];
         for (let i = 0; i < comps.length; i++) {
           if (Date.now() - t0 > BUDGET_MS / 2) {
             ctx.warnings.push(`rule-partial:${RULE_ID}`);
             break;
           }
-          const comp = comps[i];
-          const sig = signature(comp);
-          if (sig) candidates.push({ sig, family: familyOf(comp), item: comp });
-          if (i % 50 === 49) await yieldToHost();
+          const entry = cachedRoot(comps[i]);
+          if (entry.root) roots.push({ comp: comps[i], entry });
+          if (i % 200 === 199) await yieldToHost();
         }
-        if (!candidates.length) return;
+        if (!roots.length) return;
         const out = [];
         for (let i = 0; i < frames.length; i++) {
           if (Date.now() - t0 > BUDGET_MS) {
@@ -3390,6 +3426,13 @@ module.exports = {
           const frame = frames[i];
           const sig = signature(frame);
           if (!sig) continue;
+          const candidates = [];
+          for (const { comp: comp2, entry } of roots) {
+            if (!entry.root || !rootPlausible(sig, entry.root)) continue;
+            const csig = cachedSignature(comp2, entry);
+            if (csig) candidates.push({ sig: csig, family: familyOf(comp2), item: comp2 });
+          }
+          if (!candidates.length) continue;
           const found = bestLookalike(sig, candidates, (comp2) => nameOverlap(frame.name, variantLabel(comp2)));
           if (!found) continue;
           const comp = found.item;

@@ -6,7 +6,7 @@
  * le remplacement réutilise le rattachement « rendu conservé » (consentement requis).
  */
 import { rgbToHex } from '../../shared/color';
-import { bestLookalike, nameOverlap, type LookalikeCandidate, type VisualSig } from '../../shared/lookalike';
+import { bestLookalike, nameOverlap, rootPlausible, type LookalikeCandidate, type RootSig, type VisualSig } from '../../shared/lookalike';
 import { matchBest, summarizeOverrides } from '../../shared/reattach';
 import { MAX_FORCED_EXTRAS, componentTree, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
 import { addComponent, buildComponentIndex, familyOf, noteInstance } from '../scan/component-index';
@@ -22,6 +22,17 @@ const SIG_DEPTH = 6;
 const MAX_SIDE = 1200;
 const MIN_SIDE = 8;
 const BUDGET_MS = 4000;
+/** Racines et signatures de composants mémorisées entre deux analyses d'une même ouverture du plugin (empreinte vérifiée). */
+const SIG_CACHE_MS = 120_000;
+const SIG_CACHE_MAX = 6000;
+interface SigEntry {
+  at: number;
+  fp: string;
+  root: RootSig | null;
+  /** Contenu lu à la demande, seulement pour les candidats plausibles. */
+  sig?: VisualSig | null;
+}
+const sigCache = new Map<string, SigEntry>();
 
 const KIND: Partial<Record<NodeType, string>> = {
   TEXT: 'TEXT',
@@ -69,10 +80,9 @@ function allShapes(n: SceneNode & ChildrenMixin, depth = 0, budget = { left: 60 
   return any;
 }
 
-/** Signature visuelle bornée ; null si le calque est vide ou trop gros pour être un composant plausible. */
-function signature(node: FrameNode | ComponentNode): VisualSig | null {
-  const kids = node.children.filter((c) => c.visible);
-  if (!kids.length) return null;
+/** Racine seule (taille, ajustement, fond, contour) : quelques lectures, sans parcourir le contenu. Null si le calque est vide. */
+function rootSignature(node: FrameNode | ComponentNode): RootSig | null {
+  if (!node.children.some((c) => c.visible)) return null;
   const strokeColor = paintKey(node.strokes);
   const hugPrimary = node.layoutMode !== 'NONE' && node.primaryAxisSizingMode === 'AUTO';
   const hugCounter = node.layoutMode !== 'NONE' && node.counterAxisSizingMode === 'AUTO';
@@ -82,17 +92,26 @@ function signature(node: FrameNode | ComponentNode): VisualSig | null {
   } catch {
     /* hors auto-layout parent */
   }
-  const sig: VisualSig = {
+  return {
     w: node.width,
     h: node.height,
     hug: node.layoutMode === 'VERTICAL' ? [hugCounter, hugPrimary] : [hugPrimary, hugCounter],
     stretch,
+    fill: paintKey(node.fills),
+    stroke: strokeColor ? `${strokeColor}@${node.strokeWeight === figma.mixed ? 'mixed' : node.strokeWeight}` : null,
+  };
+}
+
+/** Signature visuelle bornée ; null si le calque est vide ou trop gros pour être un composant plausible. */
+function signature(node: FrameNode | ComponentNode, root = rootSignature(node)): VisualSig | null {
+  const kids = node.children.filter((c) => c.visible);
+  if (!kids.length || !root) return null;
+  const sig: VisualSig = {
+    ...root,
     radius: node.cornerRadius === figma.mixed ? node.topLeftRadius : node.cornerRadius,
     layout: node.layoutMode,
     pad: node.layoutMode === 'NONE' ? [0, 0, 0, 0] : [node.paddingTop, node.paddingRight, node.paddingBottom, node.paddingLeft],
     gap: node.layoutMode === 'NONE' ? 0 : node.itemSpacing,
-    fill: paintKey(node.fills),
-    stroke: strokeColor ? `${strokeColor}@${node.strokeWeight === figma.mixed ? 'mixed' : node.strokeWeight}` : null,
     effects: node.effects.filter((e) => e.visible).length,
     kinds: kids.map((c) => KIND[c.type] ?? 'OTHER').sort(),
     leafKinds: [],
@@ -156,6 +175,30 @@ function signature(node: FrameNode | ComponentNode): VisualSig | null {
 
 const fits = (n: SceneNode) => n.width <= MAX_SIDE && n.height <= MAX_SIDE && n.width >= MIN_SIDE && n.height >= MIN_SIDE;
 
+/** Empreinte bon marché d'un composant (trois lectures) : un redimensionnement ou un changement de mise en page l'invalide. */
+const fingerprint = (n: FrameNode | ComponentNode) => `${n.width}|${n.height}|${n.layoutMode}`;
+
+/** Racine d'un composant candidat, mémorisée quelques minutes : une relance ne relit pas des milliers de composants. */
+function cachedRoot(comp: ComponentNode): SigEntry {
+  const fp = fingerprint(comp);
+  const hit = sigCache.get(comp.id);
+  if (hit && hit.fp === fp && Date.now() - hit.at < SIG_CACHE_MS) return hit;
+  if (sigCache.size >= SIG_CACHE_MAX) {
+    const now = Date.now();
+    for (const [id, entry] of sigCache) if (now - entry.at >= SIG_CACHE_MS) sigCache.delete(id);
+    if (sigCache.size >= SIG_CACHE_MAX) sigCache.clear();
+  }
+  const entry: SigEntry = { at: Date.now(), fp, root: rootSignature(comp) };
+  sigCache.set(comp.id, entry);
+  return entry;
+}
+
+/** Signature complète d'un candidat plausible, lue une fois puis gardée dans son entrée de cache. */
+function cachedSignature(comp: ComponentNode, entry: SigEntry): VisualSig | null {
+  if (entry.sig === undefined) entry.sig = entry.root ? signature(comp, entry.root) : null;
+  return entry.sig;
+}
+
 export const lookalikeRules: Rule[] = [
   {
     id: RULE_ID,
@@ -188,18 +231,18 @@ export const lookalikeRules: Rule[] = [
       if (index.partial) ctx.warnings.push(`rule-partial:${RULE_ID}`);
       const comps = index.components.filter(fits);
       const t0 = Date.now();
-      const candidates: LookalikeCandidate<ComponentNode>[] = [];
+      // 1. Racine seule de chaque candidat (mémorisée) : quelques lectures par composant, même sur un fichier qui en compte des milliers.
+      const roots: { comp: ComponentNode; entry: SigEntry }[] = [];
       for (let i = 0; i < comps.length; i++) {
         if (Date.now() - t0 > BUDGET_MS / 2) {
           ctx.warnings.push(`rule-partial:${RULE_ID}`);
           break;
         }
-        const comp = comps[i];
-        const sig = signature(comp);
-        if (sig) candidates.push({ sig, family: familyOf(comp), item: comp });
-        if (i % 50 === 49) await yieldToHost();
+        const entry = cachedRoot(comps[i]);
+        if (entry.root) roots.push({ comp: comps[i], entry });
+        if (i % 200 === 199) await yieldToHost();
       }
-      if (!candidates.length) return;
+      if (!roots.length) return;
       const out: RawIssue[] = [];
       for (let i = 0; i < frames.length; i++) {
         if (Date.now() - t0 > BUDGET_MS) {
@@ -210,6 +253,14 @@ export const lookalikeRules: Rule[] = [
         const frame = frames[i];
         const sig = signature(frame);
         if (!sig) continue;
+        // 2. Le contenu n'est lu (et mémorisé) que pour les candidats dont la racine est compatible avec ce cadre.
+        const candidates: LookalikeCandidate<ComponentNode>[] = [];
+        for (const { comp, entry } of roots) {
+          if (!entry.root || !rootPlausible(sig, entry.root)) continue;
+          const csig = cachedSignature(comp, entry);
+          if (csig) candidates.push({ sig: csig, family: familyOf(comp), item: comp });
+        }
+        if (!candidates.length) continue;
         // À score égal entre familles, le nom le plus proche du cadre l'emporte ; les autres restent au menu.
         const found = bestLookalike(sig, candidates, (comp) => nameOverlap(frame.name, variantLabel(comp)));
         if (!found) continue;

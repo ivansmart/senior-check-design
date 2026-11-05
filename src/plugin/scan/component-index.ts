@@ -49,7 +49,14 @@ export const familyOf = (comp: ComponentNode): string => (comp.parent?.type === 
  */
 export function addComponent(ctx: ScanContext, comp: ComponentNode, source: ComponentSource): boolean {
   if (ctx.componentPool.size >= MAX_COMPONENTS) return false;
+  if (ctx.componentPool.has(comp.id)) return true;
   const set = comp.parent?.type === 'COMPONENT_SET' ? comp.parent : null;
+  // Un jeu déjà échantillonné ne se relit pas : la liste des enfants d'un jeu de mille variantes coûte mille lectures,
+  // et chaque variante rencontrée sur la page déclencherait la même relecture.
+  if (set) {
+    if (ctx.familiesIndexed.has(set.id)) return true;
+    ctx.familiesIndexed.add(set.id);
+  }
   let members = set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT') : [comp];
   if (members.length > MAX_PER_FAMILY) {
     const step = members.length / MAX_PER_FAMILY;

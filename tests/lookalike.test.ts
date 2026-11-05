@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bestLookalike, LOOKALIKE_MIN, nameOverlap, plausible, similarity, type VisualSig } from '../src/shared/lookalike';
+import { bestLookalike, LOOKALIKE_MIN, nameOverlap, plausible, rootPlausible, similarity, type VisualSig } from '../src/shared/lookalike';
 
 const sig = (over: Partial<VisualSig> = {}): VisualSig => ({
   w: 94,
@@ -144,6 +144,28 @@ test('un bouton qui s’ajuste à son texte tolère un libellé plus long ; sans
   assert.ok(plausible(longer, hugButton));
   assert.ok(similarity(longer, hugButton) >= LOOKALIKE_MIN);
   assert.equal(plausible(longer, sig()), false);
+});
+
+test('le pré-filtre sur la racine ne rejette jamais un candidat plausible, et écarte les surfaces ou tailles étrangères', () => {
+  const base = sig();
+  const variants: VisualSig[] = [
+    base,
+    sig({ w: 96, kinds: ['FRAME'], nodes: 2 }),
+    sig({ w: 130, hug: [true, false] }),
+    sig({ w: 1044, h: 220, stretch: [true, false], layout: 'HORIZONTAL', texts: 8, fonts: ['Onest|SemiBold|20', 'Onest|Bold|32'], leafKinds: ['IMAGE', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT'] }),
+    sig({ w: 656, h: 188, hug: [false, true], layout: 'VERTICAL', texts: 8, fonts: ['Onest|SemiBold|20', 'Onest|Bold|32'], leafKinds: ['ICON', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT'] }),
+    sig({ fill: '#ffffff', stroke: '#ff6633@1' }),
+    sig({ fill: null, stroke: '#ff6633@1' }),
+    sig({ w: 320, h: 200 }),
+    sig({ radius: 0, layout: 'NONE', pad: [0, 0, 0, 0], gap: 0 }),
+  ];
+  for (const a of variants) for (const b of variants) if (plausible(a, b)) assert.ok(rootPlausible(a, b), `plausible implique rootPlausible (${a.w}×${a.h} vs ${b.w}×${b.h})`);
+  // Fond et contour différents : aucune surface commune, écarté avant toute lecture du contenu.
+  assert.equal(rootPlausible(sig({ fill: '#ffffff', stroke: null }), base), false);
+  // Deux axes très différents sans ajustement au contenu : écarté.
+  assert.equal(rootPlausible(sig({ w: 320, h: 200 }), base), false);
+  // Un axe étiré dans le parent ne compte pas : la carte large reste candidate de la variante verticale.
+  assert.ok(rootPlausible(variants[3], variants[4]));
 });
 
 test('le score baisse avec la taille, le rayon et la mise en page', () => {

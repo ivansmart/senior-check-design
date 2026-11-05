@@ -83,15 +83,29 @@ export function contentStrong(a: VisualSig, b: VisualSig): boolean {
   return a.texts >= 2 && b.texts >= 2 && jaccard(a.fonts, b.fonts) >= 0.6 && multiJaccard(a.leafKinds, b.leafKinds) >= 0.6 && textsSim(a, b) >= 0.75;
 }
 
+/** Propriétés de la racine seule : lisibles sans parcourir le contenu d'un composant. */
+export type RootSig = Pick<VisualSig, 'w' | 'h' | 'hug' | 'stretch' | 'fill' | 'stroke'>;
+
 /**
  * Écart de taille relatif au composant `b` : un axe étiré dans le parent (fill) est ignoré,
  * un axe où le composant s'ajuste à son contenu (hug) compte pour 40 %. Avec une empreinte de
  * contenu forte (`soft`), seul le meilleur axe compte : un conteneur de texte se redimensionne librement.
  */
-export function sizeDiff(a: VisualSig, b: VisualSig, soft = false): number {
+export function sizeDiff(a: RootSig, b: RootSig, soft = false): number {
   const dx = a.stretch[0] ? 0 : (Math.abs(a.w - b.w) / Math.max(1, b.w)) * (b.hug[0] ? 0.4 : 1);
   const dy = a.stretch[1] ? 0 : (Math.abs(a.h - b.h) / Math.max(1, b.h)) * (b.hug[1] ? 0.4 : 1);
   return soft ? Math.min(dx, dy) : Math.max(dx, dy);
+}
+
+/**
+ * Pré-filtre sur la racine seule, condition nécessaire de `plausible` : même surface (fond ou contour)
+ * et au moins un axe de taille proche (l'empreinte de contenu, inconnue à ce stade, ne peut qu'assouplir
+ * la taille, jamais la durcir). Sur un fichier de plusieurs milliers de composants, seul le contenu des
+ * candidats qui passent ce filtre est lu.
+ */
+export function rootPlausible(a: RootSig, b: RootSig): boolean {
+  if (sizeDiff(a, b, true) > LOOKALIKE_MAX_SIZE_DIFF) return false;
+  return (a.fill !== null && a.fill === b.fill) || (a.stroke !== null && a.stroke === b.stroke);
 }
 
 const strokeWeight = (s: string | null) => (s ? Number(s.split('@')[1]) || 0 : 0);

@@ -120,6 +120,8 @@ export interface ScanContext {
   instanceLookups: { count: number; ms: number };
   /** Instances déjà interrogées (nom et taille) : mille instances d'un même bouton ne coûtent qu'une recherche. */
   instanceLookupKeys: Set<string>;
+  /** Jeux de variantes déjà échantillonnés dans l'index : un jeu de mille variantes n'est lu qu'une fois. */
+  familiesIndexed: Set<string>;
   componentIndex: import('./component-index').ComponentIndex | null;
   /** Détachés dont le composant d'origine est introuvable : candidats à la ressemblance. */
   reattachMissingOrigin: Set<string>;
@@ -329,6 +331,7 @@ export function createContext(
     componentPool: new Map(),
     instanceLookups: { count: 0, ms: 0 },
     instanceLookupKeys: new Set(),
+    familiesIndexed: new Set(),
     componentIndex: null,
     reattachMissingOrigin: new Set(),
     componentTrees: new Map(),
