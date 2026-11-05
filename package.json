@@ -2,7 +2,7 @@
   "name": "senior-check-design",
   "version": "0.1.0",
   "private": true,
-  "description": "Senior Check Design — audit local, déterministe et gratuit de vos fichiers Figma : tokens, typographie, espacement, composants, accessibilité, craft et handoff.",
+  "description": "Senior Check Design : audit local, déterministe et gratuit de vos fichiers Figma : tokens, typographie, espacement, composants, accessibilité, craft et handoff.",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",

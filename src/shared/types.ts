@@ -216,9 +216,9 @@ export interface ScanResult {
   stats: ScanStats;
 }
 
-/** Progression envoyée pendant le scan. */
+/** Progression envoyée pendant le scan. `components` : lecture des composants candidats sur les autres pages (Pro). */
 export interface ScanProgress {
-  phase: 'indexing' | 'collecting' | 'scanning' | 'finalizing';
+  phase: 'indexing' | 'collecting' | 'scanning' | 'components' | 'finalizing';
   scanned: number;
   total: number;
   /** Compteurs d'issues par catégorie, pour l'effet de remplissage progressif. */
@@ -233,7 +233,11 @@ export interface ScanProgress {
 
 export type UiToPluginMessage =
   | { type: 'ui-ready' }
-  | { type: 'scan'; scope: ScanScope; preset: PresetId; options: ScanOptions; disabledRules: string[]; enabledRules: string[]; mode: PluginMode }
+  /**
+   * `rootIds` (périmètre sélection) : la sélection faite par l'utilisateur, telle que l'interface la connaît. Une sélection posée
+   * par le plugin lui-même (« Voir dans le canvas ») ne doit jamais restreindre l'analyse ; sans `rootIds`, la sélection courante du canvas sert.
+   */
+  | { type: 'scan'; scope: ScanScope; preset: PresetId; options: ScanOptions; disabledRules: string[]; enabledRules: string[]; mode: PluginMode; rootIds?: string[] }
   | { type: 'cancel-scan' }
   | { type: 'select-node'; nodeId: string; pageId: string }
   | { type: 'select-nodes'; nodeIds: string[]; pageId: string }
@@ -304,6 +308,8 @@ export type PluginToUiMessage =
       type: 'init';
       settings: Settings;
       selectionCount: number;
+      /** Identifiants des calques sélectionnés à l'ouverture (50 premiers). */
+      selectionIds: string[];
       fileName: string;
       pageName: string;
       pageCount: number;
@@ -317,9 +323,11 @@ export type PluginToUiMessage =
   | { type: 'scan-done'; result: ScanResult }
   | { type: 'scan-cancelled'; partial: ScanResult | null }
   | { type: 'scan-error'; message: string; partial: ScanResult | null }
-  | { type: 'fix-done'; batchId: string; outcomes: FixOutcome[]; undoable: boolean }
+  /** `removedNodeIds` : calques disparus du fichier (remplacés par une instance lors d'un rattachement) ; leurs lignes n'ont plus d'objet. */
+  | { type: 'fix-done'; batchId: string; outcomes: FixOutcome[]; undoable: boolean; removedNodeIds: string[] }
   | { type: 'fix-progress'; done: number; total: number }
-  | { type: 'undo-done'; batchId: string; issueIds: string[] }
+  /** `needsRescan` : un rattachement annulé a recréé des calques avec de nouveaux identifiants, l'analyse doit être relancée pour les retrouver. */
+  | { type: 'undo-done'; batchId: string; issueIds: string[]; needsRescan: boolean }
   | { type: 'ignored-updated'; ignoredIssueIds: string[] }
   | { type: 'settings-saved'; settings: Settings }
   | { type: 'preview-done'; requestId: number; frames: PreviewFrame[]; skipped: number; roots: PreviewRoot[]; tooBig: PreviewSkipped[]; maxNodes: number }

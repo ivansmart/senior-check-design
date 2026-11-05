@@ -128,6 +128,8 @@
     ]),
     strict: ALL_RULE_IDS
   };
+  var PRESET_IDS = ["quick", "handoff", "design-system", "a11y", "craft", "preflight", "strict"];
+  var PRO_PRESET_IDS = ["preflight"];
   function resolveActiveRules(preset, disabled, enabled, mode = "pro") {
     var _a;
     const set = new Set((_a = PRESETS[preset]) != null ? _a : PRESETS.quick);
@@ -135,6 +137,100 @@
     for (const id of disabled) set.delete(id);
     if (mode === "classic") for (const id of PRO_RULE_IDS) set.delete(id);
     return set;
+  }
+
+  // src/shared/types.ts
+  var DEFAULT_OPTIONS = {
+    ignoreHidden: true,
+    ignoreLocked: true,
+    scanInsideInstances: false,
+    includeLibraries: true,
+    baseGrid: 4,
+    spacingTolerance: 2,
+    minTouchTarget: 24,
+    minFontSize: 12,
+    contrastLevel: "AA",
+    componentsFromAllPages: true
+  };
+  var DEFAULT_SETTINGS = {
+    locale: "fr",
+    mode: "classic",
+    preset: "quick",
+    scope: "auto",
+    options: DEFAULT_OPTIONS,
+    showRowCounts: true,
+    showContrast: true,
+    disabledRules: [],
+    enabledRules: [],
+    autoApply: "exact",
+    compareFollowsSelection: true,
+    theme: "auto",
+    compareTheme: "auto",
+    window: { width: 680, height: 640 }
+  };
+
+  // src/shared/settings.ts
+  var WINDOW_MIN_W = 560;
+  var WINDOW_MIN_H = 400;
+  var WINDOW_MAX_W = 1200;
+  var WINDOW_MAX_H = 1400;
+  var LOCALES = ["fr", "en"];
+  var MODES = ["classic", "pro"];
+  var SCOPES = ["auto", "page", "file"];
+  var AUTO_APPLY = ["exact", "close", "all"];
+  var THEMES = ["auto", "light", "dark"];
+  var CONTRAST = ["AA", "AAA"];
+  var oneOf = (value, allowed, fallback) => typeof value === "string" && allowed.includes(value) ? value : fallback;
+  var bool = (value, fallback) => typeof value === "boolean" ? value : fallback;
+  var num = (value, fallback, min, max) => {
+    const v = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+    return Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : fallback;
+  };
+  var ruleIds = (value) => Array.isArray(value) ? [...new Set(value.filter((x) => typeof x === "string" && Boolean(RULE_BY_ID[x])))] : [];
+  function clampWindow(width, height) {
+    return {
+      width: num(width, DEFAULT_SETTINGS.window.width, WINDOW_MIN_W, WINDOW_MAX_W),
+      height: num(height, DEFAULT_SETTINGS.window.height, WINDOW_MIN_H, WINDOW_MAX_H)
+    };
+  }
+  function sanitizeOptions(stored) {
+    const o = stored && typeof stored === "object" ? stored : {};
+    const d = DEFAULT_SETTINGS.options;
+    return {
+      ignoreHidden: bool(o.ignoreHidden, d.ignoreHidden),
+      ignoreLocked: bool(o.ignoreLocked, d.ignoreLocked),
+      scanInsideInstances: bool(o.scanInsideInstances, d.scanInsideInstances),
+      includeLibraries: bool(o.includeLibraries, d.includeLibraries),
+      baseGrid: num(o.baseGrid, d.baseGrid, 4, 8) === 8 ? 8 : 4,
+      spacingTolerance: num(o.spacingTolerance, d.spacingTolerance, 0, 12),
+      minTouchTarget: num(o.minTouchTarget, d.minTouchTarget, 16, 64),
+      minFontSize: num(o.minFontSize, d.minFontSize, 8, 16),
+      contrastLevel: oneOf(o.contrastLevel, CONTRAST, d.contrastLevel),
+      componentsFromAllPages: bool(o.componentsFromAllPages, d.componentsFromAllPages)
+    };
+  }
+  function sanitizeSettings(stored, fallbackLocale = DEFAULT_SETTINGS.locale) {
+    const s = stored && typeof stored === "object" ? stored : {};
+    const mode = oneOf(s.mode, MODES, DEFAULT_SETTINGS.mode);
+    let preset = oneOf(s.preset, PRESET_IDS, DEFAULT_SETTINGS.preset);
+    if (mode === "classic" && PRO_PRESET_IDS.includes(preset)) preset = "design-system";
+    const win = s.window && typeof s.window === "object" ? s.window : {};
+    return {
+      locale: oneOf(s.locale, LOCALES, fallbackLocale),
+      mode,
+      preset,
+      scope: oneOf(s.scope, SCOPES, DEFAULT_SETTINGS.scope),
+      options: sanitizeOptions(s.options),
+      showRowCounts: bool(s.showRowCounts, DEFAULT_SETTINGS.showRowCounts),
+      showContrast: bool(s.showContrast, DEFAULT_SETTINGS.showContrast),
+      disabledRules: ruleIds(s.disabledRules),
+      enabledRules: ruleIds(s.enabledRules),
+      autoApply: oneOf(s.autoApply, AUTO_APPLY, DEFAULT_SETTINGS.autoApply),
+      compareFollowsSelection: bool(s.compareFollowsSelection, DEFAULT_SETTINGS.compareFollowsSelection),
+      theme: oneOf(s.theme, THEMES, DEFAULT_SETTINGS.theme),
+      compareTheme: oneOf(s.compareTheme, THEMES, DEFAULT_SETTINGS.compareTheme),
+      window: clampWindow(win.width, win.height)
+    };
   }
 
   // src/shared/tokens-export.ts
@@ -293,36 +389,6 @@ module.exports = {
   function countVariables(model) {
     return model.collections.reduce((n, c) => n + c.variables.length, 0);
   }
-
-  // src/shared/types.ts
-  var DEFAULT_OPTIONS = {
-    ignoreHidden: true,
-    ignoreLocked: true,
-    scanInsideInstances: false,
-    includeLibraries: true,
-    baseGrid: 4,
-    spacingTolerance: 2,
-    minTouchTarget: 24,
-    minFontSize: 12,
-    contrastLevel: "AA",
-    componentsFromAllPages: true
-  };
-  var DEFAULT_SETTINGS = {
-    locale: "fr",
-    mode: "classic",
-    preset: "quick",
-    scope: "auto",
-    options: DEFAULT_OPTIONS,
-    showRowCounts: true,
-    showContrast: true,
-    disabledRules: [],
-    enabledRules: [],
-    autoApply: "exact",
-    compareFollowsSelection: true,
-    theme: "auto",
-    compareTheme: "auto",
-    window: { width: 680, height: 640 }
-  };
 
   // src/shared/color.ts
   var clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -809,6 +875,25 @@ module.exports = {
     }
     return t;
   }
+  async function componentTree(ctx, comp) {
+    const cached = ctx.componentTrees.get(comp.id);
+    if (cached) return cached;
+    const tree = await toTree(comp, 0, newBudget());
+    ctx.componentTrees.set(comp.id, tree);
+    return tree;
+  }
+  async function importComponentCached(ctx, key) {
+    var _a;
+    if (ctx.importedComponents.has(key)) return (_a = ctx.importedComponents.get(key)) != null ? _a : null;
+    let comp = null;
+    try {
+      comp = await figma.importComponentByKeyAsync(key);
+    } catch {
+      comp = null;
+    }
+    ctx.importedComponents.set(key, comp);
+    return comp;
+  }
   function variantLabel(comp) {
     var _a;
     const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
@@ -841,6 +926,16 @@ module.exports = {
   }
 
   // src/plugin/fix/apply.ts
+  function subtreeIds(node) {
+    const ids = [node.id];
+    if ("findAll" in node) {
+      try {
+        for (const n of node.findAll(() => true)) ids.push(n.id);
+      } catch {
+      }
+    }
+    return ids;
+  }
   var FixError = class extends Error {
     constructor(reason) {
       super(reason);
@@ -1028,9 +1123,12 @@ module.exports = {
         if (wrapper) {
           for (const extra of extras) if (!extra.removed) reparentKeepingPlace(extra, wrapper);
         }
+        const removedNodeIds = subtreeIds(frame);
         frame.remove();
         return {
           issueId,
+          kind: "reattach",
+          removedNodeIds,
           revert: async () => {
             const inst = await getNode(instance.id);
             if (inst.type !== "INSTANCE") return;
@@ -2560,8 +2658,11 @@ module.exports = {
       lookalikeFrames: [],
       componentPool: /* @__PURE__ */ new Map(),
       instanceLookups: { count: 0, ms: 0 },
+      instanceLookupKeys: /* @__PURE__ */ new Set(),
       componentIndex: null,
       reattachMissingOrigin: /* @__PURE__ */ new Set(),
+      componentTrees: /* @__PURE__ */ new Map(),
+      importedComponents: /* @__PURE__ */ new Map(),
       scope: "page",
       localVariables: [],
       collectionsById: /* @__PURE__ */ new Map(),
@@ -2583,6 +2684,25 @@ module.exports = {
   }
   var MAX_LIBRARY_VARIABLES = 800;
   var IMPORT_BATCH = 40;
+  var importedLibraryVariables = /* @__PURE__ */ new Map();
+  async function importLibraryVariable(key) {
+    const cached = importedLibraryVariables.get(key);
+    if (cached) {
+      try {
+        void cached.valuesByMode;
+        return cached;
+      } catch {
+        importedLibraryVariables.delete(key);
+      }
+    }
+    try {
+      const variable = await figma.variables.importVariableByKeyAsync(key);
+      importedLibraryVariables.set(key, variable);
+      return variable;
+    } catch {
+      return null;
+    }
+  }
   async function indexTokens(ctx) {
     const collectionCache = /* @__PURE__ */ new Map();
     ctx.reportProgress({ phase: "indexing", detail: "local" });
@@ -2634,14 +2754,18 @@ module.exports = {
           ctx.reportProgress({ phase: "indexing", detail: batch[0].libraryName, scanned: i2, total: queue.length });
           const imported = await Promise.all(
             batch.map(async ({ key, libraryName }) => {
-              try {
-                return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
-              } catch {
-                return null;
-              }
+              const variable = await importLibraryVariable(key);
+              return variable ? { variable, libraryName } : null;
             })
           );
-          for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+          for (const entry of imported) {
+            if (!entry) continue;
+            try {
+              await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+            } catch {
+              importedLibraryVariables.delete(entry.variable.key);
+            }
+          }
           await yieldToHost();
           if (ctx.isCancelled()) return;
         }
@@ -2665,6 +2789,8 @@ module.exports = {
   var MAX_INSTANCE_LOOKUPS = 1500;
   var INSTANCE_LOOKUP_BUDGET_MS = 1500;
   var PAGES_BUDGET_MS = 3e3;
+  var OTHER_PAGES_CACHE_MS = 12e4;
+  var pagesCache = null;
   var familyOf = (comp) => {
     var _a;
     return ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent.id : comp.id;
@@ -2687,8 +2813,12 @@ module.exports = {
     }
     return true;
   }
+  var instanceKey = (instance) => `${instance.name}|${Math.round(instance.width / 8)}|${Math.round(instance.height / 8)}`;
   async function noteInstance(ctx, instance) {
+    const key = instanceKey(instance);
+    if (ctx.instanceLookupKeys.has(key)) return true;
     if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) return false;
+    ctx.instanceLookupKeys.add(key);
     ctx.instanceLookups.count++;
     const t0 = Date.now();
     try {
@@ -2707,33 +2837,50 @@ module.exports = {
         break;
       }
     }
-    for (const inst of page.findAllWithCriteria({ types: ["INSTANCE"] })) {
-      if (!await noteInstance(ctx, inst)) {
+    const instances = page.findAllWithCriteria({ types: ["INSTANCE"] });
+    for (let i = 0; i < instances.length; i++) {
+      if (!await noteInstance(ctx, instances[i])) {
         complete = false;
         break;
       }
+      if (i % 100 === 99) await yieldToHost();
     }
     return complete;
   }
   async function buildComponentIndex(ctx) {
     if (ctx.componentIndex) return ctx.componentIndex;
     let partial = false;
+    let fromCache = false;
     if (ctx.scope === "selection" && !await indexPage(ctx, figma.currentPage, "local")) partial = true;
     if (ctx.options.componentsFromAllPages && ctx.scope !== "file") {
-      const t0 = Date.now();
-      for (const page of figma.root.children) {
-        if (page.id === figma.currentPage.id) continue;
-        if (Date.now() - t0 > PAGES_BUDGET_MS || ctx.isCancelled()) {
-          partial = true;
-          break;
+      const key = `${figma.currentPage.id}|${figma.root.children.map((p) => p.id).join(",")}`;
+      const cache = pagesCache && pagesCache.key === key && Date.now() - pagesCache.at < OTHER_PAGES_CACHE_MS ? pagesCache : null;
+      if (cache) {
+        fromCache = true;
+        for (const { comp, source } of cache.entries) if (!comp.removed) addComponent(ctx, comp, source);
+        if (cache.partial) partial = true;
+      } else {
+        const t0 = Date.now();
+        const others = figma.root.children.filter((p) => p.id !== figma.currentPage.id);
+        let pagesPartial = false;
+        for (let i = 0; i < others.length; i++) {
+          const page = others[i];
+          if (Date.now() - t0 > PAGES_BUDGET_MS || ctx.isCancelled()) {
+            pagesPartial = true;
+            break;
+          }
+          ctx.reportProgress({ phase: "components", scanned: i, total: others.length, detail: page.name });
+          try {
+            await page.loadAsync();
+          } catch {
+            continue;
+          }
+          if (!await indexPage(ctx, page, "otherPages")) pagesPartial = true;
+          await yieldToHost();
         }
-        try {
-          await page.loadAsync();
-        } catch {
-          continue;
-        }
-        if (!await indexPage(ctx, page, "otherPages")) partial = true;
-        await yieldToHost();
+        if (pagesPartial) partial = true;
+        ctx.reportProgress({ phase: "finalizing", scanned: others.length, total: others.length });
+        pagesCache = { at: Date.now(), key, entries: [...ctx.componentPool.values()].filter((e) => e.source !== "local"), partial: pagesPartial };
       }
     }
     if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) partial = true;
@@ -2744,19 +2891,19 @@ module.exports = {
       components.push(comp);
       sources[source]++;
     }
-    ctx.componentIndex = { components, partial, sources };
+    ctx.componentIndex = { components, partial, sources, fromCache };
     return ctx.componentIndex;
   }
 
   // src/plugin/rules/components-pro.ts
   var MAX_VARIANT_CANDIDATES = 40;
-  async function originComponent(info) {
+  async function originComponent(info, ctx) {
     try {
       if (info.type === "local") {
         const node = await figma.getNodeByIdAsync(info.componentId);
         return node && node.type === "COMPONENT" && !node.removed ? node : null;
       }
-      return await figma.importComponentByKeyAsync(info.componentKey);
+      return await importComponentCached(ctx, info.componentKey);
     } catch {
       return null;
     }
@@ -2770,7 +2917,7 @@ module.exports = {
     const info = frame.detachedInfo;
     if (!info) return;
     if (ancestors(frame, ctx).some((a) => a.type === "INSTANCE")) return [manualReattach(frame, "inside-instance")];
-    const origin = await originComponent(info);
+    const origin = await originComponent(info, ctx);
     if (!origin) {
       ctx.reattachMissingOrigin.add(frame.id);
       return [manualReattach(frame, "component-missing")];
@@ -2782,7 +2929,7 @@ module.exports = {
     const matches = [];
     const all = [];
     for (const comp of candidates) {
-      const result = matchBest(detachedTree, await toTree(comp, 0, newBudget()));
+      const result = matchBest(detachedTree, await componentTree(ctx, comp));
       all.push({ comp, result });
       if (result.ok) matches.push({ comp, result });
     }
@@ -3247,7 +3394,7 @@ module.exports = {
           if (!found) continue;
           const comp = found.item;
           const frameTree = await toTree(frame, 0, newBudget());
-          const result = matchBest(frameTree, await toTree(comp, 0, newBudget()));
+          const result = matchBest(frameTree, await componentTree(ctx, comp));
           const label = variantLabel(comp);
           const score = Math.round(found.score * 100);
           if (result.extras.length > MAX_FORCED_EXTRAS) {
@@ -3258,7 +3405,7 @@ module.exports = {
           const alternatives = [];
           const alternativePlans = {};
           for (const alt of found.alternatives) {
-            const altResult = matchBest(frameTree, await toTree(alt.item, 0, newBudget()));
+            const altResult = matchBest(frameTree, await componentTree(ctx, alt.item));
             if (altResult.extras.length > MAX_FORCED_EXTRAS) continue;
             const id = `comp:${alt.item.id}`;
             alternatives.push({ id, label: variantLabel(alt.item), value: `${Math.round(alt.score * 100)} %` });
@@ -4840,13 +4987,22 @@ module.exports = {
     const names = roots.slice(0, 3).map((r) => r.name);
     return roots.length > 3 ? `${names.join(", ")} +${roots.length - 3}` : names.join(", ");
   }
-  async function resolveRoots(scope) {
+  async function resolveRoots(scope, rootIds) {
+    var _a;
     if (scope === "file") {
       await figma.loadAllPagesAsync();
       return { roots: [...figma.root.children], pages: figma.root.children.length };
     }
-    if (scope === "selection" && figma.currentPage.selection.length) {
-      return { roots: [...figma.currentPage.selection], pages: 1 };
+    if (scope === "selection") {
+      if (rootIds == null ? void 0 : rootIds.length) {
+        const roots = [];
+        for (const id of rootIds.slice(0, 200)) {
+          const node = await figma.getNodeByIdAsync(id);
+          if (node && node.type !== "DOCUMENT" && node.type !== "PAGE" && !node.removed && ((_a = pageOf2(node)) == null ? void 0 : _a.id) === figma.currentPage.id) roots.push(node);
+        }
+        if (roots.length) return { roots, pages: 1 };
+      }
+      if (figma.currentPage.selection.length) return { roots: [...figma.currentPage.selection], pages: 1 };
     }
     return { roots: [figma.currentPage], pages: 1 };
   }
@@ -4997,15 +5153,16 @@ module.exports = {
         }
       }
     });
-    const { roots, pages } = await resolveRoots(req.scope);
-    const label = scopeLabel(req.scope, roots);
+    const { roots, pages } = await resolveRoots(req.scope, req.rootIds);
+    const effectiveScope = req.scope === "selection" && roots.length === 1 && roots[0].type === "PAGE" ? "page" : req.scope;
+    const label = scopeLabel(effectiveScope, roots);
     emit({ phase: "indexing" });
     await indexTokens(ctx);
-    if (isCancelled()) return finish(true, req.scope, label, pages, 0);
+    if (isCancelled()) return finish(true, effectiveScope, label, pages, 0);
     emit({ phase: "collecting" });
     const types = collectTypes(checkRules);
     const nodes = await collectNodes(roots, types, ctx);
-    if (isCancelled()) return finish(true, req.scope, label, pages, 0);
+    if (isCancelled()) return finish(true, effectiveScope, label, pages, 0);
     await learnRemoteStyles(nodes, ctx);
     emit({ phase: "scanning", scanned: 0, total: nodes.length });
     const byType = /* @__PURE__ */ new Map();
@@ -5043,13 +5200,13 @@ module.exports = {
           emit({ phase: "scanning", scanned, total: nodes.length });
           await yieldToHost();
           lastYield = Date.now();
-          if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+          if (isCancelled()) return finish(true, effectiveScope, label, pages, scanned);
         }
       }
     }
     emit({ phase: "scanning", scanned, total: nodes.length });
     await yieldToHost();
-    if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+    if (isCancelled()) return finish(true, effectiveScope, label, pages, scanned);
     emit({ phase: "finalizing", scanned, total: nodes.length });
     for (const rule of finalizeRules) {
       if (suspended.has(rule.id)) continue;
@@ -5060,25 +5217,22 @@ module.exports = {
         ctx.warnings.push(`rule:${rule.id}`);
       }
       await yieldToHost();
-      if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+      if (isCancelled()) return finish(true, effectiveScope, label, pages, scanned);
     }
     ctx.warnings.splice(0, ctx.warnings.length, ...new Set(ctx.warnings));
     const sevOrder = { error: 0, warning: 1, info: 2 };
     const catOrder = { colors: 0, typography: 1, spacing: 2, radius: 3, components: 4, tokens: 5, craft: 6, a11y: 7, handoff: 8 };
     issues2.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity] || catOrder[a.category] - catOrder[b.category] || a.groupKey.localeCompare(b.groupKey));
-    return finish(false, req.scope, label, pages, scanned);
+    return finish(false, effectiveScope, label, pages, scanned);
   }
 
   // src/plugin/main.ts
   var SETTINGS_KEY = "scd:settings:v1";
   var IGNORED_KEY = "scd:ignored";
-  var MIN_W = 560;
-  var MIN_H = 400;
-  var MAX_W = 1200;
-  var MAX_H = 1400;
   var MIN_TOTAL_W = 200;
   var MIN_TOTAL_H = 40;
   var MAX_TOTAL_W = 2200;
+  var BUSY_WAIT_MS = 2e4;
   var settings = { ...DEFAULT_SETTINGS };
   var uiSize = { ...DEFAULT_SETTINGS.window };
   var scanning = false;
@@ -5093,37 +5247,29 @@ module.exports = {
   var post = (msg) => figma.ui.postMessage(msg);
   var clamp = (v, min, max) => Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : min;
   var applying = false;
-  function clampWindow(w, h) {
-    return { width: clamp(w, MIN_W, MAX_W), height: clamp(h, MIN_H, MAX_H) };
-  }
   async function loadSettings() {
-    var _a, _b, _c, _d, _e;
     try {
-      const stored = await figma.clientStorage.getAsync(SETTINGS_KEY);
-      if (stored && typeof stored === "object") {
-        return {
-          ...DEFAULT_SETTINGS,
-          ...stored,
-          options: { ...DEFAULT_SETTINGS.options, ...(_a = stored.options) != null ? _a : {} },
-          window: clampWindow((_c = (_b = stored.window) == null ? void 0 : _b.width) != null ? _c : DEFAULT_SETTINGS.window.width, (_e = (_d = stored.window) == null ? void 0 : _d.height) != null ? _e : DEFAULT_SETTINGS.window.height)
-        };
-      }
+      return sanitizeSettings(await figma.clientStorage.getAsync(SETTINGS_KEY));
     } catch {
     }
     return { ...DEFAULT_SETTINGS };
   }
   async function saveSettings(partial) {
-    var _a;
-    settings = {
+    var _a, _b;
+    settings = sanitizeSettings({
       ...settings,
       ...partial,
       options: { ...settings.options, ...(_a = partial.options) != null ? _a : {} },
-      window: partial.window ? clampWindow(partial.window.width, partial.window.height) : settings.window
-    };
+      window: (_b = partial.window) != null ? _b : settings.window
+    });
     try {
       await figma.clientStorage.setAsync(SETTINGS_KEY, settings);
     } catch {
     }
+  }
+  async function waitUntilIdle() {
+    const started = Date.now();
+    while ((applying || previewRunning) && Date.now() - started < BUSY_WAIT_MS) await new Promise((r) => setTimeout(r, 50));
   }
   function readIgnored() {
     try {
@@ -5142,6 +5288,7 @@ module.exports = {
       type: "init",
       settings,
       selectionCount: figma.currentPage.selection.length,
+      selectionIds: figma.currentPage.selection.slice(0, 50).map((n) => n.id),
       fileName: figma.root.name,
       pageName: figma.currentPage.name,
       pageCount: figma.root.children.length,
@@ -5153,6 +5300,7 @@ module.exports = {
     if (scanning) return;
     scanning = true;
     cancelRequested = false;
+    await waitUntilIdle();
     issues.clear();
     plans.clear();
     journals.clear();
@@ -5161,7 +5309,7 @@ module.exports = {
     let lastProgressAt = 0;
     try {
       const out = await runScan(
-        { scope: msg.scope, options: msg.options, activeRules, ignoredIssueIds: ignored, rules: ALL_RULES },
+        { scope: msg.scope, rootIds: msg.rootIds, options: msg.options, activeRules, ignoredIssueIds: ignored, rules: ALL_RULES },
         (p) => {
           const now = Date.now();
           if (now - lastProgressAt < 33 && p.phase === "scanning" && p.scanned < p.total) return;
@@ -5216,9 +5364,11 @@ module.exports = {
     return p.plan;
   }
   async function applyMany(entries, reportProgress) {
+    var _a;
     const batchId = `batch-${++batchCounter}`;
     const journal = [];
     const outcomes = [];
+    const removedNodeIds = /* @__PURE__ */ new Set();
     figma.commitUndo();
     applying = true;
     let done = 0;
@@ -5246,6 +5396,7 @@ module.exports = {
         journal.push(entry);
         issue.status = "fixed";
         outcomes.push({ issueId, ok: true });
+        for (const id of (_a = entry.removedNodeIds) != null ? _a : []) removedNodeIds.add(id);
       } catch (e) {
         outcomes.push({ issueId, ok: false, reason: e instanceof FixError ? e.reason : "unknown" });
       }
@@ -5255,7 +5406,8 @@ module.exports = {
     }
     applying = false;
     if (journal.length) journals.set(batchId, journal);
-    post({ type: "fix-done", batchId, outcomes, undoable: journal.length > 0 });
+    for (const issue of issues.values()) if (issue.status === "open" && removedNodeIds.has(issue.nodeId)) issue.status = "fixed";
+    post({ type: "fix-done", batchId, outcomes, undoable: journal.length > 0, removedNodeIds: [...removedNodeIds] });
   }
   async function undoBatch(batchId) {
     const journal = journals.get(batchId);
@@ -5264,17 +5416,19 @@ module.exports = {
     figma.commitUndo();
     applying = true;
     const restored = [];
+    let needsRescan = false;
     for (const entry of [...journal].reverse()) {
       try {
         await entry.revert();
         const issue = issues.get(entry.issueId);
         if (issue) issue.status = "open";
         restored.push(entry.issueId);
+        if (entry.kind === "reattach") needsRescan = true;
       } catch {
       }
     }
     applying = false;
-    post({ type: "undo-done", batchId, issueIds: restored });
+    post({ type: "undo-done", batchId, issueIds: restored, needsRescan });
   }
   async function handlePreview(msg) {
     var _a;
@@ -5377,7 +5531,7 @@ module.exports = {
         post({ type: "settings-saved", settings });
         break;
       case "resize": {
-        const total = { width: clamp(msg.width, MIN_TOTAL_W, MAX_TOTAL_W), height: clamp(msg.height, MIN_TOTAL_H, MAX_H) };
+        const total = { width: clamp(msg.width, MIN_TOTAL_W, MAX_TOTAL_W), height: clamp(msg.height, MIN_TOTAL_H, WINDOW_MAX_H) };
         figma.ui.resize(total.width, total.height);
         uiSize = total;
         if (msg.persist !== false) await saveSettings({ window: clampWindow((_a = msg.baseWidth) != null ? _a : total.width, total.height) });
@@ -5392,7 +5546,11 @@ module.exports = {
     }
   }
   figma.on("selectionchange", postSelection);
-  figma.on("currentpagechange", () => post({ type: "page-changed", pageName: figma.currentPage.name }));
+  figma.on("currentpagechange", () => {
+    programmaticSelectionKey = "";
+    post({ type: "page-changed", pageName: figma.currentPage.name });
+    postSelection();
+  });
   (async () => {
     settings = await loadSettings();
     uiSize = { ...settings.window };

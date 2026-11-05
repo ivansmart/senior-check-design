@@ -1,5 +1,6 @@
 /// <reference types="@figma/plugin-typings" />
 import { resolveActiveRules } from '../shared/rules-catalog';
+import { WINDOW_MAX_H, clampWindow, sanitizeSettings } from '../shared/settings';
 import type { FixOutcome, Issue, PluginToUiMessage, Settings, UiToPluginMessage } from '../shared/types';
 import { countVariables, toCss, toDtcg, toTailwind } from '../shared/tokens-export';
 import { DEFAULT_SETTINGS } from '../shared/types';
@@ -14,15 +15,12 @@ import { runScan, type IssuePlans } from './scan/engine';
 
 const SETTINGS_KEY = 'scd:settings:v1';
 const IGNORED_KEY = 'scd:ignored';
-/** Bornes de la taille mémorisée (colonne principale). */
-const MIN_W = 560;
-const MIN_H = 400;
-const MAX_W = 1200;
-const MAX_H = 1400;
 /** Bornes de la fenêtre réelle : plus large avec le volet Comparer, plus basse une fois repliée. */
 const MIN_TOTAL_W = 200;
 const MIN_TOTAL_H = 40;
 const MAX_TOTAL_W = 2200;
+/** Attente maximale d'une correction ou d'un aperçu en cours avant de démarrer une analyse. */
+const BUSY_WAIT_MS = 20000;
 
 let settings: Settings = { ...DEFAULT_SETTINGS };
 let uiSize = { ...DEFAULT_SETTINGS.window };
@@ -39,24 +37,13 @@ let programmaticSelectionKey = '';
 
 const post = (msg: PluginToUiMessage) => figma.ui.postMessage(msg);
 const clamp = (v: number, min: number, max: number) => (Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : min);
-/** Une correction ou une annulation est en cours (les aperçus attendent). */
+/** Une correction ou une annulation est en cours (les aperçus et les analyses attendent). */
 let applying = false;
-
-function clampWindow(w: number, h: number) {
-  return { width: clamp(w, MIN_W, MAX_W), height: clamp(h, MIN_H, MAX_H) };
-}
 
 async function loadSettings(): Promise<Settings> {
   try {
-    const stored = (await figma.clientStorage.getAsync(SETTINGS_KEY)) as Partial<Settings> | undefined;
-    if (stored && typeof stored === 'object') {
-      return {
-        ...DEFAULT_SETTINGS,
-        ...stored,
-        options: { ...DEFAULT_SETTINGS.options, ...(stored.options ?? {}) },
-        window: clampWindow(stored.window?.width ?? DEFAULT_SETTINGS.window.width, stored.window?.height ?? DEFAULT_SETTINGS.window.height),
-      };
-    }
+    // Réglages d'une ancienne version ou corrompus : chaque champ retombe sur sa valeur par défaut.
+    return sanitizeSettings(await figma.clientStorage.getAsync(SETTINGS_KEY));
   } catch {
     /* stockage indisponible : valeurs par défaut */
   }
@@ -64,17 +51,23 @@ async function loadSettings(): Promise<Settings> {
 }
 
 async function saveSettings(partial: Partial<Settings>) {
-  settings = {
+  settings = sanitizeSettings({
     ...settings,
     ...partial,
     options: { ...settings.options, ...(partial.options ?? {}) },
-    window: partial.window ? clampWindow(partial.window.width, partial.window.height) : settings.window,
-  };
+    window: partial.window ?? settings.window,
+  });
   try {
     await figma.clientStorage.setAsync(SETTINGS_KEY, settings);
   } catch {
     /* ignore */
   }
+}
+
+/** Attend la fin d'une correction ou d'un aperçu en cours : une analyse qui viderait les plans pendant un lot le ferait échouer. */
+async function waitUntilIdle(): Promise<void> {
+  const started = Date.now();
+  while ((applying || previewRunning) && Date.now() - started < BUSY_WAIT_MS) await new Promise((r) => setTimeout(r, 50));
 }
 
 function readIgnored(): string[] {
@@ -96,6 +89,7 @@ function sendInit() {
     type: 'init',
     settings,
     selectionCount: figma.currentPage.selection.length,
+    selectionIds: figma.currentPage.selection.slice(0, 50).map((n) => n.id),
     fileName: figma.root.name,
     pageName: figma.currentPage.name,
     pageCount: figma.root.children.length,
@@ -108,6 +102,7 @@ async function handleScan(msg: Extract<UiToPluginMessage, { type: 'scan' }>) {
   if (scanning) return;
   scanning = true;
   cancelRequested = false;
+  await waitUntilIdle();
   issues.clear();
   plans.clear();
   journals.clear();
@@ -116,7 +111,7 @@ async function handleScan(msg: Extract<UiToPluginMessage, { type: 'scan' }>) {
   let lastProgressAt = 0;
   try {
     const out = await runScan(
-      { scope: msg.scope, options: msg.options, activeRules, ignoredIssueIds: ignored, rules: ALL_RULES },
+      { scope: msg.scope, rootIds: msg.rootIds, options: msg.options, activeRules, ignoredIssueIds: ignored, rules: ALL_RULES },
       (p) => {
         const now = Date.now();
         // Limite le débit des messages de progression (~30/s), sans perdre les changements de phase.
@@ -180,6 +175,7 @@ async function applyMany(entries: { issueId: string; alternativeId?: string }[],
   const batchId = `batch-${++batchCounter}`;
   const journal: UndoEntry[] = [];
   const outcomes: FixOutcome[] = [];
+  const removedNodeIds = new Set<string>();
   figma.commitUndo();
   applying = true;
   let done = 0;
@@ -208,6 +204,7 @@ async function applyMany(entries: { issueId: string; alternativeId?: string }[],
       journal.push(entry);
       issue.status = 'fixed';
       outcomes.push({ issueId, ok: true });
+      for (const id of entry.removedNodeIds ?? []) removedNodeIds.add(id);
     } catch (e) {
       outcomes.push({ issueId, ok: false, reason: e instanceof FixError ? e.reason : 'unknown' });
     }
@@ -217,7 +214,9 @@ async function applyMany(entries: { issueId: string; alternativeId?: string }[],
   }
   applying = false;
   if (journal.length) journals.set(batchId, journal);
-  post({ type: 'fix-done', batchId, outcomes, undoable: journal.length > 0 });
+  // Les lignes des calques remplacés par une instance n'ont plus d'objet : l'interface les retire.
+  for (const issue of issues.values()) if (issue.status === 'open' && removedNodeIds.has(issue.nodeId)) issue.status = 'fixed';
+  post({ type: 'fix-done', batchId, outcomes, undoable: journal.length > 0, removedNodeIds: [...removedNodeIds] });
 }
 
 async function undoBatch(batchId: string) {
@@ -227,18 +226,21 @@ async function undoBatch(batchId: string) {
   figma.commitUndo();
   applying = true;
   const restored: string[] = [];
+  let needsRescan = false;
   for (const entry of [...journal].reverse()) {
     try {
       await entry.revert();
       const issue = issues.get(entry.issueId);
       if (issue) issue.status = 'open';
       restored.push(entry.issueId);
+      // Un rattachement annulé rend un calque détaché neuf : les identifiants de l'analyse ne le désignent plus.
+      if (entry.kind === 'reattach') needsRescan = true;
     } catch {
       /* le node a pu disparaître : on continue */
     }
   }
   applying = false;
-  post({ type: 'undo-done', batchId, issueIds: restored });
+  post({ type: 'undo-done', batchId, issueIds: restored, needsRescan });
 }
 
 /** Aperçus sérialisés : une demande à la fois, seule la plus récente en attente est conservée. */
@@ -346,7 +348,7 @@ async function dispatch(msg: UiToPluginMessage): Promise<void> {
       post({ type: 'settings-saved', settings });
       break;
     case 'resize': {
-      const total = { width: clamp(msg.width, MIN_TOTAL_W, MAX_TOTAL_W), height: clamp(msg.height, MIN_TOTAL_H, MAX_H) };
+      const total = { width: clamp(msg.width, MIN_TOTAL_W, MAX_TOTAL_W), height: clamp(msg.height, MIN_TOTAL_H, WINDOW_MAX_H) };
       figma.ui.resize(total.width, total.height);
       uiSize = total;
       if (msg.persist !== false) await saveSettings({ window: clampWindow(msg.baseWidth ?? total.width, total.height) });
@@ -362,7 +364,12 @@ async function dispatch(msg: UiToPluginMessage): Promise<void> {
 }
 
 figma.on('selectionchange', postSelection);
-figma.on('currentpagechange', () => post({ type: 'page-changed', pageName: figma.currentPage.name }));
+figma.on('currentpagechange', () => {
+  // La sélection connue de l'interface appartenait à l'ancienne page : on repart de celle de la nouvelle page.
+  programmaticSelectionKey = '';
+  post({ type: 'page-changed', pageName: figma.currentPage.name });
+  postSelection();
+});
 
 (async () => {
   settings = await loadSettings();

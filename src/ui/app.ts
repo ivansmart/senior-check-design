@@ -1,6 +1,7 @@
 import { ALL_RULE_IDS, PRESET_IDS, PRO_PRESET_IDS, RULE_BY_ID, RULES, resolveActiveRules } from '../shared/rules-catalog';
 import { buildCsvReport, buildMarkdownReport, buildReviewSummary, type ReportLabels, type ReviewLabels } from '../shared/report';
 import { computeCraftReadiness, computeScore, countBySeverity } from '../shared/score';
+import { sanitizeSettings } from '../shared/settings';
 import {
   DEFAULT_SETTINGS,
   type Issue,
@@ -199,8 +200,12 @@ const state = {
   settings: { ...DEFAULT_SETTINGS, locale: detectLocale() } as Settings,
   i18n: new I18n(detectLocale()),
   selectionCount: 0,
-  /** Identifiants des calques sélectionnés sur le canvas (50 premiers). */
+  /** Identifiants des calques sélectionnés sur le canvas (50 premiers), y compris une sélection posée par le plugin. */
   selectionIds: [] as string[],
+  /** Dernière sélection faite par l'utilisateur lui-même : c'est elle qui fixe le périmètre « Auto », jamais celle posée par « Voir dans le canvas ». */
+  userSelection: { ids: [] as string[], count: 0 },
+  /** Périmètre de l'analyse en cours ou affichée. */
+  scanScope: 'page' as ScanScope,
   fileName: '',
   pageName: '',
   pageCount: 1,
@@ -233,6 +238,8 @@ const state = {
   selectionChangedDuringScan: false,
   /** La page a changé depuis l'analyse (le bandeau le dit). */
   pageChangedSinceScan: false,
+  /** Un rattachement a été annulé : les calques restaurés ont de nouveaux identifiants, l'analyse est à relancer. */
+  undoNeedsRescan: false,
   scannedSelection: false,
   rescanTimer: 0,
   /** Réglage modifié pendant une analyse : relance dès les résultats. */
@@ -422,7 +429,7 @@ function render() {
   bodyEl = el('div', { class: 'body' });
   if (!state.collapsed) {
     main.appendChild(renderTabs());
-    if (state.selectionChangedSinceScan && state.phase === 'results') main.appendChild(renderSelectionNotice());
+    if ((state.selectionChangedSinceScan || state.undoNeedsRescan) && state.phase === 'results') main.appendChild(renderSelectionNotice());
     main.appendChild(bodyEl);
     if (state.phase === 'scanning' || state.phase === 'boot') bodyEl.appendChild(renderScanning());
     else bodyEl.appendChild(renderTabBody());
@@ -507,7 +514,7 @@ function renderHeader(): HTMLElement {
       svgIcon('compare'),
     ),
     el('button', { class: 'icon-btn', title: t('export'), 'aria-label': t('export'), disabled: state.phase !== 'results', onclick: () => toggleMenu('export') }, svgIcon('export')),
-    el('button', { class: 'icon-btn', title: t('reload'), 'aria-label': t('reload'), disabled: state.phase === 'scanning', onclick: () => startScan() }, svgIcon('refresh')),
+    el('button', { class: 'icon-btn', title: t('reload'), 'aria-label': t('reload'), disabled: state.phase === 'scanning' || Boolean(state.fixing), onclick: () => startScan() }, svgIcon('refresh')),
     el('button', { class: 'icon-btn', 'data-act': 'collapse', title: t('collapse'), 'aria-label': t('collapse'), onclick: () => toggleCollapsed(true) }, svgIcon('collapse')),
   );
 }
@@ -588,6 +595,7 @@ function renderTabs(): HTMLElement {
 
 function renderSelectionNotice(): HTMLElement {
   const page = state.pageChangedSinceScan;
+  const undo = state.undoNeedsRescan && !state.selectionChangedSinceScan;
   return el(
     'div',
     { class: 'notice notice-bar' },
@@ -595,12 +603,19 @@ function renderSelectionNotice(): HTMLElement {
     el(
       'span',
       { class: 'grow ellipsis' },
-      el('b', {}, page ? t('pageChanged', { name: state.pageName }) : t('selectionChanged')),
+      el('b', {}, undo ? t('undoRescan') : page ? t('pageChanged', { name: state.pageName }) : t('selectionChanged')),
       ' ',
-      page ? t('pageChangedBody') : state.selectionCount ? t('selectionChangedBody', { n: state.selectionCount }) : '',
+      undo ? t('undoRescanBody') : page ? t('pageChangedBody') : state.userSelection.count ? t('selectionChangedBody', { n: state.userSelection.count }) : t('selectionClearedBody'),
     ),
     el('button', { class: 'btn btn-sm btn-secondary', onclick: () => startScan() }, svgIcon('refresh'), t('reload')),
   );
+}
+
+/** Avancement (0 à 100) et caractère indéterminé d'une progression. */
+function progressBar(p: ScanProgress): { pct: number; indeterminate: boolean } {
+  const pct = (p.phase === 'scanning' || p.phase === 'indexing' || p.phase === 'components') && p.total ? (p.scanned / p.total) * 100 : p.phase === 'finalizing' ? 100 : 0;
+  const indeterminate = (p.phase === 'indexing' && !p.total) || p.phase === 'collecting';
+  return { pct, indeterminate };
 }
 
 /** Progression de l'analyse mise à jour en place : pas de reconstruction du DOM (menus ouverts intacts, pas de clignotement). */
@@ -611,8 +626,7 @@ function patchScanning() {
     return;
   }
   const p = state.progress ?? { phase: 'indexing', scanned: 0, total: 0, found: {} };
-  const pct = (p.phase === 'scanning' || p.phase === 'indexing') && p.total ? (p.scanned / p.total) * 100 : p.phase === 'finalizing' ? 100 : 0;
-  const indeterminate = (p.phase === 'indexing' && !p.total) || p.phase === 'collecting';
+  const { pct, indeterminate } = progressBar(p as ScanProgress);
   const phase = box.querySelector<HTMLElement>('.scan-phase');
   if (phase) phase.textContent = phaseLabel(p as ScanProgress);
   const bar = box.querySelector<HTMLElement>('.bar');
@@ -621,6 +635,16 @@ function patchScanning() {
     const fill = bar.querySelector<HTMLElement>('i');
     if (fill) fill.style.width = `${pct}%`;
   }
+  // Compteurs des onglets : remplissage progressif, sans reconstruire la barre d'onglets.
+  const tabs = app.querySelectorAll<HTMLElement>('.tabs .tab');
+  visibleTabs().forEach((tab, idx) => {
+    const button = tabs[idx];
+    if (!button) return;
+    const count = tabCount(tab);
+    const pill = button.querySelector<HTMLElement>('.count');
+    if (pill && pill.textContent !== String(count)) pill.textContent = String(count);
+    button.classList.toggle('is-empty', count === 0);
+  });
 }
 
 /** Progression des corrections mise à jour en place. */
@@ -650,21 +674,29 @@ function phaseLabel(p: ScanProgress): string {
       return t('phaseCollecting');
     case 'scanning':
       return t('phaseScanning', { scanned: p.scanned, total: p.total });
+    case 'components':
+      return t('phaseComponents', { name: p.detail ?? '', scanned: p.scanned + 1, total: p.total });
     case 'finalizing':
       return t('phaseFinalizing');
   }
 }
 
+/** Périmètre de l'analyse en cours, tel que l'utilisateur l'a demandé. */
+function scanScopeLabel(): string {
+  if (state.scanScope === 'file') return t('scanScopeFile');
+  if (state.scanScope === 'selection') return state.userSelection.count === 1 ? t('scanScopeSelectionOne') : t('scanScopeSelection', { n: state.userSelection.count });
+  return t('scanScopePage', { name: state.pageName });
+}
+
 function renderScanning(): HTMLElement {
   const p = state.progress ?? { phase: 'indexing', scanned: 0, total: 0, found: {} };
-  const pct = (p.phase === 'scanning' || p.phase === 'indexing') && p.total ? (p.scanned / p.total) * 100 : p.phase === 'finalizing' ? 100 : 0;
-  const indeterminate = (p.phase === 'indexing' && !p.total) || p.phase === 'collecting';
+  const { pct, indeterminate } = progressBar(p as ScanProgress);
   const skeleton = el('div', { class: 'skeleton' });
   for (let i = 0; i < 8; i++) skeleton.appendChild(el('div', { class: 'sk-row' }, el('span', { class: 'sk-cell' }), el('span', { class: 'sk-arrow' }), el('span', { class: 'sk-cell' })));
   return el(
     'div',
     { class: 'scanning' },
-    el('div', { class: 'scan-head' }, el('span', { class: 'scan-title' }, t('scanning')), el('span', { class: 'scan-phase' }, phaseLabel(p as ScanProgress))),
+    el('div', { class: 'scan-head' }, el('span', { class: 'scan-title' }, `${t('scanning')} · ${scanScopeLabel()}`), el('span', { class: 'scan-phase' }, phaseLabel(p as ScanProgress))),
     el('div', { class: `bar${indeterminate ? ' indeterminate' : ''}` }, el('i', { style: `width:${pct}%` })),
     skeleton,
   );
@@ -1131,7 +1163,7 @@ function refreshRows() {
   for (const key of [...state.excluded]) if (!state.rows.some((r) => r.key === key && r.status === 'open')) state.excluded.delete(key);
 }
 
-function onFixDone(batchId: string, outcomes: { issueId: string; ok: boolean; reason?: string }[], undoable: boolean) {
+function onFixDone(batchId: string, outcomes: { issueId: string; ok: boolean; reason?: string }[], undoable: boolean, removedNodeIds: string[]) {
   const before = state.lastScore;
   const fixed: Issue[] = [];
   const failed: { issueId: string; reason?: string }[] = [];
@@ -1143,6 +1175,15 @@ function onFixDone(batchId: string, outcomes: { issueId: string; ok: boolean; re
       issue.status = 'fixed';
       fixed.push(issue);
     } else failed.push(o);
+  }
+  // Un rattachement a remplacé un calque et ses descendants : leurs autres lignes n'ont plus d'objet.
+  if (removedNodeIds.length) {
+    const gone = new Set(removedNodeIds);
+    for (const issue of state.issues.values()) {
+      if (issue.status !== 'open' || !gone.has(issue.nodeId)) continue;
+      issue.status = 'fixed';
+      state.pendingFixIds.delete(issue.id);
+    }
   }
   state.fixing = null;
   refreshRows();
@@ -1166,11 +1207,13 @@ function onFixDone(batchId: string, outcomes: { issueId: string; ok: boolean; re
   }
 }
 
-function onUndoDone(issueIds: string[]) {
+function onUndoDone(issueIds: string[], needsRescan: boolean) {
   for (const id of issueIds) {
     const issue = state.issues.get(id);
     if (issue) issue.status = 'open';
   }
+  // Les calques rendus par un rattachement annulé ont de nouveaux identifiants : le bandeau propose la relance.
+  if (needsRescan) state.undoNeedsRescan = true;
   refreshRows();
   render();
   toast({ message: issueIds.length === 1 ? t('toastUndoneOne') : t('toastUndone', { n: issueIds.length }), timeout: 4000 });
@@ -1183,11 +1226,16 @@ function onUndoDone(issueIds: string[]) {
 function resolveScope(): ScanScope {
   if (state.settings.scope === 'file') return 'file';
   if (state.settings.scope === 'page') return 'page';
-  return state.selectionCount > 0 ? 'selection' : 'page';
+  return state.userSelection.count > 0 ? 'selection' : 'page';
 }
 
 function startScan(force = false) {
   if (state.phase === 'scanning') return;
+  // Une correction en cours lit encore les plans de l'analyse courante : relancer maintenant la ferait échouer.
+  if (state.fixing || state.pendingFixIds.size) {
+    toast({ message: t('scanBusy'), timeout: 3000 });
+    return;
+  }
   const scope = resolveScope();
   if (scope === 'file' && !force) {
     state.confirm = {
@@ -1216,9 +1264,14 @@ function startScan(force = false) {
   state.selectionChangedSinceScan = false;
   state.selectionChangedDuringScan = false;
   state.pageChangedSinceScan = false;
+  state.undoNeedsRescan = false;
   state.rescanPending = false;
   state.scannedSelection = scope === 'selection';
-  send({ type: 'scan', scope, preset: s.preset, options: s.options, disabledRules: s.disabledRules, enabledRules: s.enabledRules, mode: s.mode });
+  state.scanScope = scope;
+  // Périmètre sélection : les calques choisis par l'utilisateur, pas ceux que « Voir dans le canvas » a pu sélectionner depuis.
+  // Au-delà de 50 calques l'interface n'a pas tous les identifiants : le sandbox prend alors la sélection courante.
+  const rootIds = scope === 'selection' && state.userSelection.ids.length >= state.userSelection.count ? state.userSelection.ids : undefined;
+  send({ type: 'scan', scope, rootIds, preset: s.preset, options: s.options, disabledRules: s.disabledRules, enabledRules: s.enabledRules, mode: s.mode });
   render();
 }
 
@@ -1627,6 +1680,8 @@ function importTeamRules() {
       if (data.mode === 'classic' || data.mode === 'pro') s.mode = data.mode;
       if (data.autoApply === 'exact' || data.autoApply === 'close' || data.autoApply === 'all') s.autoApply = data.autoApply;
       if (data.options && typeof data.options === 'object') s.options = { ...DEFAULT_SETTINGS.options, ...s.options, ...data.options };
+      // Un fichier écrit à la main peut combiner des valeurs incompatibles (preset Pro en mode Classique, option hors bornes).
+      state.settings = sanitizeSettings(s, s.locale);
       if (!visibleTabs().includes(state.tab)) state.tab = 'colors';
       persistSettings();
       toast({ message: t('rulesImported'), timeout: 3000 });
@@ -1719,10 +1774,11 @@ function totalWidth(): number {
   return state.settings.window.width + (state.compare.open && !state.collapsed ? state.compare.width : 0);
 }
 
-function sendWindowSize() {
+/** `persist: false` pendant un glisser de redimensionnement : la taille n'est mémorisée qu'au relâchement. */
+function sendWindowSize(persist = true) {
   const base = state.settings.window;
   if (state.collapsed) send({ type: 'resize', width: base.width, height: COLLAPSED_H, persist: false, baseWidth: base.width });
-  else send({ type: 'resize', width: totalWidth(), height: base.height, baseWidth: base.width });
+  else send({ type: 'resize', width: totalWidth(), height: base.height, persist, baseWidth: base.width });
 }
 
 function toggleCollapsed(collapsed: boolean) {
@@ -1757,15 +1813,18 @@ function renderResizeHandles(): HTMLElement[] {
             else state.settings.window.width = Math.max(MIN_BASE_W, total);
           }
           if (mode !== 'x') state.settings.window.height = Math.max(MIN_BASE_H, Math.round(startH + (ev.clientY - startY)));
-          sendWindowSize();
+          sendWindowSize(false);
           if (paneOpen) drawCompare();
         });
       };
       const up = () => {
         document.body.classList.remove('is-resizing');
+        cancelAnimationFrame(raf);
         handle.removeEventListener('pointermove', move);
         handle.removeEventListener('pointerup', up);
         handle.removeEventListener('pointercancel', up);
+        // Taille finale mémorisée une seule fois, pas à chaque pixel du glisser.
+        sendWindowSize();
       };
       handle.addEventListener('pointermove', move);
       handle.addEventListener('pointerup', up);
@@ -2453,15 +2512,13 @@ window.onmessage = (event: MessageEvent) => {
   if (!msg) return;
   switch (msg.type) {
     case 'init': {
-      const stored = msg.settings as Partial<Settings>;
-      state.settings = { ...DEFAULT_SETTINGS, ...stored, options: { ...DEFAULT_SETTINGS.options, ...(stored.options ?? {}) } };
-      if (!['auto', 'page', 'file'].includes(state.settings.scope)) state.settings.scope = 'auto';
-      if (!['auto', 'light', 'dark'].includes(state.settings.theme)) state.settings.theme = 'auto';
-      if (!['auto', 'light', 'dark'].includes(state.settings.compareTheme)) state.settings.compareTheme = 'auto';
-      if (!stored.locale) state.settings.locale = detectLocale();
+      // Réglages mémorisés d'une version antérieure ou corrompus : chaque champ retombe sur sa valeur par défaut.
+      state.settings = sanitizeSettings(msg.settings, detectLocale());
       state.i18n = new I18n(state.settings.locale);
       document.documentElement.lang = state.settings.locale;
       state.selectionCount = msg.selectionCount;
+      state.selectionIds = msg.selectionIds ?? [];
+      state.userSelection = { ids: state.selectionIds, count: msg.selectionCount };
       state.fileName = msg.fileName;
       state.pageName = msg.pageName;
       state.pageCount = msg.pageCount;
@@ -2473,6 +2530,8 @@ window.onmessage = (event: MessageEvent) => {
       state.selectionCount = msg.count;
       const changed = msg.ids.join('|') !== state.selectionIds.join('|');
       state.selectionIds = msg.ids;
+      // Seule une sélection faite par l'utilisateur définit le périmètre « Auto » et la relance.
+      if (!msg.programmatic) state.userSelection = { ids: msg.ids, count: msg.count };
       // Une nouvelle sélection sur le canvas redevient la racine par défaut du volet Comparer.
       if (changed && msg.count > 0) state.compare.explicitRootId = null;
       // Sélection changée par l'utilisateur : bandeau de relance dès les résultats (même si le changement arrive pendant l'analyse).
@@ -2522,10 +2581,10 @@ window.onmessage = (event: MessageEvent) => {
       patchFixing();
       break;
     case 'fix-done':
-      onFixDone(msg.batchId, msg.outcomes, msg.undoable);
+      onFixDone(msg.batchId, msg.outcomes, msg.undoable, msg.removedNodeIds ?? []);
       break;
     case 'undo-done':
-      onUndoDone(msg.issueIds);
+      onUndoDone(msg.issueIds, Boolean(msg.needsRescan));
       break;
     case 'preview-done':
       if (msg.requestId === state.compare.requestId) receivePreview(msg.frames, msg.skipped, msg.roots, msg.tooBig, msg.maxNodes);

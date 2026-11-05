@@ -7,6 +7,23 @@ import type { FixPlan } from './plans';
 export interface UndoEntry {
   issueId: string;
   revert: () => Promise<void>;
+  /** `reattach` : le calque d'origine a été remplacé ; son annulation recrée un calque aux identifiants neufs. */
+  kind?: 'reattach';
+  /** Calques retirés du fichier par cette correction (le détaché et ses descendants remplacés par l'instance). */
+  removedNodeIds?: string[];
+}
+
+/** Identifiants d'un calque et de tous ses descendants. */
+function subtreeIds(node: SceneNode): string[] {
+  const ids = [node.id];
+  if ('findAll' in node) {
+    try {
+      for (const n of (node as SceneNode & ChildrenMixin).findAll(() => true)) ids.push(n.id);
+    } catch {
+      /* sous-arbre illisible : on garde au moins la racine */
+    }
+  }
+  return ids;
 }
 
 export class FixError extends Error {
@@ -220,9 +237,13 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
       }
       // Calques conservés : déplacés dans le cadre sans bouger à l'écran, au-dessus de l'instance.
       if (wrapper) for (const extra of extras) if (!extra.removed) reparentKeepingPlace(extra, wrapper);
+      // Les calques conservés ont déjà quitté le détaché : ce qui reste disparaît avec lui.
+      const removedNodeIds = subtreeIds(frame);
       frame.remove();
       return {
         issueId,
+        kind: 'reattach',
+        removedNodeIds,
         revert: async () => {
           // L'original a été remplacé : on rend un calque détaché équivalent (Cmd/Ctrl+Z restaure l'exact).
           const inst = await getNode(instance.id);

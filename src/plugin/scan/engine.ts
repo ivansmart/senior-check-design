@@ -8,6 +8,8 @@ import { isEffectivelyHidden, isEffectivelyLocked, isInsideInstance, pageOf, pat
 
 export interface ScanRequest {
   scope: ScanScope;
+  /** Périmètre sélection : calques choisis par l'utilisateur (sinon la sélection courante du canvas). */
+  rootIds?: string[];
   options: ScanOptions;
   activeRules: Set<string>;
   ignoredIssueIds: Set<string>;
@@ -40,13 +42,23 @@ function scopeLabel(scope: ScanScope, roots: readonly BaseNode[]): string {
   return roots.length > 3 ? `${names.join(', ')} +${roots.length - 3}` : names.join(', ');
 }
 
-async function resolveRoots(scope: ScanScope): Promise<{ roots: BaseNode[]; pages: number }> {
+async function resolveRoots(scope: ScanScope, rootIds?: string[]): Promise<{ roots: BaseNode[]; pages: number }> {
   if (scope === 'file') {
     await figma.loadAllPagesAsync();
     return { roots: [...figma.root.children], pages: figma.root.children.length };
   }
-  if (scope === 'selection' && figma.currentPage.selection.length) {
-    return { roots: [...figma.currentPage.selection], pages: 1 };
+  if (scope === 'selection') {
+    // La sélection telle que l'utilisateur l'a faite : une sélection posée entre-temps par le plugin
+    // (« Voir dans le canvas ») ne doit pas rétrécir l'analyse à quelques calques.
+    if (rootIds?.length) {
+      const roots: SceneNode[] = [];
+      for (const id of rootIds.slice(0, 200)) {
+        const node = await figma.getNodeByIdAsync(id);
+        if (node && node.type !== 'DOCUMENT' && node.type !== 'PAGE' && !(node as SceneNode).removed && pageOf(node as SceneNode)?.id === figma.currentPage.id) roots.push(node as SceneNode);
+      }
+      if (roots.length) return { roots, pages: 1 };
+    }
+    if (figma.currentPage.selection.length) return { roots: [...figma.currentPage.selection], pages: 1 };
   }
   return { roots: [figma.currentPage], pages: 1 };
 }
@@ -212,19 +224,21 @@ export async function runScan(
   });
 
   // 1. Périmètre
-  const { roots, pages } = await resolveRoots(req.scope);
-  const label = scopeLabel(req.scope, roots);
+  const { roots, pages } = await resolveRoots(req.scope, req.rootIds);
+  // Une sélection introuvable (calques supprimés, autre page) retombe sur la page : le libellé le dit.
+  const effectiveScope: ScanScope = req.scope === 'selection' && roots.length === 1 && roots[0].type === 'PAGE' ? 'page' : req.scope;
+  const label = scopeLabel(effectiveScope, roots);
 
   // 2. Index des tokens
   emit({ phase: 'indexing' });
   await indexTokens(ctx);
-  if (isCancelled()) return finish(true, req.scope, label, pages, 0);
+  if (isCancelled()) return finish(true, effectiveScope, label, pages, 0);
 
   // 3. Collecte des nodes
   emit({ phase: 'collecting' });
   const types = collectTypes(checkRules);
   const nodes = await collectNodes(roots, types, ctx);
-  if (isCancelled()) return finish(true, req.scope, label, pages, 0);
+  if (isCancelled()) return finish(true, effectiveScope, label, pages, 0);
   await learnRemoteStyles(nodes, ctx);
   emit({ phase: 'scanning', scanned: 0, total: nodes.length });
 
@@ -269,13 +283,13 @@ export async function runScan(
         emit({ phase: 'scanning', scanned, total: nodes.length });
         await yieldToHost();
         lastYield = Date.now();
-        if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+        if (isCancelled()) return finish(true, effectiveScope, label, pages, scanned);
       }
     }
   }
   emit({ phase: 'scanning', scanned, total: nodes.length });
   await yieldToHost();
-  if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+  if (isCancelled()) return finish(true, effectiveScope, label, pages, scanned);
 
   // 5. Règles agrégées
   emit({ phase: 'finalizing', scanned, total: nodes.length });
@@ -288,7 +302,7 @@ export async function runScan(
       ctx.warnings.push(`rule:${rule.id}`);
     }
     await yieldToHost();
-    if (isCancelled()) return finish(true, req.scope, label, pages, scanned);
+    if (isCancelled()) return finish(true, effectiveScope, label, pages, scanned);
   }
   // Dédoublonne les avertissements.
   ctx.warnings.splice(0, ctx.warnings.length, ...new Set(ctx.warnings));
@@ -298,5 +312,5 @@ export async function runScan(
   const catOrder: Record<Category, number> = { colors: 0, typography: 1, spacing: 2, radius: 3, components: 4, tokens: 5, craft: 6, a11y: 7, handoff: 8 };
   issues.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity] || catOrder[a.category] - catOrder[b.category] || a.groupKey.localeCompare(b.groupKey));
 
-  return finish(false, req.scope, label, pages, scanned);
+  return finish(false, effectiveScope, label, pages, scanned);
 }

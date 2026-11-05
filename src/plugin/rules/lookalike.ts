@@ -8,7 +8,7 @@
 import { rgbToHex } from '../../shared/color';
 import { bestLookalike, nameOverlap, type LookalikeCandidate, type VisualSig } from '../../shared/lookalike';
 import { matchBest, summarizeOverrides } from '../../shared/reattach';
-import { MAX_FORCED_EXTRAS, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
+import { MAX_FORCED_EXTRAS, componentTree, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
 import { addComponent, buildComponentIndex, familyOf, noteInstance } from '../scan/component-index';
 import { yieldToHost, type RawIssue, type ScanContext } from '../scan/context';
 import { ancestors } from '../scan/node-info';
@@ -215,7 +215,7 @@ export const lookalikeRules: Rule[] = [
         if (!found) continue;
         const comp = found.item;
         const frameTree = await toTree(frame, 0, newBudget());
-        const result = matchBest(frameTree, await toTree(comp, 0, newBudget()));
+        const result = matchBest(frameTree, await componentTree(ctx, comp));
         const label = variantLabel(comp);
         const score = Math.round(found.score * 100);
         if (result.extras.length > MAX_FORCED_EXTRAS) {
@@ -226,7 +226,7 @@ export const lookalikeRules: Rule[] = [
         const alternatives: { id: string; label: string; value: string }[] = [];
         const alternativePlans: Record<string, ReturnType<typeof reattachPlan>> = {};
         for (const alt of found.alternatives) {
-          const altResult = matchBest(frameTree, await toTree(alt.item, 0, newBudget()));
+          const altResult = matchBest(frameTree, await componentTree(ctx, alt.item));
           if (altResult.extras.length > MAX_FORCED_EXTRAS) continue;
           const id = `comp:${alt.item.id}`;
           alternatives.push({ id, label: variantLabel(alt.item), value: `${Math.round(alt.score * 100)} %` });

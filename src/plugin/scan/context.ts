@@ -118,9 +118,15 @@ export interface ScanContext {
   /** Composants candidats (locaux, autres pages, librairie via les instances), par id ; voir scan/component-index. */
   componentPool: Map<string, { comp: ComponentNode; source: 'local' | 'otherPages' | 'library' }>;
   instanceLookups: { count: number; ms: number };
+  /** Instances déjà interrogées (nom et taille) : mille instances d'un même bouton ne coûtent qu'une recherche. */
+  instanceLookupKeys: Set<string>;
   componentIndex: import('./component-index').ComponentIndex | null;
   /** Détachés dont le composant d'origine est introuvable : candidats à la ressemblance. */
   reattachMissingOrigin: Set<string>;
+  /** Arbres de comparaison des composants candidats, calculés une fois par analyse (voir reattach-live). */
+  componentTrees: Map<string, import('../../shared/reattach').TreeNode>;
+  /** Composants de librairie importés par clé pendant l'analyse (null : import impossible). */
+  importedComponents: Map<string, ComponentNode | null>;
   // ---- Pro ---------------------------------------------------------------
   scope: ScanScope;
   localVariables: Variable[];
@@ -322,8 +328,11 @@ export function createContext(
     lookalikeFrames: [],
     componentPool: new Map(),
     instanceLookups: { count: 0, ms: 0 },
+    instanceLookupKeys: new Set(),
     componentIndex: null,
     reattachMissingOrigin: new Set(),
+    componentTrees: new Map(),
+    importedComponents: new Map(),
     scope: 'page',
     localVariables: [],
     collectionsById: new Map(),
@@ -347,6 +356,32 @@ export function createContext(
 const MAX_LIBRARY_VARIABLES = 800;
 /** Imports de variables de librairie lancés en parallèle (chaque import est une requête réseau). */
 const IMPORT_BATCH = 40;
+/**
+ * Variables de librairie déjà importées pendant cette ouverture du plugin, par clé.
+ * L'import est la partie lente d'une analyse sur un fichier relié à une librairie (une dizaine de
+ * secondes) : une relance sur une sélection ne doit pas la repayer. Un import raté n'est pas mémorisé.
+ */
+const importedLibraryVariables = new Map<string, Variable>();
+
+async function importLibraryVariable(key: string): Promise<Variable | null> {
+  const cached = importedLibraryVariables.get(key);
+  if (cached) {
+    try {
+      // Une variable mémorisée peut avoir été invalidée (librairie retirée) : on vérifie qu'elle se lit encore.
+      void cached.valuesByMode;
+      return cached;
+    } catch {
+      importedLibraryVariables.delete(key);
+    }
+  }
+  try {
+    const variable = await figma.variables.importVariableByKeyAsync(key);
+    importedLibraryVariables.set(key, variable);
+    return variable;
+  } catch {
+    return null; // variable individuelle illisible : on continue
+  }
+}
 
 /** Indexe variables et styles locaux, puis (optionnel) les variables des librairies activées. */
 export async function indexTokens(ctx: ScanContext): Promise<void> {
@@ -404,14 +439,19 @@ export async function indexTokens(ctx: ScanContext): Promise<void> {
         ctx.reportProgress({ phase: 'indexing', detail: batch[0].libraryName, scanned: i, total: queue.length });
         const imported = await Promise.all(
           batch.map(async ({ key, libraryName }) => {
-            try {
-              return { variable: await figma.variables.importVariableByKeyAsync(key), libraryName };
-            } catch {
-              return null; // variable individuelle illisible : on continue
-            }
+            const variable = await importLibraryVariable(key);
+            return variable ? { variable, libraryName } : null;
           }),
         );
-        for (const entry of imported) if (entry) await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+        for (const entry of imported) {
+          if (!entry) continue;
+          try {
+            await indexVariable(ctx, entry.variable, entry.libraryName, collectionCache);
+          } catch {
+            // Variable mémorisée devenue illisible : on l'oublie, le prochain passage la réimportera.
+            importedLibraryVariables.delete(entry.variable.key);
+          }
+        }
         await yieldToHost();
         if (ctx.isCancelled()) return;
       }

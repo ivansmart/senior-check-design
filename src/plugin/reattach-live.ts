@@ -6,6 +6,7 @@
 import { visualPaintKey } from '../shared/paint-key';
 import type { MatchResult, TreeNode } from '../shared/reattach';
 import type { FixPlan } from './fix/plans';
+import type { ScanContext } from './scan/context';
 
 /** Bornes de l'arbre comparé pour le rattachement (profondeur et nombre de calques). */
 export const TREE_MAX_DEPTH = 6;
@@ -59,6 +60,31 @@ export async function toTree(node: SceneNode, depth: number, budget: { left: num
     }
   }
   return t;
+}
+
+/**
+ * Arbre d'un composant candidat, calculé une fois par analyse : vingt détachés d'un même bouton
+ * comparés à quarante variantes ne lisent plus huit cents fois les mêmes calques.
+ */
+export async function componentTree(ctx: ScanContext, comp: ComponentNode): Promise<TreeNode> {
+  const cached = ctx.componentTrees.get(comp.id);
+  if (cached) return cached;
+  const tree = await toTree(comp, 0, newBudget());
+  ctx.componentTrees.set(comp.id, tree);
+  return tree;
+}
+
+/** Composant de librairie importé par clé, une fois par analyse (un import est une requête réseau). */
+export async function importComponentCached(ctx: ScanContext, key: string): Promise<ComponentNode | null> {
+  if (ctx.importedComponents.has(key)) return ctx.importedComponents.get(key) ?? null;
+  let comp: ComponentNode | null = null;
+  try {
+    comp = await figma.importComponentByKeyAsync(key);
+  } catch {
+    comp = null;
+  }
+  ctx.importedComponents.set(key, comp);
+  return comp;
 }
 
 export function variantLabel(comp: ComponentNode): string {

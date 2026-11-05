@@ -2,7 +2,7 @@
 /** Composants (Pro) : rattachement des instances détachées, obsolètes encore utilisés, variantes orphelines, imbrications inutiles, documentation et statut. */
 import { DEPRECATED_RE, STATUS_RE } from '../../shared/names';
 import { forcedCost, matchBest, summarizeOverrides, type MatchResult } from '../../shared/reattach';
-import { MAX_FORCED_EXTRAS, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
+import { MAX_FORCED_EXTRAS, componentTree, importComponentCached, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
 import { addComponent } from '../scan/component-index';
 import type { RawIssue, ScanContext } from '../scan/context';
 import { ancestors, pageOf } from '../scan/node-info';
@@ -11,13 +11,13 @@ import type { Rule } from './types';
 /** Variantes sœurs comparées au détaché (un jeu plus grand est tronqué dans l'ordre du jeu). */
 const MAX_VARIANT_CANDIDATES = 40;
 
-async function originComponent(info: DetachedInfo): Promise<ComponentNode | null> {
+async function originComponent(info: DetachedInfo, ctx: ScanContext): Promise<ComponentNode | null> {
   try {
     if (info.type === 'local') {
       const node = await figma.getNodeByIdAsync(info.componentId);
       return node && node.type === 'COMPONENT' && !node.removed ? node : null;
     }
-    return await figma.importComponentByKeyAsync(info.componentKey);
+    return await importComponentCached(ctx, info.componentKey);
   } catch {
     return null;
   }
@@ -31,7 +31,7 @@ async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIss
   const info = frame.detachedInfo;
   if (!info) return;
   if (ancestors(frame, ctx).some((a) => a.type === 'INSTANCE')) return [manualReattach(frame, 'inside-instance')];
-  const origin = await originComponent(info);
+  const origin = await originComponent(info, ctx);
   if (!origin) {
     // Origine introuvable : la règle de ressemblance pourra encore proposer un composant local.
     ctx.reattachMissingOrigin.add(frame.id);
@@ -46,7 +46,7 @@ async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIss
   const all: { comp: ComponentNode; result: MatchResult }[] = [];
   for (const comp of candidates) {
     // Par structure quand elle correspond ; sinon par contenu (feuilles en ordre de lecture) si c'est plus fidèle.
-    const result = matchBest(detachedTree, await toTree(comp, 0, newBudget()));
+    const result = matchBest(detachedTree, await componentTree(ctx, comp));
     all.push({ comp, result });
     if (result.ok) matches.push({ comp, result });
   }
