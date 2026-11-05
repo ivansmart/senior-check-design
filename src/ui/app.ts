@@ -712,6 +712,7 @@ function renderTabBody(): HTMLElement {
     else if (w === 'libraries-unavailable') text = t('warnLibrariesUnavailable');
     else if (w === 'libraries-no-permission') text = t('warnLibrariesNoPermission');
     else if (w.startsWith('library:')) text = t('warnLibrary', { name: w.slice(8) });
+    else if (w === 'components-library-partial') text = t('warnLibraryComponentsPartial');
     else if (w.startsWith('rule-slow:')) text = t('warnRuleSlow', { rule: state.i18n.ruleTitle(w.slice(10)) });
     else if (w.startsWith('rule-partial:')) text = t('warnRulePartial', { rule: state.i18n.ruleTitle(w.slice(13)) });
     else if (w.startsWith('rule:')) text = t('warnRule', { rule: state.i18n.ruleTitle(w.slice(5)) });

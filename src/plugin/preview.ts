@@ -178,22 +178,33 @@ async function renderRoot(root: SceneNode, located: Located[]): Promise<RenderRe
   const inside = located.filter(({ node }) => isWithin(node, root));
   const scale = Math.min(4, MAX_EDGE / Math.max(root.width, root.height));
   const before = await exportPng(root, scale);
-  let clone: SceneNode | null = null;
+  let holder: FrameNode | null = null;
   let applied = 0;
   let failed = 0;
   try {
     // Même ordre que l'application réelle : valeurs d'abord, puis rattachements du plus profond au moins profond.
     const paths = sortForApply(inside, ({ item, node }) => ({ reattach: item.plan.kind === 'reattach-instance', depth: nodeDepth(node) })).map(({ item, node }) => ({ item, path: indexPath(root, node) }));
-    clone = root.clone();
-    clone.setPluginData(PREVIEW_TAG, '1');
+    // Le clone vit dans un cadre d'accueil : quand une correction remplace le clone lui-même (rattachement du cadre
+    // sélectionné), c'est l'accueil qui est exporté, puis supprimé avec tout ce qui a été créé dedans.
+    holder = figma.createFrame();
+    holder.setPluginData(PREVIEW_TAG, '1');
+    holder.name = `${root.name} (aperçu)`;
+    holder.fills = [];
+    holder.strokes = [];
+    holder.clipsContent = false;
+    page.appendChild(holder);
+    holder.x = FAR;
+    holder.y = FAR;
+    holder.resizeWithoutConstraints(root.width, root.height);
+    const clone = root.clone();
     clone.name = root.name;
-    page.appendChild(clone);
-    clone.x = FAR;
-    clone.y = FAR;
-    clone.locked = true;
+    holder.appendChild(clone);
+    clone.x = 0;
+    clone.y = 0;
     await copyResolvedModes(root, clone);
+    holder.locked = true;
     for (const { item, path } of paths) {
-      const target = path ? follow(clone, path) : null;
+      const target = path && !clone.removed ? follow(clone, path) : null;
       if (!target) {
         failed++;
         continue;
@@ -205,10 +216,10 @@ async function renderRoot(root: SceneNode, located: Located[]): Promise<RenderRe
         failed++;
       }
     }
-    const after = await exportPng(clone, scale);
+    const after = await exportPng(holder, scale);
     return { frame: { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) } };
   } finally {
-    if (clone && !clone.removed) clone.remove();
+    if (holder && !holder.removed) holder.remove();
   }
 }
 

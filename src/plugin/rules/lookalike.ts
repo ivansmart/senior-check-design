@@ -229,6 +229,7 @@ export const lookalikeRules: Rule[] = [
       // Candidats : page analysée, autres pages (option), librairies via les instances du fichier.
       const index = await buildComponentIndex(ctx);
       if (index.partial) ctx.warnings.push(`rule-partial:${RULE_ID}`);
+      if (index.libraryPartial) ctx.warnings.push('components-library-partial');
       const comps = index.components.filter(fits);
       const t0 = Date.now();
       // 1. Racine seule de chaque candidat (mémorisée) : quelques lectures par composant, même sur un fichier qui en compte des milliers.

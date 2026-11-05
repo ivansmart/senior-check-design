@@ -74,14 +74,15 @@ export async function componentTree(ctx: ScanContext, comp: ComponentNode): Prom
   return tree;
 }
 
-/** Composant de librairie importé par clé, une fois par analyse (un import est une requête réseau). */
+/** Composant de librairie importé par clé, une fois par analyse (un import est une requête réseau). L'erreur éventuelle est conservée. */
 export async function importComponentCached(ctx: ScanContext, key: string): Promise<ComponentNode | null> {
   if (ctx.importedComponents.has(key)) return ctx.importedComponents.get(key) ?? null;
   let comp: ComponentNode | null = null;
   try {
     comp = await figma.importComponentByKeyAsync(key);
-  } catch {
+  } catch (e) {
     comp = null;
+    ctx.importErrors.set(key, e instanceof Error ? e.message : String(e));
   }
   ctx.importedComponents.set(key, comp);
   return comp;

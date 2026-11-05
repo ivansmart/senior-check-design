@@ -3,84 +3,141 @@
 import { DEPRECATED_RE, STATUS_RE } from '../../shared/names';
 import { forcedCost, matchBest, summarizeOverrides, type MatchResult } from '../../shared/reattach';
 import { MAX_FORCED_EXTRAS, componentTree, importComponentCached, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
-import { addComponent } from '../scan/component-index';
-import type { RawIssue, ScanContext } from '../scan/context';
+import { addComponent, buildComponentIndex, noteInstance } from '../scan/component-index';
+import { yieldToHost, type RawIssue, type ScanContext } from '../scan/context';
 import { ancestors, pageOf } from '../scan/node-info';
 import type { Rule } from './types';
 
 /** Variantes sœurs comparées au détaché (un jeu plus grand est tronqué dans l'ordre du jeu). */
 const MAX_VARIANT_CANDIDATES = 40;
+/** Temps total consacré aux rattachements d'une analyse (imports de librairie compris). */
+const REATTACH_BUDGET_MS = 8000;
 
-async function originComponent(info: DetachedInfo, ctx: ScanContext): Promise<ComponentNode | null> {
-  try {
-    if (info.type === 'local') {
-      const node = await figma.getNodeByIdAsync(info.componentId);
-      return node && node.type === 'COMPONENT' && !node.removed ? node : null;
+interface Origin {
+  comp: ComponentNode | null;
+  /** Message de l'API quand aucun composant n'a pu être retrouvé. */
+  error?: string;
+}
+
+const firstVariant = (set: ComponentSetNode): ComponentNode | null => set.defaultVariant ?? set.children.find((c): c is ComponentNode => c.type === 'COMPONENT') ?? null;
+
+/** Composants de librairie déjà matérialisés dans le fichier par une instance vivante, par clé de publication. */
+function liveLibraryComponents(ctx: ScanContext): Map<string, ComponentNode> {
+  const byKey = new Map<string, ComponentNode>();
+  for (const { comp } of ctx.componentPool.values()) if (comp.remote && !comp.removed && comp.key) byKey.set(comp.key, comp);
+  return byKey;
+}
+
+/**
+ * Composant d'origine d'un détaché. Local : par identifiant. Librairie : d'abord un composant déjà présent dans le
+ * fichier grâce à une instance vivante (aucun import), puis l'import par clé de composant, puis par clé de jeu de
+ * variantes (la clé conservée par un détachement peut désigner le jeu). Le message de la dernière erreur est gardé.
+ */
+async function resolveOrigin(info: DetachedInfo, ctx: ScanContext, live: Map<string, ComponentNode>): Promise<Origin> {
+  if (info.type === 'local') {
+    let node: BaseNode | null = null;
+    try {
+      node = await figma.getNodeByIdAsync(info.componentId);
+    } catch {
+      node = null;
     }
-    return await importComponentCached(ctx, info.componentKey);
-  } catch {
-    return null;
+    if (node && node.type === 'COMPONENT' && !node.removed) return { comp: node };
+    if (node && node.type === 'COMPONENT_SET' && !node.removed) return { comp: firstVariant(node) };
+    return { comp: null };
   }
+  const present = live.get(info.componentKey);
+  if (present) return { comp: present };
+  const imported = await importComponentCached(ctx, info.componentKey);
+  if (imported) return { comp: imported };
+  let error = ctx.importErrors.get(info.componentKey);
+  try {
+    const set = await figma.importComponentSetByKeyAsync(info.componentKey);
+    const variant = firstVariant(set);
+    if (variant) return { comp: variant };
+  } catch (e) {
+    error = error ?? (e instanceof Error ? e.message : String(e));
+  }
+  return { comp: null, error };
 }
 
 function manualReattach(frame: FrameNode, reason: string, detail = ''): RawIssue {
   return { ruleId: 'components/reattach-instance', node: frame, currentValue: frame.name, fixSafety: 'none', params: { confidence: 'none', reason, detail, origin: frame.detachedInfo?.type ?? 'local' } };
 }
 
-async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIssue[] | void> {
-  const info = frame.detachedInfo;
-  if (!info) return;
-  if (ancestors(frame, ctx).some((a) => a.type === 'INSTANCE')) return [manualReattach(frame, 'inside-instance')];
-  const origin = await originComponent(info, ctx);
-  if (!origin) {
-    // Origine introuvable : la règle de ressemblance pourra encore proposer un composant local.
-    ctx.reattachMissingOrigin.add(frame.id);
-    return [manualReattach(frame, 'component-missing')];
+/** Nom comparable d'un composant ou d'un cadre : casse, espaces et ponctuation ignorées. */
+const nameKey = (s: string) => s.toLowerCase().replace(/[\s_\-./:,;()[\]{}'"]+/g, '');
+/** Plafond des candidats de même nom (un jeu est déjà échantillonné dans l'index). */
+const MAX_NAME_CANDIDATES = 80;
+
+/**
+ * Composants de l'index portant le nom du détaché (nom du jeu de variantes ou du composant) : un détaché dont la
+ * librairie est inaccessible retrouve ainsi l'équivalent connu du fichier. Les composants locaux passent d'abord.
+ */
+function sameNameCandidates(ctx: ScanContext, frame: FrameNode): ComponentNode[] {
+  const wanted = nameKey(frame.name);
+  if (!wanted) return [];
+  const out: ComponentNode[] = [];
+  for (const { comp } of ctx.componentPool.values()) {
+    if (comp.removed) continue;
+    const set = comp.parent?.type === 'COMPONENT_SET' ? comp.parent : null;
+    if (nameKey(set ? set.name : comp.name) === wanted || (set !== null && nameKey(comp.name) === wanted)) out.push(comp);
   }
-  // L'origine (et ses variantes sœurs) rejoint l'index des candidats : utile aux autres cadres, y compris pour une librairie.
-  addComponent(ctx, origin, origin.remote ? 'library' : pageOf(origin)?.id === figma.currentPage.id ? 'local' : 'otherPages');
-  const set = origin.parent?.type === 'COMPONENT_SET' ? origin.parent : null;
-  const candidates: ComponentNode[] = [origin, ...(set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT' && c.id !== origin.id) : [])].slice(0, MAX_VARIANT_CANDIDATES);
+  return out.sort((a, b) => Number(a.remote) - Number(b.remote)).slice(0, MAX_NAME_CANDIDATES);
+}
+
+interface Scored {
+  comp: ComponentNode;
+  result: MatchResult;
+}
+
+/**
+ * Proposition parmi des candidats : la variante qui demande le moins d'overrides quand la structure correspond ;
+ * sinon un rattachement « forcé » (consentement) tant que les calques ajoutés restent peu nombreux. Par le nom
+ * (`via`), un détaché sans correspondance forcée possible revient à la règle de ressemblance plutôt qu'en manuel.
+ */
+async function proposeReattach(frame: FrameNode, info: DetachedInfo, ctx: ScanContext, candidates: ComponentNode[], origin: ComponentNode | null, via?: 'name'): Promise<RawIssue | null> {
   const detachedTree = await toTree(frame, 0, newBudget());
-  const matches: { comp: ComponentNode; result: MatchResult }[] = [];
-  const all: { comp: ComponentNode; result: MatchResult }[] = [];
-  for (const comp of candidates) {
+  const matches: Scored[] = [];
+  const all: Scored[] = [];
+  for (let i = 0; i < candidates.length; i++) {
+    if (i % 20 === 19) await yieldToHost();
+    const comp = candidates[i];
     // Par structure quand elle correspond ; sinon par contenu (feuilles en ordre de lecture) si c'est plus fidèle.
     const result = matchBest(detachedTree, await componentTree(ctx, comp));
     all.push({ comp, result });
     if (result.ok) matches.push({ comp, result });
   }
+  const extra: Record<string, string> = via ? { via } : {};
   if (!matches.length) {
     // Structure divergente : rattachement « forcé » possible avec consentement, rendu conservé
     // (overrides reproductibles + calques ajoutés gardés au-dessus de l'instance dans un cadre).
     all.sort((a, b) => forcedCost(a.result) - forcedCost(b.result) || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
     const best = all[0];
-    if (!best || best.result.extras.length > MAX_FORCED_EXTRAS) return [manualReattach(frame, 'structure', reasonDetail(best?.result.reasons ?? []))];
+    if (!best || best.result.extras.length > MAX_FORCED_EXTRAS) return via ? null : manualReattach(frame, 'structure', reasonDetail(best?.result.reasons ?? []));
     const sum = summarizeOverrides(best.result);
     const label = variantLabel(best.comp);
-    return [
-      {
-        ruleId: 'components/reattach-instance',
-        node: frame,
-        currentValue: frame.name,
-        suggestion: { kind: 'component', id: best.comp.id, label, confidence: 'ambiguous', source: best.comp.remote ? 'Library' : 'Local' },
-        fixSafety: 'review',
-        params: {
-          confidence: 'forced',
-          component: label,
-          detail: reasonDetail(best.result.reasons),
-          extras: best.result.extras.length,
-          hidden: best.result.stats.hidden,
-          match: best.result.mode ?? 'tree',
-          total: best.result.overrides.length,
-          texts: sum.texts,
-          visibility: sum.visibility,
-          paints: sum.paints,
-          origin: info.type,
-        },
-        plan: reattachPlan(frame, best.comp, best.result, true),
+    return {
+      ruleId: 'components/reattach-instance',
+      node: frame,
+      currentValue: frame.name,
+      suggestion: { kind: 'component', id: best.comp.id, label, confidence: 'ambiguous', source: best.comp.remote ? 'Library' : 'Local' },
+      fixSafety: 'review',
+      params: {
+        confidence: 'forced',
+        component: label,
+        detail: reasonDetail(best.result.reasons),
+        extras: best.result.extras.length,
+        hidden: best.result.stats.hidden,
+        match: best.result.mode ?? 'tree',
+        total: best.result.overrides.length,
+        texts: sum.texts,
+        visibility: sum.visibility,
+        paints: sum.paints,
+        origin: info.type,
+        ...extra,
       },
-    ];
+      plan: reattachPlan(frame, best.comp, best.result, true),
+    };
   }
   // La variante qui demande le moins d'overrides ; à égalité, celle d'origine.
   matches.sort((a, b) => a.result.overrides.length - b.result.overrides.length || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
@@ -89,25 +146,47 @@ async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIss
   const sum = summarizeOverrides(best.result);
   const exact = best.result.overrides.length === 0;
   const label = variantLabel(best.comp);
-  return [
-    {
-      ruleId: 'components/reattach-instance',
-      node: frame,
-      currentValue: frame.name,
-      suggestion: {
-        kind: 'component',
-        id: best.comp.id,
-        label,
-        confidence: exact ? 'exact' : 'close',
-        source: best.comp.remote ? 'Library' : 'Local',
-        alternatives: others.length ? others.map((o) => ({ id: `comp:${o.comp.id}`, label: variantLabel(o.comp), value: `${o.result.overrides.length}` })) : undefined,
-      },
-      fixSafety: exact ? 'safe' : 'review',
-      params: { confidence: exact ? 'exact' : 'close', component: label, total: best.result.overrides.length, texts: sum.texts, visibility: sum.visibility, paints: sum.paints, other: sum.other, origin: info.type },
-      plan: reattachPlan(frame, best.comp, best.result),
-      alternativePlans: Object.fromEntries(others.map((o) => [`comp:${o.comp.id}`, reattachPlan(frame, o.comp, o.result)])),
+  return {
+    ruleId: 'components/reattach-instance',
+    node: frame,
+    currentValue: frame.name,
+    suggestion: {
+      kind: 'component',
+      id: best.comp.id,
+      label,
+      confidence: exact ? 'exact' : 'close',
+      source: best.comp.remote ? 'Library' : 'Local',
+      alternatives: others.length ? others.map((o) => ({ id: `comp:${o.comp.id}`, label: variantLabel(o.comp), value: `${o.result.overrides.length}` })) : undefined,
     },
-  ];
+    fixSafety: exact ? 'safe' : 'review',
+    params: { confidence: exact ? 'exact' : 'close', component: label, total: best.result.overrides.length, texts: sum.texts, visibility: sum.visibility, paints: sum.paints, other: sum.other, origin: info.type, ...extra },
+    plan: reattachPlan(frame, best.comp, best.result),
+    alternativePlans: Object.fromEntries(others.map((o) => [`comp:${o.comp.id}`, reattachPlan(frame, o.comp, o.result)])),
+  };
+}
+
+async function checkReattach(frame: FrameNode, ctx: ScanContext, live: Map<string, ComponentNode>): Promise<RawIssue[] | void> {
+  const info = frame.detachedInfo;
+  if (!info) return;
+  const resolved = await resolveOrigin(info, ctx, live);
+  const origin = resolved.comp;
+  if (!origin) {
+    // Origine introuvable (librairie non publiée, retirée ou sans accès) : l'équivalent de même nom connu du fichier
+    // est proposé s'il reproduit fidèlement le détaché ; sinon la règle de ressemblance pourra encore proposer un composant.
+    const byName = sameNameCandidates(ctx, frame);
+    const proposal = byName.length ? await proposeReattach(frame, info, ctx, byName, null, 'name') : null;
+    if (proposal) return [proposal];
+    ctx.reattachMissingOrigin.add(frame.id);
+    const error = resolved.error ?? '';
+    if (/not found/i.test(error)) return [manualReattach(frame, byName.length ? 'component-unpublished-diverged' : 'component-unpublished', byName.length ? variantLabel(byName[0]) : error)];
+    return [manualReattach(frame, error ? 'component-missing-detail' : 'component-missing', error)];
+  }
+  // L'origine (et ses variantes sœurs) rejoint l'index des candidats : utile aux autres cadres, y compris pour une librairie.
+  addComponent(ctx, origin, origin.remote ? 'library' : pageOf(origin)?.id === figma.currentPage.id ? 'local' : 'otherPages');
+  const set = origin.parent?.type === 'COMPONENT_SET' ? origin.parent : null;
+  const candidates: ComponentNode[] = [origin, ...(set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT' && c.id !== origin.id) : [])].slice(0, MAX_VARIANT_CANDIDATES);
+  const proposal = await proposeReattach(frame, info, ctx, candidates, origin);
+  return proposal ? [proposal] : undefined;
 }
 
 /** getInstancesAsync parcourt tout le document : borné en nombre et en temps, et seulement en périmètre fichier. */
@@ -124,8 +203,46 @@ const hasVisible = (paints: readonly Paint[] | typeof figma.mixed) => paints !==
 export const componentProRules: Rule[] = [
   {
     id: 'components/reattach-instance',
-    types: ['FRAME'],
-    check: (node, ctx) => checkReattach(node as FrameNode, ctx),
+    types: ['FRAME', 'COMPONENT', 'INSTANCE'],
+    // Le parcours recense les détachés et alimente l'index des candidats (composants rencontrés, composants de librairie
+    // des instances) ; le rattachement se décide en phase finale, une fois l'index complété (autres pages), hors du
+    // budget de temps par calque.
+    check: async (node, ctx) => {
+      if (node.type === 'COMPONENT') {
+        addComponent(ctx, node, 'local');
+        return;
+      }
+      if (node.type === 'INSTANCE') {
+        await noteInstance(ctx, node);
+        return;
+      }
+      const frame = node as FrameNode;
+      if (!frame.detachedInfo) return;
+      if (ancestors(frame, ctx).some((a) => a.type === 'INSTANCE')) return [manualReattach(frame, 'inside-instance')];
+      ctx.detachedFrames.push(frame);
+    },
+    finalize: async (ctx) => {
+      const frames = ctx.detachedFrames.filter((f) => !f.removed);
+      if (!frames.length) return;
+      await buildComponentIndex(ctx);
+      const live = liveLibraryComponents(ctx);
+      const out: RawIssue[] = [];
+      const t0 = Date.now();
+      for (let i = 0; i < frames.length; i++) {
+        if (Date.now() - t0 > REATTACH_BUDGET_MS || ctx.isCancelled()) {
+          ctx.warnings.push('rule-partial:components/reattach-instance');
+          break;
+        }
+        if (i % 5 === 4) await yieldToHost();
+        try {
+          const issues = await checkReattach(frames[i], ctx, live);
+          if (issues) out.push(...issues);
+        } catch {
+          ctx.warnings.push('rule:components/reattach-instance');
+        }
+      }
+      return out;
+    },
   },
   {
     id: 'components/deprecated-in-use',

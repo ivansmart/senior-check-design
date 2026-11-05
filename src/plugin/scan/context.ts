@@ -122,6 +122,8 @@ export interface ScanContext {
   instanceLookupKeys: Set<string>;
   /** Jeux de variantes déjà échantillonnés dans l'index : un jeu de mille variantes n'est lu qu'une fois. */
   familiesIndexed: Set<string>;
+  /** Noms des composants et jeux locaux indexés : une instance qui porte l'un de ces noms n'a pas besoin de recherche. */
+  localComponentNames: Set<string>;
   componentIndex: import('./component-index').ComponentIndex | null;
   /** Détachés dont le composant d'origine est introuvable : candidats à la ressemblance. */
   reattachMissingOrigin: Set<string>;
@@ -129,6 +131,10 @@ export interface ScanContext {
   componentTrees: Map<string, import('../../shared/reattach').TreeNode>;
   /** Composants de librairie importés par clé pendant l'analyse (null : import impossible). */
   importedComponents: Map<string, ComponentNode | null>;
+  /** Message d'erreur d'un import de composant raté, par clé : affiché dans la ligne pour expliquer le rattachement manuel. */
+  importErrors: Map<string, string>;
+  /** Instances détachées rencontrées pendant le parcours : rattachées en phase finale, une fois l'index des composants construit. */
+  detachedFrames: FrameNode[];
   // ---- Pro ---------------------------------------------------------------
   scope: ScanScope;
   localVariables: Variable[];
@@ -332,10 +338,13 @@ export function createContext(
     instanceLookups: { count: 0, ms: 0 },
     instanceLookupKeys: new Set(),
     familiesIndexed: new Set(),
+    localComponentNames: new Set(),
     componentIndex: null,
     reattachMissingOrigin: new Set(),
     componentTrees: new Map(),
     importedComponents: new Map(),
+    importErrors: new Map(),
+    detachedFrames: [],
     scope: 'page',
     localVariables: [],
     collectionsById: new Map(),

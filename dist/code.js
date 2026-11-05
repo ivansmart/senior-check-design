@@ -888,8 +888,9 @@ module.exports = {
     let comp = null;
     try {
       comp = await figma.importComponentByKeyAsync(key);
-    } catch {
+    } catch (e) {
       comp = null;
+      ctx.importErrors.set(key, e instanceof Error ? e.message : String(e));
     }
     ctx.importedComponents.set(key, comp);
     return comp;
@@ -1501,21 +1502,30 @@ module.exports = {
     const inside = located.filter(({ node }) => isWithin(node, root));
     const scale = Math.min(4, MAX_EDGE / Math.max(root.width, root.height));
     const before = await exportPng(root, scale);
-    let clone2 = null;
+    let holder = null;
     let applied = 0;
     let failed = 0;
     try {
       const paths = sortForApply(inside, ({ item, node }) => ({ reattach: item.plan.kind === "reattach-instance", depth: nodeDepth(node) })).map(({ item, node }) => ({ item, path: indexPath(root, node) }));
-      clone2 = root.clone();
-      clone2.setPluginData(PREVIEW_TAG, "1");
+      holder = figma.createFrame();
+      holder.setPluginData(PREVIEW_TAG, "1");
+      holder.name = `${root.name} (aper\xE7u)`;
+      holder.fills = [];
+      holder.strokes = [];
+      holder.clipsContent = false;
+      page.appendChild(holder);
+      holder.x = FAR;
+      holder.y = FAR;
+      holder.resizeWithoutConstraints(root.width, root.height);
+      const clone2 = root.clone();
       clone2.name = root.name;
-      page.appendChild(clone2);
-      clone2.x = FAR;
-      clone2.y = FAR;
-      clone2.locked = true;
+      holder.appendChild(clone2);
+      clone2.x = 0;
+      clone2.y = 0;
       await copyResolvedModes(root, clone2);
+      holder.locked = true;
       for (const { item, path } of paths) {
-        const target = path ? follow(clone2, path) : null;
+        const target = path && !clone2.removed ? follow(clone2, path) : null;
         if (!target) {
           failed++;
           continue;
@@ -1527,10 +1537,10 @@ module.exports = {
           failed++;
         }
       }
-      const after = await exportPng(clone2, scale);
+      const after = await exportPng(holder, scale);
       return { frame: { rootId: root.id, name: root.name, width: root.width, height: root.height, scale, before, after, applied, failed, issueIds: inside.map((g) => g.item.issueId) } };
     } finally {
-      if (clone2 && !clone2.removed) clone2.remove();
+      if (holder && !holder.removed) holder.remove();
     }
   }
   async function renderPreview(req) {
@@ -2660,10 +2670,13 @@ module.exports = {
       instanceLookups: { count: 0, ms: 0 },
       instanceLookupKeys: /* @__PURE__ */ new Set(),
       familiesIndexed: /* @__PURE__ */ new Set(),
+      localComponentNames: /* @__PURE__ */ new Set(),
       componentIndex: null,
       reattachMissingOrigin: /* @__PURE__ */ new Set(),
       componentTrees: /* @__PURE__ */ new Map(),
       importedComponents: /* @__PURE__ */ new Map(),
+      importErrors: /* @__PURE__ */ new Map(),
+      detachedFrames: [],
       scope: "page",
       localVariables: [],
       collectionsById: /* @__PURE__ */ new Map(),
@@ -2805,6 +2818,7 @@ module.exports = {
       if (ctx.familiesIndexed.has(set.id)) return true;
       ctx.familiesIndexed.add(set.id);
     }
+    if (!comp.remote) ctx.localComponentNames.add(set ? set.name : comp.name);
     let members = set ? set.children.filter((c) => c.type === "COMPONENT") : [comp];
     if (members.length > MAX_PER_FAMILY) {
       const step = members.length / MAX_PER_FAMILY;
@@ -2820,10 +2834,12 @@ module.exports = {
     return true;
   }
   var instanceKey = (instance) => `${instance.name}|${Math.round(instance.width / 8)}|${Math.round(instance.height / 8)}`;
+  var lookupsExhausted = (ctx) => ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS;
   async function noteInstance(ctx, instance) {
     const key = instanceKey(instance);
     if (ctx.instanceLookupKeys.has(key)) return true;
-    if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) return false;
+    if (ctx.localComponentNames.has(instance.name)) return true;
+    if (lookupsExhausted(ctx)) return false;
     ctx.instanceLookupKeys.add(key);
     ctx.instanceLookups.count++;
     const t0 = Date.now();
@@ -2836,22 +2852,13 @@ module.exports = {
     return true;
   }
   async function indexPage(ctx, page, source) {
-    let complete = true;
-    for (const c of page.findAllWithCriteria({ types: ["COMPONENT"] })) {
-      if (!addComponent(ctx, c, source)) {
-        complete = false;
-        break;
-      }
-    }
+    for (const c of page.findAllWithCriteria({ types: ["COMPONENT"] })) if (!addComponent(ctx, c, source)) return false;
     const instances = page.findAllWithCriteria({ types: ["INSTANCE"] });
     for (let i = 0; i < instances.length; i++) {
-      if (!await noteInstance(ctx, instances[i])) {
-        complete = false;
-        break;
-      }
+      if (!await noteInstance(ctx, instances[i])) break;
       if (i % 100 === 99) await yieldToHost();
     }
-    return complete;
+    return true;
   }
   async function buildComponentIndex(ctx) {
     if (ctx.componentIndex) return ctx.componentIndex;
@@ -2886,10 +2893,10 @@ module.exports = {
         }
         if (pagesPartial) partial = true;
         ctx.reportProgress({ phase: "finalizing", scanned: others.length, total: others.length });
-        pagesCache = { at: Date.now(), key, entries: [...ctx.componentPool.values()].filter((e) => e.source !== "local"), partial: pagesPartial };
+        pagesCache = { at: Date.now(), key, entries: [...ctx.componentPool.values()].filter((e) => e.source !== "local"), partial: pagesPartial, libraryPartial: lookupsExhausted(ctx) };
       }
     }
-    if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) partial = true;
+    const libraryPartial = lookupsExhausted(ctx) || Boolean(fromCache && (pagesCache == null ? void 0 : pagesCache.libraryPartial));
     const sources = { local: 0, otherPages: 0, library: 0 };
     const components = [];
     for (const { comp, source } of ctx.componentPool.values()) {
@@ -2897,77 +2904,107 @@ module.exports = {
       components.push(comp);
       sources[source]++;
     }
-    ctx.componentIndex = { components, partial, sources, fromCache };
+    ctx.componentIndex = { components, partial, libraryPartial, sources, fromCache };
     return ctx.componentIndex;
   }
 
   // src/plugin/rules/components-pro.ts
   var MAX_VARIANT_CANDIDATES = 40;
-  async function originComponent(info, ctx) {
-    try {
-      if (info.type === "local") {
-        const node = await figma.getNodeByIdAsync(info.componentId);
-        return node && node.type === "COMPONENT" && !node.removed ? node : null;
+  var REATTACH_BUDGET_MS = 8e3;
+  var firstVariant = (set) => {
+    var _a, _b;
+    return (_b = (_a = set.defaultVariant) != null ? _a : set.children.find((c) => c.type === "COMPONENT")) != null ? _b : null;
+  };
+  function liveLibraryComponents(ctx) {
+    const byKey = /* @__PURE__ */ new Map();
+    for (const { comp } of ctx.componentPool.values()) if (comp.remote && !comp.removed && comp.key) byKey.set(comp.key, comp);
+    return byKey;
+  }
+  async function resolveOrigin(info, ctx, live) {
+    if (info.type === "local") {
+      let node = null;
+      try {
+        node = await figma.getNodeByIdAsync(info.componentId);
+      } catch {
+        node = null;
       }
-      return await importComponentCached(ctx, info.componentKey);
-    } catch {
-      return null;
+      if (node && node.type === "COMPONENT" && !node.removed) return { comp: node };
+      if (node && node.type === "COMPONENT_SET" && !node.removed) return { comp: firstVariant(node) };
+      return { comp: null };
     }
+    const present = live.get(info.componentKey);
+    if (present) return { comp: present };
+    const imported = await importComponentCached(ctx, info.componentKey);
+    if (imported) return { comp: imported };
+    let error = ctx.importErrors.get(info.componentKey);
+    try {
+      const set = await figma.importComponentSetByKeyAsync(info.componentKey);
+      const variant = firstVariant(set);
+      if (variant) return { comp: variant };
+    } catch (e) {
+      error = error != null ? error : e instanceof Error ? e.message : String(e);
+    }
+    return { comp: null, error };
   }
   function manualReattach(frame, reason, detail = "") {
     var _a, _b;
     return { ruleId: "components/reattach-instance", node: frame, currentValue: frame.name, fixSafety: "none", params: { confidence: "none", reason, detail, origin: (_b = (_a = frame.detachedInfo) == null ? void 0 : _a.type) != null ? _b : "local" } };
   }
-  async function checkReattach(frame, ctx) {
-    var _a, _b, _c, _d;
-    const info = frame.detachedInfo;
-    if (!info) return;
-    if (ancestors(frame, ctx).some((a) => a.type === "INSTANCE")) return [manualReattach(frame, "inside-instance")];
-    const origin = await originComponent(info, ctx);
-    if (!origin) {
-      ctx.reattachMissingOrigin.add(frame.id);
-      return [manualReattach(frame, "component-missing")];
+  var nameKey = (s) => s.toLowerCase().replace(/[\s_\-./:,;()[\]{}'"]+/g, "");
+  var MAX_NAME_CANDIDATES = 80;
+  function sameNameCandidates(ctx, frame) {
+    var _a;
+    const wanted = nameKey(frame.name);
+    if (!wanted) return [];
+    const out = [];
+    for (const { comp } of ctx.componentPool.values()) {
+      if (comp.removed) continue;
+      const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
+      if (nameKey(set ? set.name : comp.name) === wanted || set !== null && nameKey(comp.name) === wanted) out.push(comp);
     }
-    addComponent(ctx, origin, origin.remote ? "library" : ((_a = pageOf2(origin)) == null ? void 0 : _a.id) === figma.currentPage.id ? "local" : "otherPages");
-    const set = ((_b = origin.parent) == null ? void 0 : _b.type) === "COMPONENT_SET" ? origin.parent : null;
-    const candidates = [origin, ...set ? set.children.filter((c) => c.type === "COMPONENT" && c.id !== origin.id) : []].slice(0, MAX_VARIANT_CANDIDATES);
+    return out.sort((a, b) => Number(a.remote) - Number(b.remote)).slice(0, MAX_NAME_CANDIDATES);
+  }
+  async function proposeReattach(frame, info, ctx, candidates, origin, via) {
+    var _a, _b;
     const detachedTree = await toTree(frame, 0, newBudget());
     const matches = [];
     const all = [];
-    for (const comp of candidates) {
+    for (let i = 0; i < candidates.length; i++) {
+      if (i % 20 === 19) await yieldToHost();
+      const comp = candidates[i];
       const result = matchBest(detachedTree, await componentTree(ctx, comp));
       all.push({ comp, result });
       if (result.ok) matches.push({ comp, result });
     }
+    const extra = via ? { via } : {};
     if (!matches.length) {
       all.sort((a, b) => forcedCost(a.result) - forcedCost(b.result) || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
       const best2 = all[0];
-      if (!best2 || best2.result.extras.length > MAX_FORCED_EXTRAS) return [manualReattach(frame, "structure", reasonDetail((_c = best2 == null ? void 0 : best2.result.reasons) != null ? _c : []))];
+      if (!best2 || best2.result.extras.length > MAX_FORCED_EXTRAS) return via ? null : manualReattach(frame, "structure", reasonDetail((_a = best2 == null ? void 0 : best2.result.reasons) != null ? _a : []));
       const sum2 = summarizeOverrides(best2.result);
       const label2 = variantLabel(best2.comp);
-      return [
-        {
-          ruleId: "components/reattach-instance",
-          node: frame,
-          currentValue: frame.name,
-          suggestion: { kind: "component", id: best2.comp.id, label: label2, confidence: "ambiguous", source: best2.comp.remote ? "Library" : "Local" },
-          fixSafety: "review",
-          params: {
-            confidence: "forced",
-            component: label2,
-            detail: reasonDetail(best2.result.reasons),
-            extras: best2.result.extras.length,
-            hidden: best2.result.stats.hidden,
-            match: (_d = best2.result.mode) != null ? _d : "tree",
-            total: best2.result.overrides.length,
-            texts: sum2.texts,
-            visibility: sum2.visibility,
-            paints: sum2.paints,
-            origin: info.type
-          },
-          plan: reattachPlan(frame, best2.comp, best2.result, true)
-        }
-      ];
+      return {
+        ruleId: "components/reattach-instance",
+        node: frame,
+        currentValue: frame.name,
+        suggestion: { kind: "component", id: best2.comp.id, label: label2, confidence: "ambiguous", source: best2.comp.remote ? "Library" : "Local" },
+        fixSafety: "review",
+        params: {
+          confidence: "forced",
+          component: label2,
+          detail: reasonDetail(best2.result.reasons),
+          extras: best2.result.extras.length,
+          hidden: best2.result.stats.hidden,
+          match: (_b = best2.result.mode) != null ? _b : "tree",
+          total: best2.result.overrides.length,
+          texts: sum2.texts,
+          visibility: sum2.visibility,
+          paints: sum2.paints,
+          origin: info.type,
+          ...extra
+        },
+        plan: reattachPlan(frame, best2.comp, best2.result, true)
+      };
     }
     matches.sort((a, b) => a.result.overrides.length - b.result.overrides.length || (a.comp === origin ? -1 : 0) - (b.comp === origin ? -1 : 0));
     const best = matches[0];
@@ -2975,25 +3012,44 @@ module.exports = {
     const sum = summarizeOverrides(best.result);
     const exact = best.result.overrides.length === 0;
     const label = variantLabel(best.comp);
-    return [
-      {
-        ruleId: "components/reattach-instance",
-        node: frame,
-        currentValue: frame.name,
-        suggestion: {
-          kind: "component",
-          id: best.comp.id,
-          label,
-          confidence: exact ? "exact" : "close",
-          source: best.comp.remote ? "Library" : "Local",
-          alternatives: others.length ? others.map((o) => ({ id: `comp:${o.comp.id}`, label: variantLabel(o.comp), value: `${o.result.overrides.length}` })) : void 0
-        },
-        fixSafety: exact ? "safe" : "review",
-        params: { confidence: exact ? "exact" : "close", component: label, total: best.result.overrides.length, texts: sum.texts, visibility: sum.visibility, paints: sum.paints, other: sum.other, origin: info.type },
-        plan: reattachPlan(frame, best.comp, best.result),
-        alternativePlans: Object.fromEntries(others.map((o) => [`comp:${o.comp.id}`, reattachPlan(frame, o.comp, o.result)]))
-      }
-    ];
+    return {
+      ruleId: "components/reattach-instance",
+      node: frame,
+      currentValue: frame.name,
+      suggestion: {
+        kind: "component",
+        id: best.comp.id,
+        label,
+        confidence: exact ? "exact" : "close",
+        source: best.comp.remote ? "Library" : "Local",
+        alternatives: others.length ? others.map((o) => ({ id: `comp:${o.comp.id}`, label: variantLabel(o.comp), value: `${o.result.overrides.length}` })) : void 0
+      },
+      fixSafety: exact ? "safe" : "review",
+      params: { confidence: exact ? "exact" : "close", component: label, total: best.result.overrides.length, texts: sum.texts, visibility: sum.visibility, paints: sum.paints, other: sum.other, origin: info.type, ...extra },
+      plan: reattachPlan(frame, best.comp, best.result),
+      alternativePlans: Object.fromEntries(others.map((o) => [`comp:${o.comp.id}`, reattachPlan(frame, o.comp, o.result)]))
+    };
+  }
+  async function checkReattach(frame, ctx, live) {
+    var _a, _b, _c;
+    const info = frame.detachedInfo;
+    if (!info) return;
+    const resolved = await resolveOrigin(info, ctx, live);
+    const origin = resolved.comp;
+    if (!origin) {
+      const byName = sameNameCandidates(ctx, frame);
+      const proposal2 = byName.length ? await proposeReattach(frame, info, ctx, byName, null, "name") : null;
+      if (proposal2) return [proposal2];
+      ctx.reattachMissingOrigin.add(frame.id);
+      const error = (_a = resolved.error) != null ? _a : "";
+      if (/not found/i.test(error)) return [manualReattach(frame, byName.length ? "component-unpublished-diverged" : "component-unpublished", byName.length ? variantLabel(byName[0]) : error)];
+      return [manualReattach(frame, error ? "component-missing-detail" : "component-missing", error)];
+    }
+    addComponent(ctx, origin, origin.remote ? "library" : ((_b = pageOf2(origin)) == null ? void 0 : _b.id) === figma.currentPage.id ? "local" : "otherPages");
+    const set = ((_c = origin.parent) == null ? void 0 : _c.type) === "COMPONENT_SET" ? origin.parent : null;
+    const candidates = [origin, ...set ? set.children.filter((c) => c.type === "COMPONENT" && c.id !== origin.id) : []].slice(0, MAX_VARIANT_CANDIDATES);
+    const proposal = await proposeReattach(frame, info, ctx, candidates, origin);
+    return proposal ? [proposal] : void 0;
   }
   var MAX_ORPHAN_LOOKUPS = 60;
   var ORPHAN_BUDGET_MS = 4e3;
@@ -3009,8 +3065,46 @@ module.exports = {
   var componentProRules = [
     {
       id: "components/reattach-instance",
-      types: ["FRAME"],
-      check: (node, ctx) => checkReattach(node, ctx)
+      types: ["FRAME", "COMPONENT", "INSTANCE"],
+      // Le parcours recense les détachés et alimente l'index des candidats (composants rencontrés, composants de librairie
+      // des instances) ; le rattachement se décide en phase finale, une fois l'index complété (autres pages), hors du
+      // budget de temps par calque.
+      check: async (node, ctx) => {
+        if (node.type === "COMPONENT") {
+          addComponent(ctx, node, "local");
+          return;
+        }
+        if (node.type === "INSTANCE") {
+          await noteInstance(ctx, node);
+          return;
+        }
+        const frame = node;
+        if (!frame.detachedInfo) return;
+        if (ancestors(frame, ctx).some((a) => a.type === "INSTANCE")) return [manualReattach(frame, "inside-instance")];
+        ctx.detachedFrames.push(frame);
+      },
+      finalize: async (ctx) => {
+        const frames = ctx.detachedFrames.filter((f) => !f.removed);
+        if (!frames.length) return;
+        await buildComponentIndex(ctx);
+        const live = liveLibraryComponents(ctx);
+        const out = [];
+        const t0 = Date.now();
+        for (let i = 0; i < frames.length; i++) {
+          if (Date.now() - t0 > REATTACH_BUDGET_MS || ctx.isCancelled()) {
+            ctx.warnings.push("rule-partial:components/reattach-instance");
+            break;
+          }
+          if (i % 5 === 4) await yieldToHost();
+          try {
+            const issues2 = await checkReattach(frames[i], ctx, live);
+            if (issues2) out.push(...issues2);
+          } catch {
+            ctx.warnings.push("rule:components/reattach-instance");
+          }
+        }
+        return out;
+      }
     },
     {
       id: "components/deprecated-in-use",
@@ -3403,6 +3497,7 @@ module.exports = {
         if (!frames.length) return;
         const index = await buildComponentIndex(ctx);
         if (index.partial) ctx.warnings.push(`rule-partial:${RULE_ID}`);
+        if (index.libraryPartial) ctx.warnings.push("components-library-partial");
         const comps = index.components.filter(fits);
         const t0 = Date.now();
         const roots = [];

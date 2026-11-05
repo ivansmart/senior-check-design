@@ -14,8 +14,10 @@ export type ComponentSource = 'local' | 'otherPages' | 'library';
 
 export interface ComponentIndex {
   components: ComponentNode[];
-  /** Index incomplet (bornes de temps ou de nombre atteintes). */
+  /** Composants locaux incomplets (pages non lues dans le budget de temps, index plein, analyse arrêtée). */
   partial: boolean;
+  /** Composants de librairie incomplets : le budget des recherches de composant principal est épuisé. */
+  libraryPartial: boolean;
   sources: Record<ComponentSource, number>;
   /** Les autres pages viennent de l'index mémorisé par une analyse précédente. */
   fromCache: boolean;
@@ -36,6 +38,7 @@ interface PagesCache {
   key: string;
   entries: { comp: ComponentNode; source: ComponentSource }[];
   partial: boolean;
+  libraryPartial: boolean;
 }
 
 let pagesCache: PagesCache | null = null;
@@ -57,6 +60,8 @@ export function addComponent(ctx: ScanContext, comp: ComponentNode, source: Comp
     if (ctx.familiesIndexed.has(set.id)) return true;
     ctx.familiesIndexed.add(set.id);
   }
+  // Une instance d'un composant local porte par défaut le nom du composant ou du jeu : inutile de la rechercher.
+  if (!comp.remote) ctx.localComponentNames.add(set ? set.name : comp.name);
   let members = set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT') : [comp];
   if (members.length > MAX_PER_FAMILY) {
     const step = members.length / MAX_PER_FAMILY;
@@ -76,10 +81,14 @@ export function addComponent(ctx: ScanContext, comp: ComponentNode, source: Comp
 const instanceKey = (instance: InstanceNode) => `${instance.name}|${Math.round(instance.width / 8)}|${Math.round(instance.height / 8)}`;
 
 /** Note le composant principal d'une instance (composants de librairie utilisés dans le fichier), dans les bornes. */
+const lookupsExhausted = (ctx: ScanContext) => ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS;
+
 export async function noteInstance(ctx: ScanContext, instance: InstanceNode): Promise<boolean> {
   const key = instanceKey(instance);
   if (ctx.instanceLookupKeys.has(key)) return true;
-  if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) return false;
+  // Le composant principal est local et déjà indexé : la recherche ne découvrirait rien.
+  if (ctx.localComponentNames.has(instance.name)) return true;
+  if (lookupsExhausted(ctx)) return false;
   ctx.instanceLookupKeys.add(key);
   ctx.instanceLookups.count++;
   const t0 = Date.now();
@@ -93,24 +102,17 @@ export async function noteInstance(ctx: ScanContext, instance: InstanceNode): Pr
   return true;
 }
 
+/** Indexe les composants d'une page, puis les composants de librairie que ses instances utilisent. Faux si l'index est plein. */
 async function indexPage(ctx: ScanContext, page: PageNode, source: ComponentSource): Promise<boolean> {
-  let complete = true;
-  for (const c of page.findAllWithCriteria({ types: ['COMPONENT'] }) as ComponentNode[]) {
-    if (!addComponent(ctx, c, source)) {
-      complete = false;
-      break;
-    }
-  }
+  for (const c of page.findAllWithCriteria({ types: ['COMPONENT'] }) as ComponentNode[]) if (!addComponent(ctx, c, source)) return false;
   const instances = page.findAllWithCriteria({ types: ['INSTANCE'] }) as InstanceNode[];
   for (let i = 0; i < instances.length; i++) {
-    if (!(await noteInstance(ctx, instances[i]))) {
-      complete = false;
-      break;
-    }
+    // Budget des recherches épuisé : les composants locaux de la page sont déjà indexés, seule la librairie peut manquer.
+    if (!(await noteInstance(ctx, instances[i]))) break;
     // Une page de plusieurs milliers d'instances ne doit pas figer l'éditeur.
     if (i % 100 === 99) await yieldToHost();
   }
-  return complete;
+  return true;
 }
 
 /** Construit (une fois par analyse) l'index des composants candidats. */
@@ -149,10 +151,10 @@ export async function buildComponentIndex(ctx: ScanContext): Promise<ComponentIn
       }
       if (pagesPartial) partial = true;
       ctx.reportProgress({ phase: 'finalizing', scanned: others.length, total: others.length });
-      pagesCache = { at: Date.now(), key, entries: [...ctx.componentPool.values()].filter((e) => e.source !== 'local'), partial: pagesPartial };
+      pagesCache = { at: Date.now(), key, entries: [...ctx.componentPool.values()].filter((e) => e.source !== 'local'), partial: pagesPartial, libraryPartial: lookupsExhausted(ctx) };
     }
   }
-  if (ctx.instanceLookups.count >= MAX_INSTANCE_LOOKUPS || ctx.instanceLookups.ms >= INSTANCE_LOOKUP_BUDGET_MS) partial = true;
+  const libraryPartial = lookupsExhausted(ctx) || Boolean(fromCache && pagesCache?.libraryPartial);
   const sources: Record<ComponentSource, number> = { local: 0, otherPages: 0, library: 0 };
   const components: ComponentNode[] = [];
   for (const { comp, source } of ctx.componentPool.values()) {
@@ -160,6 +162,6 @@ export async function buildComponentIndex(ctx: ScanContext): Promise<ComponentIn
     components.push(comp);
     sources[source]++;
   }
-  ctx.componentIndex = { components, partial, sources, fromCache };
+  ctx.componentIndex = { components, partial, libraryPartial, sources, fromCache };
   return ctx.componentIndex;
 }

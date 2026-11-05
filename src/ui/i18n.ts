@@ -342,6 +342,7 @@ const fr: Dictionary = {
     signature: 'Senior Check Design v2.0 by Ivan’Smart',
     warnRuleSlow: 'La règle « {rule} » a été suspendue pour cette analyse : trop lente sur ce fichier.',
     warnRulePartial: 'La règle « {rule} » n’a été appliquée qu’en partie (fichier volumineux).',
+    warnLibraryComponentsPartial: 'Composants de librairie recensés en partie (fichier volumineux) : les composants locaux sont tous connus, un composant de librairie peut manquer parmi les propositions.',
     showMoreRows: 'Afficher {n} lignes de plus ({total} au total)',
     modeClassic: 'Classique',
     modePro: 'Pro',
@@ -794,6 +795,13 @@ const fr: Dictionary = {
         close: '« {value} » est détaché ; une instance de « {component} » le reproduit avec {total} overrides reportés automatiquement (textes : {texts}, visibilité : {visibility}, couleurs : {paints}).',
         'inside-instance': '« {value} » est détaché à l’intérieur d’une instance : impossible d’y insérer une instance.',
         'component-missing': '« {value} » est détaché et son composant d’origine est introuvable (supprimé, ou librairie inaccessible).',
+        'component-missing-detail': '« {value} » est détaché et son composant d’origine n’a pas pu être chargé : {detail}',
+        'component-unpublished': '« {value} » est détaché d’un composant de librairie que Figma ne retrouve pas (librairie non publiée, retirée, ou sans accès depuis ce fichier) et aucun composant connu du fichier ne porte ce nom.',
+        'component-unpublished-diverged': '« {value} » est détaché d’un composant de librairie que Figma ne retrouve pas ; « {detail} » porte le même nom dans ce fichier mais sa structure diffère. Rattachement manuel.',
+        'exact-name': '« {value} » est détaché d’un composant de librairie inaccessible ; « {component} », connu de ce fichier sous le même nom, reproduit son contenu à l’identique.',
+        'close-name': '« {value} » est détaché d’un composant de librairie inaccessible ; « {component} », connu de ce fichier sous le même nom, le reproduit avec {total} overrides reportés automatiquement (textes : {texts}, visibilité : {visibility}, couleurs : {paints}).',
+        'forced-name': '« {value} » est détaché d’un composant de librairie inaccessible ; « {component} », connu de ce fichier sous le même nom, en diverge ({detail}). Rattachable en conservant le rendu : {total} overrides, et {extras} calque(s) ajouté(s) gardé(s) au-dessus dans un cadre « {value} ».',
+        'forced-content-name': '« {value} » est détaché d’un composant de librairie inaccessible ; « {component} », connu de ce fichier sous le même nom, a une autre structure. Rattachable par son contenu : {texts} texte(s) reporté(s), {hidden} calque(s) du composant masqué(s) et {extras} calque(s) gardé(s) au-dessus.',
         structure: '« {value} » a divergé de son composant : calques ajoutés ou non reproductibles ({detail}). Rattachement manuel.',
         forced: '« {value} » a divergé de son composant ({detail}). Rattachable en conservant le rendu : instance de « {component} » avec {total} overrides, et {extras} calque(s) ajouté(s) gardé(s) au-dessus dans un cadre « {value} ».',
         'forced-content': '« {value} » a été retravaillé au-delà de la structure de son composant. Rattachable par son contenu : instance de « {component} » avec {texts} texte(s) reporté(s), {hidden} calque(s) du composant masqué(s) et {extras} calque(s) gardé(s) au-dessus.',
@@ -805,6 +813,9 @@ const fr: Dictionary = {
         structure: 'Retirer les calques ajoutés ou créer une variante correspondante dans le composant, puis relancer l’analyse.',
         'inside-instance': 'Rattacher d’abord le parent, ou corriger dans le composant principal.',
         'component-missing': 'Recréer le composant ou activer la librairie, puis relancer l’analyse.',
+        'component-missing-detail': 'Activer la librairie dans ce fichier ou recréer le composant, puis relancer l’analyse.',
+        'component-unpublished': 'Publier (ou republier) la librairie et l’activer dans ce fichier, puis relancer l’analyse. Un composant de librairie reste retrouvable sans publication tant qu’une instance vivante l’utilise dans le fichier.',
+        'component-unpublished-diverged': 'Vérifier si « {detail} » est bien l’équivalent : si oui, remplacer à la main ou créer la variante correspondante, puis relancer l’analyse.',
       },
     },
     'components/lookalike-frame': {
@@ -1290,6 +1301,7 @@ const en: Dictionary = {
     signature: 'Senior Check Design v2.0 by Ivan’Smart',
     warnRuleSlow: 'Rule “{rule}” was paused for this check: too slow on this file.',
     warnRulePartial: 'Rule “{rule}” was only partially applied (large file).',
+    warnLibraryComponentsPartial: 'Library components partially listed (large file): every local component is known, a library component may be missing from the proposals.',
     showMoreRows: 'Show {n} more rows ({total} in total)',
     modeClassic: 'Classic',
     modePro: 'Pro',
@@ -1734,6 +1746,13 @@ const en: Dictionary = {
         close: '“{value}” is detached; an instance of “{component}” reproduces it with {total} overrides applied automatically (texts: {texts}, visibility: {visibility}, colors: {paints}).',
         'inside-instance': '“{value}” is detached inside an instance: an instance cannot be inserted there.',
         'component-missing': '“{value}” is detached and its original component cannot be found (deleted, or library unavailable).',
+        'component-missing-detail': '“{value}” is detached and its original component could not be loaded: {detail}',
+        'component-unpublished': '“{value}” is detached from a library component Figma cannot find (library unpublished, removed, or not accessible from this file) and no component known to this file carries that name.',
+        'component-unpublished-diverged': '“{value}” is detached from a library component Figma cannot find; “{detail}” carries the same name in this file but its structure differs. Manual re-attachment.',
+        'exact-name': '“{value}” is detached from an unreachable library component; “{component}”, known to this file under the same name, reproduces its content exactly.',
+        'close-name': '“{value}” is detached from an unreachable library component; “{component}”, known to this file under the same name, reproduces it with {total} overrides applied automatically (texts: {texts}, visibility: {visibility}, colors: {paints}).',
+        'forced-name': '“{value}” is detached from an unreachable library component; “{component}”, known to this file under the same name, diverges from it ({detail}). Re-attachable while keeping the rendering: {total} overrides, and {extras} added layer(s) kept above in a “{value}” frame.',
+        'forced-content-name': '“{value}” is detached from an unreachable library component; “{component}”, known to this file under the same name, has a different structure. Re-attachable by content: {texts} text(s) carried over, {hidden} component layer(s) hidden and {extras} layer(s) kept above.',
         structure: '“{value}” drifted from its component: layers added or not reproducible ({detail}). Manual re-attachment.',
         forced: '“{value}” drifted from its component ({detail}). Re-attachable while keeping the rendering: instance of “{component}” with {total} overrides, and {extras} added layer(s) kept above in a “{value}” frame.',
         'forced-content': '“{value}” was reworked beyond its component structure. Re-attachable by content: instance of “{component}” with {texts} text(s) carried over, {hidden} component layer(s) hidden and {extras} layer(s) kept above.',
@@ -1745,6 +1764,9 @@ const en: Dictionary = {
         structure: 'Remove the added layers or create a matching variant in the component, then run the check again.',
         'inside-instance': 'Re-attach the parent first, or fix it in the main component.',
         'component-missing': 'Recreate the component or enable the library, then run the check again.',
+        'component-missing-detail': 'Enable the library in this file or recreate the component, then run the check again.',
+        'component-unpublished': 'Publish (or republish) the library and enable it in this file, then run the check again. A library component stays reachable without publishing as long as a live instance uses it in the file.',
+        'component-unpublished-diverged': 'Check whether “{detail}” is the equivalent: if so, replace it by hand or create the matching variant, then run the check again.',
       },
     },
     'components/lookalike-frame': {
@@ -1942,6 +1964,11 @@ function variantKeys(issue: Issue): (string | undefined)[] {
   if (!issue.suggestion && issue.ruleId === 'a11y/text-contrast') keys.push('none');
   // Ressemblance avec un autre candidat au menu : message dédié.
   if (confidence === 'lookalike' && typeof p.ambiguous === 'number' && p.ambiguous > 0) keys.push('lookalike-ambiguous');
+  // Équivalent retrouvé par le nom (origine de librairie inaccessible) : message dédié, par le contenu d'abord.
+  if (typeof p.via === 'string') {
+    if (p.match === 'content') keys.push(`${confidence}-content-${p.via}`);
+    keys.push(`${confidence}-${p.via}`);
+  }
   // Rattachement reconstitué par le contenu (structures différentes) : message dédié.
   if (p.match === 'content') keys.push(`${confidence}-content`);
   keys.push(confidence);
