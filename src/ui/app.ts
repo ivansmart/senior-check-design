@@ -18,7 +18,9 @@ import {
   type TokenExportFormat,
   type UiToPluginMessage,
 } from '../shared/types';
+import { AVATAR } from './avatar';
 import { animateNumber, append, clear, copyText, download, el, svgIcon, type IconName } from './dom';
+import { craftIcon, heartIcon, heartState } from './health-icons';
 import { I18n, detectLocale } from './i18n';
 
 // ---------------------------------------------------------------------------
@@ -464,9 +466,13 @@ function currentScore(): number {
 
 function renderHeader(): HTMLElement {
   const score = state.phase === 'results' ? currentScore() : null;
-  const scoreEl = el('span', { class: 'score num', 'data-level': score !== null ? scoreLevel(score) : 'none', title: t('scoreHint') }, score !== null ? String(state.lastScore) : '…');
+  // Le cœur suit le score : brillant, entier, fissuré, brisé, en morceaux ; il bat quand le score change.
+  const heart = score !== null ? heartIcon(heartState(score)) : null;
+  const scoreNum = el('span', { class: 'num' }, score !== null ? String(state.lastScore) : '…');
+  const scoreEl = el('span', { class: 'score health', 'data-level': score !== null ? scoreLevel(score) : 'none', 'data-heart': score !== null ? heartState(score) : 'none', title: t('scoreHint') }, heart, scoreNum);
   if (score !== null && state.lastScore !== score) {
-    animateNumber(state.lastScore, score, 300, (v) => (scoreEl.textContent = String(v)));
+    animateNumber(state.lastScore, score, 300, (v) => (scoreNum.textContent = String(v)));
+    heart?.classList.add('beat');
     state.lastScore = score;
   }
   const sev = countBySeverity([...state.issues.values()]);
@@ -481,8 +487,9 @@ function renderHeader(): HTMLElement {
     const areaLabel: Record<string, string> = { states: t('craftStates'), feedback: t('craftFeedback'), recovery: t('craftRecovery'), motion: t('craftMotion') };
     craftEl = el(
       'span',
-      { class: 'score craft num', 'data-level': scoreLevel(craft.total), title: `${t('craftScore')} ${craft.total} · ${craft.areas.map((a) => `${areaLabel[a.area]} ${a.score}/${a.max}`).join(' · ')}` },
-      `${t('craftShort')} ${craft.total}`,
+      { class: 'score craft', 'data-level': scoreLevel(craft.total), title: `${t('craftScore')} ${craft.total} · ${craft.areas.map((a) => `${areaLabel[a.area]} ${a.score}/${a.max}`).join(' · ')}` },
+      craftIcon(),
+      el('span', { class: 'num' }, `${t('craftShort')} ${craft.total}`),
     );
   }
   const modeSwitch = segmented<PluginMode>(
@@ -1508,7 +1515,13 @@ function renderSettings(): HTMLElement {
           document.documentElement.lang = v;
         }, false),
     )),
-    el('div', { class: 'pop-section about' }, el('div', { class: 'k' }, t('aboutTitle')), el('div', { class: 'hint' }, t('aboutBody')), el('div', { class: 'hint signature' }, t('signature'))),
+    el(
+      'div',
+      { class: 'pop-section about' },
+      el('div', { class: 'k' }, t('aboutTitle')),
+      el('div', { class: 'hint' }, t('aboutBody')),
+      el('div', { class: 'signature-row' }, el('img', { class: 'avatar', src: AVATAR, alt: '', width: '24', height: '24' }), el('div', { class: 'hint signature' }, t('signature'))),
+    ),
   );
   return el('div', { class: 'scrim', onclick: () => toggleMenu('settings') }, panel);
 }

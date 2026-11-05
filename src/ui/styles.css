@@ -163,6 +163,10 @@ html[data-theme='dark'],
     --d-toast-in: 0ms;
     --d-toast-out: 0ms;
   }
+  .score .heart.beat,
+  .score .heart .sparkles {
+    animation: none;
+  }
 }
 
 * {
@@ -283,18 +287,69 @@ body.is-resizing * {
   background: var(--bg-2);
   color: var(--text);
 }
-.score::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--bg-success);
+/* Cœur du Design Health : couleur et état selon le score. */
+.score .heart {
+  --heart: var(--bg-success);
+  --heart-spark: #f5b301;
+  flex: none;
+  fill: var(--heart);
+  overflow: visible;
+  transition: fill var(--d-fix) var(--ease-out);
 }
-.score[data-level='mid']::before {
-  background: var(--bg-warning);
+.score[data-heart='top'] .heart {
+  --heart: #12b76a;
+  filter: drop-shadow(0 0 2px rgba(18, 183, 106, 0.6));
 }
-.score[data-level='low']::before {
-  background: var(--bg-danger);
+.score[data-heart='mid'] .heart {
+  --heart: #f5a623;
+}
+.score[data-heart='low'] .heart {
+  --heart: var(--bg-danger);
+}
+.score[data-heart='critical'] .heart {
+  --heart: #b0413e;
+}
+.score .heart .crack {
+  fill: none;
+  stroke: var(--bg-2);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.score .heart .shard {
+  opacity: 0.72;
+}
+.score .heart .sparkles {
+  fill: var(--heart-spark);
+  transform-origin: center;
+  animation: twinkle 1.8s ease-in-out infinite;
+}
+.score .heart.beat {
+  animation: heartbeat 600ms var(--ease-out);
+  transform-origin: center;
+}
+@keyframes heartbeat {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.3);
+  }
+  55% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 .icon-btn {
   width: 24px;
@@ -1650,14 +1705,13 @@ details.accordion .body {
 .segmented.mode-switch button {
   padding: 0 8px;
 }
-.score.craft::before {
-  background: var(--text-component);
-}
-.score.craft[data-level='mid']::before {
-  background: var(--bg-warning);
-}
-.score.craft[data-level='low']::before {
-  background: var(--bg-danger);
+.score .craft-icon {
+  flex: none;
+  fill: none;
+  stroke: var(--text-component);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 .menu-sep {
   height: 1px;
@@ -1678,6 +1732,22 @@ details.accordion .body {
 .cmp-theme select {
   height: 24px;
   max-width: 88px;
+}
+.about .signature-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.about .avatar {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: var(--shadow-1);
+}
+.about .signature-row .signature {
+  margin-top: 0;
 }
 .about .signature {
   color: var(--text);

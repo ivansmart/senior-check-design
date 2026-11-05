@@ -83,6 +83,8 @@ Les règles qui ne peuvent pas conclure sans convention (statut, lien de doc, sc
 
 **Règles : « Tout cocher ».** En tête de la liste des règles (réglages), une case « Tout cocher » active toutes les règles du mode en un clic ; la décocher revient aux règles du preset, le minimum pour avoir des résultats par défaut. Quand seule une partie des règles supplémentaires est cochée, la case est indéterminée.
 
+**Cœur du Design Health et icônes.** Dans l'en-tête, le score Design Health est accompagné d'un cœur dont la couleur et l'état suivent le score : brillant avec des étincelles à partir de 90, entier jusqu'à 80, fissuré jusqu'à 60, brisé en deux jusqu'à 40, en morceaux en dessous ; il bat quand le score change (animations coupées avec « réduire les animations »). Le score Craft (Pro) garde une icône fixe. L'icône du plugin est le portrait de l'auteur : `assets/plugin-icon-128.png` (128 × 128, taille demandée par Figma à la publication) et `assets/plugin-icon-512.jpg` (haute définition). Un plugin génératif (le chargeur) ne porte pas d'icône paramétrable : l'icône se choisit dans la page de publication Figma du plugin, et le même portrait apparaît dans « Comment ça marche » à côté de la signature.
+
 **Thèmes.** Le plugin suit le thème choisi dans Figma ; le réglage « Thème du plugin » permet de forcer le clair ou le sombre. Le volet Comparer a son propre sélecteur (Auto, Clair, Sombre) : par défaut il suit le plugin, et l'on peut le passer en clair pour mieux lire certains composants sans changer le reste de l'interface, puis revenir à Auto. L'annulation par toast rend un calque détaché équivalent ; `Cmd/Ctrl + Z` restaure l'original à l'identique.
 
 Fonctions Pro transverses :
