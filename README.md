@@ -81,6 +81,8 @@ Niveaux de confiance des correspondances : **exact** (fix sûr), **close** et **
 - Pas de certification WCAG : aide à l'audit, pas un label.
 - Pas de jugement esthétique du motion : uniquement des incohérences mesurables.
 
+**Cœur du Design Health et icônes.** Dans l'en-tête, le score Design Health est accompagné d'un cœur dont la couleur et l'état suivent le score : brillant avec des étincelles à partir de 90, entier jusqu'à 80, fissuré jusqu'à 60, brisé en deux jusqu'à 40, en morceaux en dessous ; il bat quand le score change (animations coupées avec « réduire les animations »). L'icône du plugin est le portrait de l'auteur : `assets/plugin-icon-128.png` (128 × 128, taille demandée par Figma à la publication) et `assets/plugin-icon-512.jpg` (haute définition). Un plugin génératif (le chargeur) ne porte pas d'icône paramétrable : l'icône se choisit dans la page de publication Figma du plugin, et le même portrait apparaît dans « Comment ça marche » à côté de la signature « Senior Check Design v1.0 by Ivan’Smart ».
+
 ## Architecture
 
 ```

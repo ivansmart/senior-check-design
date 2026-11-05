@@ -14,7 +14,9 @@ import {
   type Severity,
   type UiToPluginMessage,
 } from '../shared/types';
+import { AVATAR } from './avatar';
 import { animateNumber, append, clear, copyText, download, el, svgIcon, type IconName } from './dom';
+import { heartIcon, heartState } from './health-icons';
 import { I18n, detectLocale } from './i18n';
 
 // ---------------------------------------------------------------------------
@@ -367,9 +369,13 @@ function currentScore(): number {
 
 function renderHeader(): HTMLElement {
   const score = state.phase === 'results' ? currentScore() : null;
-  const scoreEl = el('span', { class: 'score num', 'data-level': score !== null ? scoreLevel(score) : 'none', title: t('scoreHint') }, score !== null ? String(state.lastScore) : '…');
+  // Le cœur suit le score : brillant, entier, fissuré, brisé, en morceaux ; il bat quand le score change.
+  const heart = score !== null ? heartIcon(heartState(score)) : null;
+  const scoreNum = el('span', { class: 'num' }, score !== null ? String(state.lastScore) : '…');
+  const scoreEl = el('span', { class: 'score health', 'data-level': score !== null ? scoreLevel(score) : 'none', 'data-heart': score !== null ? heartState(score) : 'none', title: t('scoreHint') }, heart, scoreNum);
   if (score !== null && state.lastScore !== score) {
-    animateNumber(state.lastScore, score, 300, (v) => (scoreEl.textContent = String(v)));
+    animateNumber(state.lastScore, score, 300, (v) => (scoreNum.textContent = String(v)));
+    heart?.classList.add('beat');
     state.lastScore = score;
   }
   const sev = countBySeverity([...state.issues.values()]);
@@ -381,14 +387,14 @@ function renderHeader(): HTMLElement {
     return el(
       'header',
       { class: 'header' },
-      el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null),
+      el('div', { class: 'title-wrap' }, el('h1', { class: 'title', title: t('signature') }, t('appName')), score !== null ? scoreEl : null),
       el('button', { class: 'icon-btn', 'data-act': 'expand', title: t('expand'), 'aria-label': t('expand'), onclick: () => toggleCollapsed(false) }, svgIcon('expand')),
     );
   }
   return el(
     'header',
     { class: 'header' },
-    el('div', { class: 'title-wrap' }, el('h1', { class: 'title' }, t('appName')), score !== null ? scoreEl : null),
+    el('div', { class: 'title-wrap' }, el('h1', { class: 'title', title: t('signature') }, t('appName')), score !== null ? scoreEl : null),
     el(
       'button',
       { class: 'icon-btn toggle', 'data-act': 'compare', 'aria-pressed': String(state.compare.open), title: t('compareOpen'), 'aria-label': t('compareOpen'), disabled: state.phase !== 'results', onclick: () => toggleCompare(!state.compare.open) },
@@ -1196,7 +1202,13 @@ function renderSettings(): HTMLElement {
           document.documentElement.lang = v;
         }, false),
     )),
-    el('div', { class: 'pop-section about' }, el('div', { class: 'k' }, t('aboutTitle')), el('div', { class: 'hint' }, t('aboutBody')), el('div', { class: 'hint' }, `${t('appName')} ${t('version')}`)),
+    el(
+      'div',
+      { class: 'pop-section about' },
+      el('div', { class: 'k' }, t('aboutTitle')),
+      el('div', { class: 'hint' }, t('aboutBody')),
+      el('div', { class: 'signature-row' }, el('img', { class: 'avatar', src: AVATAR, alt: '', width: '24', height: '24' }), el('div', { class: 'hint signature' }, t('signature'))),
+    ),
   );
   return el('div', { class: 'scrim', onclick: () => toggleMenu('settings') }, panel);
 }
@@ -1239,7 +1251,7 @@ function reportLabels(): ReportLabels {
   const i18n = state.i18n;
   const fr = state.settings.locale === 'fr';
   return {
-    title: t('appName'),
+    title: t('signature'),
     generated: fr ? 'Généré' : 'Generated',
     scope: t('scope'),
     nodes: fr ? 'Calques analysés' : 'Layers checked',

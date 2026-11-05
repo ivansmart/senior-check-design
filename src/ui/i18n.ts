@@ -22,6 +22,7 @@ export interface Dictionary {
 const fr: Dictionary = {
   ui: {
     appName: 'Senior Check Design',
+    signature: 'Senior Check Design v1.0 by Ivan’Smart',
     tagline: 'Audit local, déterministe et gratuit.',
     preset: 'Preset',
     scope: 'Périmètre',
@@ -261,7 +262,7 @@ const fr: Dictionary = {
     contrastInColors: 'Les suggestions de contraste sont dans l’onglet Couleurs ({n}).',
     contrastHidden: 'Vérification du contraste désactivée',
     scanLayers: '{n} calques analysés',
-    version: 'v0.2.0',
+    version: 'v1.0',
     collapse: 'Réduire la fenêtre',
     expand: 'Agrandir la fenêtre',
     resizeEdge: 'Redimensionner',
@@ -578,6 +579,7 @@ const fr: Dictionary = {
 const en: Dictionary = {
   ui: {
     appName: 'Senior Check Design',
+    signature: 'Senior Check Design v1.0 by Ivan’Smart',
     tagline: 'Local, deterministic, free design QA.',
     preset: 'Preset',
     scope: 'Scope',
@@ -817,7 +819,7 @@ const en: Dictionary = {
     contrastInColors: 'Contrast suggestions live in the Colors tab ({n}).',
     contrastHidden: 'Contrast check is off',
     scanLayers: '{n} layers checked',
-    version: 'v0.2.0',
+    version: 'v1.0',
     collapse: 'Collapse window',
     expand: 'Expand window',
     resizeEdge: 'Resize',
