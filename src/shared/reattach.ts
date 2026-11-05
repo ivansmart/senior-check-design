@@ -54,6 +54,8 @@ export type OverrideOp =
 export interface MatchResult {
   /** Reproduction fidèle possible par overrides seuls. */
   ok: boolean;
+  /** `tree` : appariement par structure ; `content` : appariement des feuilles par ordre de lecture (structures différentes). */
+  mode?: 'tree' | 'content';
   overrides: OverrideOp[];
   /** Calques du détaché sans équivalent dans le composant (chemins dans l'arbre détaché) : conservés au-dessus de l'instance en mode forcé. */
   extras: number[][];
@@ -236,10 +238,185 @@ export function matchTrees(detached: TreeNode, component: TreeNode): MatchResult
 
 /**
  * Coût d'un rattachement forcé (plus petit = plus fidèle) : les calques à conserver au-dessus
- * pèsent plus que les motifs, qui pèsent plus que les overrides.
+ * pèsent plus que les motifs, qui pèsent plus que les calques masqués, qui pèsent plus que les overrides.
  */
 export function forcedCost(result: MatchResult): number {
-  return result.extras.length * 5 + result.reasons.length * 3 + result.overrides.length;
+  return result.extras.length * 5 + result.reasons.length * 3 + result.stats.hidden * 2 + result.overrides.length;
+}
+
+// ---------------------------------------------------------------------------
+// Appariement par contenu : feuilles en ordre de lecture, quelles que soient les imbrications.
+// Une copie à la main (ou un détaché très retravaillé) garde en général les mêmes textes,
+// images et icônes, dans le même ordre, mais pas les mêmes cadres intermédiaires.
+// ---------------------------------------------------------------------------
+
+type LeafKind = 'TEXT' | 'ICON' | 'IMAGE' | 'SHAPE' | 'BOX' | 'INSTANCE';
+
+interface Leaf {
+  node: TreeNode;
+  path: number[];
+  kind: LeafKind;
+  /** TEXT : taille (arrondie à 2 px) et graisse, pour préférer les textes de même rôle. */
+  role: string;
+}
+
+const SHAPE_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'STAR', 'POLYGON', 'ELLIPSE', 'RECTANGLE']);
+const MAX_LEAVES = 200;
+const MAX_LEAF_DEPTH = 8;
+
+const hasImage = (n: TreeNode) => (n.fills ?? []).some((p) => (p as { type?: string; visible?: boolean }).type === 'IMAGE' && (p as { visible?: boolean }).visible !== false);
+const painted = (n: TreeNode) => (n.fills ?? []).some((p) => (p as { visible?: boolean }).visible !== false) || (n.strokes ?? []).some((p) => (p as { visible?: boolean }).visible !== false);
+
+/** Vrai si tous les descendants visibles sont des formes (une icône vectorielle), avec au moins une forme. */
+function allShapes(n: TreeNode, depth = 0): boolean {
+  if (depth > 4) return false;
+  let any = false;
+  for (const c of n.children) {
+    if (!c.visible) continue;
+    if (SHAPE_TYPES.has(c.type) && !hasImage(c)) {
+      any = true;
+      continue;
+    }
+    if (c.children.length && allShapes(c, depth + 1)) {
+      any = true;
+      continue;
+    }
+    return false;
+  }
+  return any;
+}
+
+const textRole = (n: TreeNode) => {
+  const size = typeof n.fontSize === 'number' ? Math.round(n.fontSize / 2) * 2 : 0;
+  const style = n.fontName && n.fontName !== 'mixed' ? n.fontName.style : '';
+  return `${size}|${/bold|semi|medium|black|heavy|extra/i.test(style) ? 'b' : 'r'}`;
+};
+
+export function collectLeaves(root: TreeNode, path: number[] = [], out: Leaf[] = [], depth = 0): Leaf[] {
+  for (let i = 0; i < root.children.length && out.length < MAX_LEAVES; i++) {
+    const c = root.children[i];
+    if (!c.visible) continue;
+    const p = [...path, i];
+    if (c.type === 'TEXT') out.push({ node: c, path: p, kind: 'TEXT', role: textRole(c) });
+    else if (hasImage(c)) out.push({ node: c, path: p, kind: 'IMAGE', role: '' });
+    else if (SHAPE_TYPES.has(c.type)) out.push({ node: c, path: p, kind: 'SHAPE', role: '' });
+    else if (c.children.length) {
+      if (allShapes(c)) out.push({ node: c, path: p, kind: 'ICON', role: '' });
+      else if (depth < MAX_LEAF_DEPTH) collectLeaves(c, p, out, depth + 1);
+    } else if (c.type === 'INSTANCE') out.push({ node: c, path: p, kind: 'INSTANCE', role: '' });
+    else if (painted(c)) out.push({ node: c, path: p, kind: 'BOX', role: '' });
+  }
+  return out;
+}
+
+const MEDIA = new Set<LeafKind>(['ICON', 'IMAGE', 'SHAPE', 'BOX', 'INSTANCE']);
+
+function pairScore(d: Leaf, c: Leaf): number {
+  if (d.kind !== c.kind) {
+    // Deux médias de natures différentes (image à la place d'une icône) : apparentés par la place,
+    // le média du détaché sera conservé au-dessus de celui du composant, qui garde sa place dans la mise en page.
+    return MEDIA.has(d.kind) && MEDIA.has(c.kind) ? 0.5 : 0;
+  }
+  switch (d.kind) {
+    case 'TEXT':
+      return d.role === c.role ? 1 : 0.6;
+    case 'SHAPE':
+    case 'BOX':
+      return 0.7;
+    default:
+      return 1;
+  }
+}
+
+/** Alignement optimal (programmation dynamique, type LCS pondéré) des feuilles détachées sur celles du composant. */
+function align(D: Leaf[], C: Leaf[]): [Leaf, Leaf][] {
+  const m = D.length;
+  const n = C.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const s = pairScore(D[i - 1], C[j - 1]);
+      dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1], s > 0 ? dp[i - 1][j - 1] + s : 0);
+    }
+  }
+  const pairs: [Leaf, Leaf][] = [];
+  let i = m;
+  let j = n;
+  while (i > 0 && j > 0) {
+    const s = pairScore(D[i - 1], C[j - 1]);
+    if (s > 0 && dp[i][j] === dp[i - 1][j - 1] + s) {
+      pairs.push([D[i - 1], C[j - 1]]);
+      i--;
+      j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) i--;
+    else j--;
+  }
+  return pairs.reverse();
+}
+
+/**
+ * Apparie le contenu du détaché avec celui du composant feuille à feuille, en ordre de lecture.
+ * Les textes appariés sont reportés (le style du composant l'emporte), les images et formes aussi ;
+ * les feuilles du composant sans équivalent sont masquées, celles du détaché sans équivalent sont
+ * conservées au-dessus (mode forcé). Toujours « forcé » : la structure n'est pas celle du composant.
+ */
+export function matchByContent(detached: TreeNode, component: TreeNode): MatchResult {
+  const out: MatchResult = { ok: false, mode: 'content', overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
+  if (Math.abs(detached.opacity - component.opacity) > 0.001) out.overrides.push({ path: [], op: 'opacity', value: detached.opacity });
+  if (paintsDiffer(detached.fillsKey, component.fillsKey, detached.fillsVisual, component.fillsVisual) && detached.fills && detached.fillsKey !== 'mixed') out.overrides.push({ path: [], op: 'fills', value: detached.fills });
+  if (paintsDiffer(detached.strokesKey, component.strokesKey, detached.strokesVisual, component.strokesVisual) && detached.strokes && detached.strokesKey !== 'mixed') out.overrides.push({ path: [], op: 'strokes', value: detached.strokes });
+  const D = collectLeaves(detached);
+  const C = collectLeaves(component);
+  const pairs = align(D, C);
+  const usedD = new Set<Leaf>();
+  const usedC = new Set<Leaf>();
+  for (const [d, c] of pairs) {
+    usedD.add(d);
+    usedC.add(c);
+    out.stats.matched++;
+    if (d.kind !== c.kind) {
+      // Média de nature différente : non reproductible dans l'instance, conservé au-dessus (le média du composant reste visible dessous).
+      out.stats.added++;
+      out.reasons.push(`added:${d.node.name}`);
+      out.extras.push(d.path);
+      continue;
+    }
+    if (d.kind === 'TEXT') {
+      if ((d.node.text ?? '') !== (c.node.text ?? '')) {
+        out.overrides.push({ path: c.path, op: 'text', value: d.node.text ?? '' });
+        out.stats.texts++;
+      }
+    } else if (d.kind === 'ICON' || d.kind === 'INSTANCE') {
+      if (d.node.type === 'INSTANCE' && c.node.type === 'INSTANCE' && d.node.mainId !== undefined && c.node.mainId !== undefined && d.node.mainId !== c.node.mainId) {
+        if (d.node.mainId && !d.node.mainRemote) out.overrides.push({ path: c.path, op: 'swap', componentId: d.node.mainId });
+        else if (d.node.mainKey) out.overrides.push({ path: c.path, op: 'swap', componentKey: d.node.mainKey });
+      }
+    } else {
+      if (paintsDiffer(d.node.fillsKey, c.node.fillsKey, d.node.fillsVisual, c.node.fillsVisual) && d.node.fills && d.node.fillsKey !== 'mixed') out.overrides.push({ path: c.path, op: 'fills', value: d.node.fills });
+      if (paintsDiffer(d.node.strokesKey, c.node.strokesKey, d.node.strokesVisual, c.node.strokesVisual) && d.node.strokes && d.node.strokesKey !== 'mixed') out.overrides.push({ path: c.path, op: 'strokes', value: d.node.strokes });
+    }
+  }
+  for (const c of C) {
+    if (usedC.has(c)) continue;
+    out.overrides.push({ path: c.path, op: 'visible', value: false });
+    out.stats.hidden++;
+  }
+  for (const d of D) {
+    if (usedD.has(d)) continue;
+    out.stats.added++;
+    out.reasons.push(`added:${d.node.name}`);
+    out.extras.push(d.path);
+  }
+  return out;
+}
+
+/** Meilleur appariement : par structure quand il est fidèle, sinon le moins coûteux entre structure et contenu. */
+export function matchBest(detached: TreeNode, component: TreeNode): MatchResult {
+  const tree = matchTrees(detached, component);
+  tree.mode = 'tree';
+  if (tree.ok) return tree;
+  const content = matchByContent(detached, component);
+  return forcedCost(content) < forcedCost(tree) ? content : tree;
 }
 
 /** Résumé lisible d'un résultat pour les messages : compte par type d'override. */

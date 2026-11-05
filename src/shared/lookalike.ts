@@ -1,6 +1,6 @@
 /**
  * Ressemblance visuelle entre un cadre et un composant, estimée sur les propriétés
- * qui font le rendu (taille, fond, contour, rayons, mise en page, types d'enfants,
+ * qui font le rendu (taille, fond, contour, rayons, mise en page, nature des feuilles,
  * couleurs et polices du contenu), sans export d'image : déterministe et immédiat.
  * Pur : aucune dépendance à l'API Figma.
  */
@@ -10,6 +10,8 @@ export interface VisualSig {
   h: number;
   /** Largeur / hauteur ajustées au contenu (hug) : un écart de taille y est attendu. */
   hug: [boolean, boolean];
+  /** Largeur / hauteur étirées dans le parent (fill container) : l'axe ne dit rien du composant. */
+  stretch: [boolean, boolean];
   radius: number;
   layout: string;
   /** Haut, droite, bas, gauche (0 hors auto-layout). */
@@ -22,6 +24,10 @@ export interface VisualSig {
   effects: number;
   /** Types normalisés des enfants directs visibles (TEXT, INSTANCE, FRAME, RECT, SHAPE, OTHER). */
   kinds: string[];
+  /** Nature des feuilles visibles du sous-arbre, en profondeur (TEXT, ICON, IMAGE, SHAPE, BOX, INSTANCE). */
+  leafKinds: string[];
+  /** Nombre de textes visibles du sous-arbre. */
+  texts: number;
   /** 'famille|style|taille' des textes du sous-arbre, uniques. */
   fonts: string[];
   /** Couleurs unies du sous-arbre (hors racine), uniques. */
@@ -30,11 +36,11 @@ export interface VisualSig {
 }
 
 /** Score minimal pour proposer un composant. */
-export const LOOKALIKE_MIN = 0.8;
+export const LOOKALIKE_MIN = 0.76;
 /** Avance minimale sur le meilleur candidat d'une autre famille (sinon ambigu : on ne propose rien). */
 export const LOOKALIKE_MARGIN = 0.04;
-/** Écart de taille maximal (relatif au composant) pour envisager une ressemblance. */
-export const LOOKALIKE_MAX_SIZE_DIFF = 0.25;
+/** Écart de taille maximal (relatif au composant, axes étirés ignorés) pour envisager une ressemblance. */
+export const LOOKALIKE_MAX_SIZE_DIFF = 0.35;
 
 function jaccard(a: string[], b: string[]): number {
   if (!a.length && !b.length) return 1;
@@ -66,26 +72,48 @@ function multiJaccard(a: string[], b: string[]): number {
   return union ? inter / union : 1;
 }
 
-/** Écart de taille relatif au composant `b`, atténué sur un axe où le composant s'ajuste à son contenu. */
-export function sizeDiff(a: VisualSig, b: VisualSig): number {
-  const dx = (Math.abs(a.w - b.w) / Math.max(1, b.w)) * (b.hug[0] ? 0.4 : 1);
-  const dy = (Math.abs(a.h - b.h) / Math.max(1, b.h)) * (b.hug[1] ? 0.4 : 1);
-  return Math.max(dx, dy);
+const textsSim = (a: VisualSig, b: VisualSig) => 1 - Math.abs(a.texts - b.texts) / Math.max(1, a.texts, b.texts);
+
+/**
+ * Empreinte de contenu forte : mêmes polices, mêmes natures de feuilles et même nombre de textes.
+ * Pour un élément riche en texte (carte, bandeau, ligne), c'est la meilleure preuve de parenté ;
+ * la géométrie (largeur libre, rayon retouché, contour fin) devient secondaire.
+ */
+export function contentStrong(a: VisualSig, b: VisualSig): boolean {
+  return a.texts >= 2 && b.texts >= 2 && jaccard(a.fonts, b.fonts) >= 0.6 && multiJaccard(a.leafKinds, b.leafKinds) >= 0.6 && textsSim(a, b) >= 0.75;
 }
 
-/** Score 0..1 : pondération des propriétés visibles. */
+/**
+ * Écart de taille relatif au composant `b` : un axe étiré dans le parent (fill) est ignoré,
+ * un axe où le composant s'ajuste à son contenu (hug) compte pour 40 %. Avec une empreinte de
+ * contenu forte (`soft`), seul le meilleur axe compte : un conteneur de texte se redimensionne librement.
+ */
+export function sizeDiff(a: VisualSig, b: VisualSig, soft = false): number {
+  const dx = a.stretch[0] ? 0 : (Math.abs(a.w - b.w) / Math.max(1, b.w)) * (b.hug[0] ? 0.4 : 1);
+  const dy = a.stretch[1] ? 0 : (Math.abs(a.h - b.h) / Math.max(1, b.h)) * (b.hug[1] ? 0.4 : 1);
+  return soft ? Math.min(dx, dy) : Math.max(dx, dy);
+}
+
+const strokeWeight = (s: string | null) => (s ? Number(s.split('@')[1]) || 0 : 0);
+
+/** Score 0..1 : pondération des propriétés visibles (somme des poids = 1). */
 export function similarity(a: VisualSig, b: VisualSig): number {
-  const size = 1 - Math.min(1, sizeDiff(a, b) * 2.5);
-  const radius = 1 - Math.min(1, Math.abs(a.radius - b.radius) / 8);
+  const strong = contentStrong(a, b);
+  const size = 1 - Math.min(1, sizeDiff(a, b, strong) * 2.5);
+  const radius = 1 - Math.min(1, Math.abs(a.radius - b.radius) / 16);
   const fill = a.fill === b.fill ? 1 : 0;
-  const stroke = a.stroke === b.stroke ? 1 : 0;
+  // Un contour fin d'un côté seulement (≤ 1 px) compte à moitié : retouche courante d'une copie.
+  const stroke = a.stroke === b.stroke ? 1 : (a.stroke === null || b.stroke === null) && Math.max(strokeWeight(a.stroke), strokeWeight(b.stroke)) <= 1 ? 0.5 : 0;
   const padClose = a.pad.every((v, i) => Math.abs(v - b.pad[i]) <= 2) && Math.abs(a.gap - b.gap) <= 2;
-  const layout = a.layout === b.layout ? (a.layout === 'NONE' || padClose ? 1 : 0.6) : 0;
+  // Même sens de mise en page : 1 ; deux auto-layouts de sens différents (imbrication différente) : 0.4.
+  const layout = a.layout === b.layout ? (a.layout === 'NONE' || padClose ? 1 : 0.7) : a.layout !== 'NONE' && b.layout !== 'NONE' ? 0.4 : 0;
   const kinds = multiJaccard(a.kinds, b.kinds);
+  const leaves = multiJaccard(a.leafKinds, b.leafKinds);
   const colors = jaccard(a.colors, b.colors);
   const fonts = jaccard(a.fonts, b.fonts);
+  const texts = textsSim(a, b);
   const effects = a.effects === b.effects ? 1 : 0.5;
-  return 0.22 * size + 0.1 * radius + 0.18 * fill + 0.08 * stroke + 0.12 * layout + 0.1 * kinds + 0.1 * colors + 0.07 * fonts + 0.03 * effects;
+  return 0.12 * size + 0.08 * radius + 0.18 * fill + 0.05 * stroke + 0.05 * layout + 0.07 * kinds + 0.15 * leaves + 0.08 * colors + 0.12 * fonts + 0.07 * texts + 0.03 * effects;
 }
 
 /**
@@ -93,11 +121,11 @@ export function similarity(a: VisualSig, b: VisualSig): number {
  * et contenu comparable, pour ne jamais apparier deux conteneurs quelconques.
  */
 export function plausible(a: VisualSig, b: VisualSig): boolean {
-  if (sizeDiff(a, b) > LOOKALIKE_MAX_SIZE_DIFF) return false;
+  if (sizeDiff(a, b, contentStrong(a, b)) > LOOKALIKE_MAX_SIZE_DIFF) return false;
   const surface = (a.fill !== null && a.fill === b.fill) || (a.stroke !== null && a.stroke === b.stroke);
   if (!surface) return false;
-  const content = (multiJaccard(a.kinds, b.kinds) + jaccard(a.colors, b.colors) + jaccard(a.fonts, b.fonts)) / 3;
-  return content >= 0.5;
+  const content = (multiJaccard(a.leafKinds, b.leafKinds) + jaccard(a.fonts, b.fonts) + jaccard(a.colors, b.colors)) / 3;
+  return content >= 0.45;
 }
 
 export interface LookalikeCandidate<T> {

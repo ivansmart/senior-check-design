@@ -229,8 +229,14 @@ const state = {
   justFixed: new Set<string>(),
   lastScore: 100,
   selectionChangedSinceScan: false,
+  /** Changement de sélection reçu pendant l'analyse : signalé dès les résultats. */
+  selectionChangedDuringScan: false,
+  /** La page a changé depuis l'analyse (le bandeau le dit). */
+  pageChangedSinceScan: false,
   scannedSelection: false,
   rescanTimer: 0,
+  /** Réglage modifié pendant une analyse : relance dès les résultats. */
+  rescanPending: false,
   /** Fenêtre repliée sur son en-tête (le canvas redevient visible). */
   collapsed: false,
   /** Volet « Comparer » : aperçu avant / après des corrections à appliquer. Fermé par défaut à chaque ouverture. */
@@ -581,13 +587,58 @@ function renderTabs(): HTMLElement {
 }
 
 function renderSelectionNotice(): HTMLElement {
+  const page = state.pageChangedSinceScan;
   return el(
     'div',
     { class: 'notice notice-bar' },
     svgIcon('info'),
-    el('span', { class: 'grow ellipsis' }, el('b', {}, t('selectionChanged')), ' ', state.selectionCount ? t('selectionChangedBody', { n: state.selectionCount }) : ''),
+    el(
+      'span',
+      { class: 'grow ellipsis' },
+      el('b', {}, page ? t('pageChanged', { name: state.pageName }) : t('selectionChanged')),
+      ' ',
+      page ? t('pageChangedBody') : state.selectionCount ? t('selectionChangedBody', { n: state.selectionCount }) : '',
+    ),
     el('button', { class: 'btn btn-sm btn-secondary', onclick: () => startScan() }, svgIcon('refresh'), t('reload')),
   );
+}
+
+/** Progression de l'analyse mise à jour en place : pas de reconstruction du DOM (menus ouverts intacts, pas de clignotement). */
+function patchScanning() {
+  const box = app.querySelector<HTMLElement>('.scanning');
+  if (!box) {
+    render();
+    return;
+  }
+  const p = state.progress ?? { phase: 'indexing', scanned: 0, total: 0, found: {} };
+  const pct = (p.phase === 'scanning' || p.phase === 'indexing') && p.total ? (p.scanned / p.total) * 100 : p.phase === 'finalizing' ? 100 : 0;
+  const indeterminate = (p.phase === 'indexing' && !p.total) || p.phase === 'collecting';
+  const phase = box.querySelector<HTMLElement>('.scan-phase');
+  if (phase) phase.textContent = phaseLabel(p as ScanProgress);
+  const bar = box.querySelector<HTMLElement>('.bar');
+  if (bar) {
+    bar.classList.toggle('indeterminate', indeterminate);
+    const fill = bar.querySelector<HTMLElement>('i');
+    if (fill) fill.style.width = `${pct}%`;
+  }
+}
+
+/** Progression des corrections mise à jour en place. */
+function patchFixing() {
+  const footer = app.querySelector<HTMLElement>('.footer');
+  const f = state.fixing;
+  if (!footer || !f) {
+    render();
+    return;
+  }
+  const text = footer.querySelector<HTMLElement>('.foot-text');
+  const fill = footer.querySelector<HTMLElement>('.foot-bar i');
+  if (!text || !fill) {
+    render();
+    return;
+  }
+  text.textContent = t('fixing', { done: f.done, total: f.total });
+  fill.style.width = `${(f.done / Math.max(1, f.total)) * 100}%`;
 }
 
 function phaseLabel(p: ScanProgress): string {
@@ -1163,6 +1214,9 @@ function startScan(force = false) {
   state.phase = 'scanning';
   state.notice = null;
   state.selectionChangedSinceScan = false;
+  state.selectionChangedDuringScan = false;
+  state.pageChangedSinceScan = false;
+  state.rescanPending = false;
   state.scannedSelection = scope === 'selection';
   send({ type: 'scan', scope, preset: s.preset, options: s.options, disabledRules: s.disabledRules, enabledRules: s.enabledRules, mode: s.mode });
   render();
@@ -1175,6 +1229,9 @@ function receiveResult(result: ScanResult, notice: typeof state.notice) {
   state.fixing = null;
   state.pendingFixIds.clear();
   state.phase = 'results';
+  // Une sélection changée pendant l'analyse est signalée maintenant.
+  if (state.selectionChangedDuringScan) state.selectionChangedSinceScan = true;
+  state.selectionChangedDuringScan = false;
   refreshRows();
   // Ouvre le premier onglet avec des suggestions (comme Check designs).
   const firstWithRows = visibleTabs().find((tab) => openRowsOf(tab).length > 0);
@@ -1182,10 +1239,19 @@ function receiveResult(result: ScanResult, notice: typeof state.notice) {
   state.rowLimit = {};
   state.lastScore = 0;
   render();
+  // Un réglage modifié pendant l'analyse relance maintenant.
+  if (state.rescanPending) {
+    state.rescanPending = false;
+    scheduleRescan();
+  }
 }
 
 function scheduleRescan() {
   clearTimeout(state.rescanTimer);
+  if (state.phase === 'scanning') {
+    state.rescanPending = true;
+    return;
+  }
   state.rescanTimer = window.setTimeout(() => startScan(), 350);
 }
 
@@ -2409,20 +2475,29 @@ window.onmessage = (event: MessageEvent) => {
       state.selectionIds = msg.ids;
       // Une nouvelle sélection sur le canvas redevient la racine par défaut du volet Comparer.
       if (changed && msg.count > 0) state.compare.explicitRootId = null;
-      if (!msg.programmatic && state.phase === 'results' && (state.scannedSelection || (state.settings.scope === 'auto' && msg.count > 0))) {
+      // Sélection changée par l'utilisateur : bandeau de relance dès les résultats (même si le changement arrive pendant l'analyse).
+      const relevant = !msg.programmatic && changed && (state.scannedSelection || (state.settings.scope === 'auto' && msg.count > 0));
+      if (relevant && state.phase === 'results') {
         state.selectionChangedSinceScan = true;
-        const existing = app.querySelector('.notice');
-        if (!existing) render();
-      }
+        if (!app.querySelector('.notice-bar')) render();
+      } else if (relevant && state.phase === 'scanning') state.selectionChangedDuringScan = true;
       if (changed) schedulePreview();
       break;
     }
     case 'page-changed':
       state.pageName = msg.pageName;
+      // Analyse d'une autre page : proposer de relancer (sauf périmètre fichier).
+      if (state.settings.scope !== 'file') {
+        if (state.phase === 'results') {
+          state.pageChangedSinceScan = true;
+          state.selectionChangedSinceScan = true;
+          render();
+        } else if (state.phase === 'scanning') state.selectionChangedDuringScan = true;
+      }
       break;
     case 'scan-progress':
       state.progress = msg.progress;
-      if (state.phase === 'scanning') render();
+      if (state.phase === 'scanning') patchScanning();
       break;
     case 'scan-done':
       receiveResult(msg.result, null);
@@ -2444,7 +2519,7 @@ window.onmessage = (event: MessageEvent) => {
       break;
     case 'fix-progress':
       state.fixing = { done: msg.done, total: msg.total };
-      render();
+      patchFixing();
       break;
     case 'fix-done':
       onFixDone(msg.batchId, msg.outcomes, msg.undoable);

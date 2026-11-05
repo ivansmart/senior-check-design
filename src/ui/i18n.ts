@@ -248,6 +248,7 @@ const fr: Dictionary = {
     allClearBody: '« {scope} » respecte toutes les règles du preset {preset}.',
     selectionChanged: 'Sélection modifiée',
     selectionChangedBody: 'Relance l’analyse pour vérifier {n} calques.',
+    pageChangedBody: 'Relance l’analyse sur cette page.',
     scopeAuto: 'Auto',
     scopeAutoHint: 'Sélection si elle existe, sinon page active',
     setScope: 'Périmètre',
@@ -786,6 +787,7 @@ const fr: Dictionary = {
         'component-missing': '« {value} » est détaché et son composant d’origine est introuvable (supprimé, ou librairie inaccessible).',
         structure: '« {value} » a divergé de son composant : calques ajoutés ou non reproductibles ({detail}). Rattachement manuel.',
         forced: '« {value} » a divergé de son composant ({detail}). Rattachable en conservant le rendu : instance de « {component} » avec {total} overrides, et {extras} calque(s) ajouté(s) gardé(s) au-dessus dans un cadre « {value} ».',
+        'forced-content': '« {value} » a été retravaillé au-delà de la structure de son composant. Rattachable par son contenu : instance de « {component} » avec {texts} texte(s) reporté(s), {hidden} calque(s) du composant masqué(s) et {extras} calque(s) gardé(s) au-dessus.',
       },
       why: 'Un calque détaché ne reçoit plus les mises à jour du composant et dérive du système. Le rattacher ne vaut que si l’instance reproduit exactement ce qui est à l’écran.',
       suggestion: {
@@ -801,6 +803,7 @@ const fr: Dictionary = {
       message: {
         lookalike: '« {value} » ressemble à « {component} » ({score} % : taille, fond, rayons, mise en page, contenu) sans en être une instance. Rattachable en conservant le rendu : {total} overrides, {extras} calque(s) gardé(s) au-dessus.',
         'lookalike-ambiguous': '« {value} » ressemble à « {component} » ({score} %) sans en être une instance ; « {alt} » lui ressemble autant : choisis le bon composant dans le menu de la ligne. Rattachable en conservant le rendu : {total} overrides, {extras} calque(s) gardé(s) au-dessus.',
+        'lookalike-content': '« {value} » ressemble à « {component} » ({score} %) sans en être une instance ; sa structure diffère, l’instance est reconstituée par le contenu : {texts} texte(s) reporté(s), {hidden} calque(s) du composant masqué(s), {extras} calque(s) gardé(s) au-dessus.',
         none: '« {value} » ressemble à « {component} » ({score} %) mais sa structure en est trop éloignée ({detail}). Remplacement manuel.',
       },
       why: 'Un composant recréé à la main n’est pas relié au système : il ne reçoit aucune mise à jour et crée un doublon visuel à maintenir. La ressemblance est estimée sur les propriétés (taille, fond, contour, rayons, mise en page, types d’enfants, couleurs, polices), pas sur les pixels : à confirmer.',
@@ -1184,6 +1187,7 @@ const en: Dictionary = {
     allClearBody: '“{scope}” passes every rule of the {preset} preset.',
     selectionChanged: 'Selection changed',
     selectionChangedBody: 'Reload to check {n} layers.',
+    pageChangedBody: 'Reload to check this page.',
     scopeAuto: 'Auto',
     scopeAutoHint: 'Selection when there is one, otherwise the current page',
     setScope: 'Scope',
@@ -1714,6 +1718,7 @@ const en: Dictionary = {
         'component-missing': '“{value}” is detached and its original component cannot be found (deleted, or library unavailable).',
         structure: '“{value}” drifted from its component: layers added or not reproducible ({detail}). Manual re-attachment.',
         forced: '“{value}” drifted from its component ({detail}). Re-attachable while keeping the rendering: instance of “{component}” with {total} overrides, and {extras} added layer(s) kept above in a “{value}” frame.',
+        'forced-content': '“{value}” was reworked beyond its component structure. Re-attachable by content: instance of “{component}” with {texts} text(s) carried over, {hidden} component layer(s) hidden and {extras} layer(s) kept above.',
       },
       why: 'A detached layer no longer receives component updates and drifts from the system. Re-attaching is only worth it when the instance reproduces exactly what is on screen.',
       suggestion: {
@@ -1729,6 +1734,7 @@ const en: Dictionary = {
       message: {
         lookalike: '“{value}” looks like “{component}” ({score}%: size, fill, radii, layout, content) without being an instance. Re-attachable while keeping the rendering: {total} overrides, {extras} layer(s) kept above.',
         'lookalike-ambiguous': '“{value}” looks like “{component}” ({score}%) without being an instance; “{alt}” looks just as close: pick the right component in the row menu. Re-attachable while keeping the rendering: {total} overrides, {extras} layer(s) kept above.',
+        'lookalike-content': '“{value}” looks like “{component}” ({score}%) without being an instance; its structure differs, so the instance is rebuilt from the content: {texts} text(s) carried over, {hidden} component layer(s) hidden, {extras} layer(s) kept above.',
         none: '“{value}” looks like “{component}” ({score}%) but its structure is too different ({detail}). Manual replacement.',
       },
       why: 'A hand-made copy is not linked to the system: it receives no update and creates a visual duplicate to maintain. The resemblance is estimated from properties (size, fill, stroke, radii, layout, child types, colors, fonts), not pixels: confirm it.',
@@ -1918,6 +1924,8 @@ function variantKeys(issue: Issue): (string | undefined)[] {
   if (!issue.suggestion && issue.ruleId === 'a11y/text-contrast') keys.push('none');
   // Ressemblance avec un autre candidat au menu : message dédié.
   if (confidence === 'lookalike' && typeof p.ambiguous === 'number' && p.ambiguous > 0) keys.push('lookalike-ambiguous');
+  // Rattachement reconstitué par le contenu (structures différentes) : message dédié.
+  if (p.match === 'content') keys.push(`${confidence}-content`);
   keys.push(confidence);
   if (typeof p.state === 'string') keys.push(p.state);
   if (typeof p.reason === 'string') keys.push(p.reason);

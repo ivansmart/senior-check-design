@@ -17,8 +17,9 @@ export interface ComponentIndex {
   sources: Record<ComponentSource, number>;
 }
 
-/** Bornes : composants indexés, instances interrogées (composant principal), temps total. */
-const MAX_COMPONENTS = 800;
+/** Bornes : composants indexés, variantes retenues par jeu, instances interrogées (composant principal), temps total. */
+const MAX_COMPONENTS = 2500;
+const MAX_PER_FAMILY = 80;
 const MAX_INSTANCE_LOOKUPS = 1500;
 const INSTANCE_LOOKUP_BUDGET_MS = 1500;
 const PAGES_BUDGET_MS = 3000;
@@ -26,11 +27,20 @@ const PAGES_BUDGET_MS = 3000;
 /** Famille d'un composant : son jeu de variantes, sinon lui-même. */
 export const familyOf = (comp: ComponentNode): string => (comp.parent?.type === 'COMPONENT_SET' ? comp.parent.id : comp.id);
 
-/** Ajoute un composant et, si le jeu est accessible, ses variantes sœurs. */
+/**
+ * Ajoute un composant et, si le jeu est accessible, ses variantes sœurs (au plus MAX_PER_FAMILY par jeu,
+ * réparties sur tout le jeu : un bouton à mille variantes ne doit pas évincer les autres composants).
+ */
 export function addComponent(ctx: ScanContext, comp: ComponentNode, source: ComponentSource): boolean {
   if (ctx.componentPool.size >= MAX_COMPONENTS) return false;
   const set = comp.parent?.type === 'COMPONENT_SET' ? comp.parent : null;
-  const members = set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT') : [comp];
+  let members = set ? set.children.filter((c): c is ComponentNode => c.type === 'COMPONENT') : [comp];
+  if (members.length > MAX_PER_FAMILY) {
+    const step = members.length / MAX_PER_FAMILY;
+    const sampled = new Set<ComponentNode>([comp]);
+    for (let i = 0; sampled.size < MAX_PER_FAMILY && i < members.length; i = Math.ceil(i + step)) sampled.add(members[i]);
+    members = [...sampled];
+  }
   for (const c of members) {
     if (ctx.componentPool.has(c.id)) continue;
     if (ctx.componentPool.size >= MAX_COMPONENTS) return false;

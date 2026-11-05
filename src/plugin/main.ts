@@ -163,7 +163,10 @@ const selectionKey = (nodes: readonly SceneNode[]) => nodes.map((n) => n.id).sor
 function postSelection() {
   const sel = figma.currentPage.selection;
   const key = selectionKey(sel);
-  post({ type: 'selection', count: sel.length, ids: sel.slice(0, 50).map((n) => n.id), programmatic: key !== '' && key === programmaticSelectionKey });
+  const programmatic = key !== '' && key === programmaticSelectionKey;
+  // Dès que l'utilisateur sélectionne autre chose, la sélection posée par le plugin ne compte plus comme telle.
+  if (!programmatic) programmaticSelectionKey = '';
+  post({ type: 'selection', count: sel.length, ids: sel.slice(0, 50).map((n) => n.id), programmatic });
 }
 
 function planFor(issueId: string, alternativeId?: string): FixPlan | undefined {

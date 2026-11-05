@@ -1,5 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
-import { matchTrees, type OverrideOp } from '../../shared/reattach';
+import { matchBest, type OverrideOp } from '../../shared/reattach';
 import { newBudget, toTree } from '../reattach-live';
 import type { FixPlan } from './plans';
 
@@ -160,7 +160,7 @@ export async function applyPlan(issueId: string, plan: FixPlan): Promise<UndoEnt
       // Correspondance recalculée sur l'état courant du calque : les corrections appliquées juste
       // avant (couleurs, styles, enfants déjà rattachés) sont prises en compte au lieu du plan figé
       // à l'analyse. Un plan non forcé garde ses overrides d'analyse si le calque a changé de structure.
-      const live = matchTrees(await toTree(frame, 0, newBudget()), await toTree(component, 0, newBudget()));
+      const live = matchBest(await toTree(frame, 0, newBudget()), await toTree(component, 0, newBudget()));
       const useLive = live.ok || plan.forced === true;
       const overrides = useLive ? live.overrides : plan.overrides;
       const extraPaths = useLive ? live.extras : (plan.extras ?? []);

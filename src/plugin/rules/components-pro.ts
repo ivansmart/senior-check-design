@@ -1,7 +1,7 @@
 /// <reference types="@figma/plugin-typings" />
 /** Composants (Pro) : rattachement des instances détachées, obsolètes encore utilisés, variantes orphelines, imbrications inutiles, documentation et statut. */
 import { DEPRECATED_RE, STATUS_RE } from '../../shared/names';
-import { forcedCost, matchTrees, summarizeOverrides, type MatchResult } from '../../shared/reattach';
+import { forcedCost, matchBest, summarizeOverrides, type MatchResult } from '../../shared/reattach';
 import { MAX_FORCED_EXTRAS, newBudget, reasonDetail, reattachPlan, toTree, variantLabel } from '../reattach-live';
 import { addComponent } from '../scan/component-index';
 import type { RawIssue, ScanContext } from '../scan/context';
@@ -45,7 +45,8 @@ async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIss
   const matches: { comp: ComponentNode; result: MatchResult }[] = [];
   const all: { comp: ComponentNode; result: MatchResult }[] = [];
   for (const comp of candidates) {
-    const result = matchTrees(detachedTree, await toTree(comp, 0, newBudget()));
+    // Par structure quand elle correspond ; sinon par contenu (feuilles en ordre de lecture) si c'est plus fidèle.
+    const result = matchBest(detachedTree, await toTree(comp, 0, newBudget()));
     all.push({ comp, result });
     if (result.ok) matches.push({ comp, result });
   }
@@ -69,6 +70,8 @@ async function checkReattach(frame: FrameNode, ctx: ScanContext): Promise<RawIss
           component: label,
           detail: reasonDetail(best.result.reasons),
           extras: best.result.extras.length,
+          hidden: best.result.stats.hidden,
+          match: best.result.mode ?? 'tree',
           total: best.result.overrides.length,
           texts: sum.texts,
           visibility: sum.visibility,

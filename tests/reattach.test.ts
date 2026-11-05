@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { forcedCost, matchTrees, summarizeOverrides, type TreeNode } from '../src/shared/reattach';
+import { collectLeaves, forcedCost, matchBest, matchByContent, matchTrees, summarizeOverrides, type TreeNode } from '../src/shared/reattach';
 
 const n = (type: string, name: string, extra: Partial<TreeNode> = {}, children: TreeNode[] = []): TreeNode => ({
   type,
@@ -114,6 +114,48 @@ test('copie à la main : texte posé dans un cadre d’habillage, ou l’inverse
   // Un cadre avec un fond visible n'est pas un simple habillage : il reste un ajout.
   const pill = n('FRAME', 'CTA', {}, [n('FRAME', 'Pill', { fills: [{ type: 'SOLID', visible: true }], strokes: [] }, [text('Texte', 'Acheter')])]);
   assert.equal(matchTrees(pill, comp).ok, false);
+});
+
+test('appariement par contenu : carte recréée avec une autre imbrication, textes reportés, icône masquée, image conservée', () => {
+  const vector = (name: string) => n('VECTOR', name, { fillsKey: 'v', fills: [{ type: 'SOLID', visible: true }] });
+  const icon = n('INSTANCE', 'Features icons/80', { mainId: 'c:icon', mainRemote: false }, [vector('a'), vector('b')]);
+  const stat = (v: string, l: string) => n('FRAME', 'Stat', {}, [text('Value', v, { fontSize: 24, fontName: { family: 'Onest', style: 'SemiBold' } }), text('Label', l, { fontSize: 14 })]);
+  const comp = n('COMPONENT', 'Card / Statistic', {}, [
+    n('FRAME', 'Content', {}, [
+      icon,
+      n('FRAME', 'Content Header', {}, [
+        n('FRAME', 'Feature Text', {}, [text('Title', 'Titre', { fontSize: 20, fontName: { family: 'Onest', style: 'SemiBold' } }), text('Description', 'Description', { fontSize: 20 })]),
+        n('FRAME', 'Statistics', {}, [stat('10', 'A'), stat('20', 'B'), stat('30', 'C')]),
+      ]),
+    ]),
+  ]);
+  const image = n('RECTANGLE', 'image 2', { fillsKey: 'img', fills: [{ type: 'IMAGE', visible: true, imageHash: 'h' }] });
+  const copy = n('FRAME', 'Frame 58', {}, [
+    image,
+    n('FRAME', 'Frame 60', {}, [
+      n('FRAME', 'Frame 65', {}, [text('Croix Rouge', 'Croix Rouge Française', { fontSize: 20, fontName: { family: 'Onest', style: 'SemiBold' } }), text('Desc', 'Première organisation…', { fontSize: 20 })]),
+      n('FRAME', 'Frame 64', {}, [stat('1 200', 'Bénévoles'), stat('5', 'Antennes'), stat('98 %', 'Dons')]),
+    ]),
+  ]);
+  assert.deepEqual(collectLeaves(comp).map((l) => l.kind), ['ICON', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT']);
+  assert.deepEqual(collectLeaves(copy).map((l) => l.kind), ['IMAGE', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT']);
+  const r = matchByContent(copy, comp);
+  assert.equal(r.mode, 'content');
+  assert.equal(r.stats.texts, 8, 'les 8 textes sont reportés');
+  assert.ok(r.overrides.some((o) => o.op === 'text' && o.value === 'Croix Rouge Française' && o.path.join('.') === '0.1.0.0'));
+  assert.ok(r.overrides.some((o) => o.op === 'text' && o.value === 'Bénévoles' && o.path.join('.') === '0.1.1.0.1'));
+  // Image à la place de l'icône : apparentées par la place, l'icône garde sa place dans la mise en page et l'image est conservée au-dessus.
+  assert.equal(r.overrides.some((o) => o.op === 'visible' && o.path.join('.') === '0.0'), false, 'l’icône du composant reste visible (sous l’image)');
+  assert.equal(r.stats.hidden, 0);
+  assert.deepEqual(r.extras, [[0]], 'l’image reste au-dessus');
+  // Le meilleur appariement est celui par contenu : la structure ne correspond pas.
+  const best = matchBest(copy, comp);
+  assert.equal(best.mode, 'content');
+  assert.ok(forcedCost(best) < forcedCost(matchTrees(copy, comp)));
+  // Structure identique : l'appariement par structure reste préféré.
+  const same = component();
+  same.type = 'FRAME';
+  assert.equal(matchBest(same, component()).mode, 'tree');
 });
 
 test('calque ajouté dans un enfant : chemin détaché précis pour le mode forcé', () => {

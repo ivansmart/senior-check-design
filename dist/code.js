@@ -576,7 +576,151 @@ module.exports = {
     return out;
   }
   function forcedCost(result) {
-    return result.extras.length * 5 + result.reasons.length * 3 + result.overrides.length;
+    return result.extras.length * 5 + result.reasons.length * 3 + result.stats.hidden * 2 + result.overrides.length;
+  }
+  var SHAPE_TYPES = /* @__PURE__ */ new Set(["VECTOR", "BOOLEAN_OPERATION", "LINE", "STAR", "POLYGON", "ELLIPSE", "RECTANGLE"]);
+  var MAX_LEAVES = 200;
+  var MAX_LEAF_DEPTH = 8;
+  var hasImage = (n) => {
+    var _a;
+    return ((_a = n.fills) != null ? _a : []).some((p) => p.type === "IMAGE" && p.visible !== false);
+  };
+  var painted = (n) => {
+    var _a, _b;
+    return ((_a = n.fills) != null ? _a : []).some((p) => p.visible !== false) || ((_b = n.strokes) != null ? _b : []).some((p) => p.visible !== false);
+  };
+  function allShapes(n, depth = 0) {
+    if (depth > 4) return false;
+    let any = false;
+    for (const c of n.children) {
+      if (!c.visible) continue;
+      if (SHAPE_TYPES.has(c.type) && !hasImage(c)) {
+        any = true;
+        continue;
+      }
+      if (c.children.length && allShapes(c, depth + 1)) {
+        any = true;
+        continue;
+      }
+      return false;
+    }
+    return any;
+  }
+  var textRole = (n) => {
+    const size = typeof n.fontSize === "number" ? Math.round(n.fontSize / 2) * 2 : 0;
+    const style = n.fontName && n.fontName !== "mixed" ? n.fontName.style : "";
+    return `${size}|${/bold|semi|medium|black|heavy|extra/i.test(style) ? "b" : "r"}`;
+  };
+  function collectLeaves(root, path = [], out = [], depth = 0) {
+    for (let i = 0; i < root.children.length && out.length < MAX_LEAVES; i++) {
+      const c = root.children[i];
+      if (!c.visible) continue;
+      const p = [...path, i];
+      if (c.type === "TEXT") out.push({ node: c, path: p, kind: "TEXT", role: textRole(c) });
+      else if (hasImage(c)) out.push({ node: c, path: p, kind: "IMAGE", role: "" });
+      else if (SHAPE_TYPES.has(c.type)) out.push({ node: c, path: p, kind: "SHAPE", role: "" });
+      else if (c.children.length) {
+        if (allShapes(c)) out.push({ node: c, path: p, kind: "ICON", role: "" });
+        else if (depth < MAX_LEAF_DEPTH) collectLeaves(c, p, out, depth + 1);
+      } else if (c.type === "INSTANCE") out.push({ node: c, path: p, kind: "INSTANCE", role: "" });
+      else if (painted(c)) out.push({ node: c, path: p, kind: "BOX", role: "" });
+    }
+    return out;
+  }
+  var MEDIA = /* @__PURE__ */ new Set(["ICON", "IMAGE", "SHAPE", "BOX", "INSTANCE"]);
+  function pairScore(d, c) {
+    if (d.kind !== c.kind) {
+      return MEDIA.has(d.kind) && MEDIA.has(c.kind) ? 0.5 : 0;
+    }
+    switch (d.kind) {
+      case "TEXT":
+        return d.role === c.role ? 1 : 0.6;
+      case "SHAPE":
+      case "BOX":
+        return 0.7;
+      default:
+        return 1;
+    }
+  }
+  function align(D, C) {
+    const m = D.length;
+    const n = C.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i2 = 1; i2 <= m; i2++) {
+      for (let j2 = 1; j2 <= n; j2++) {
+        const s = pairScore(D[i2 - 1], C[j2 - 1]);
+        dp[i2][j2] = Math.max(dp[i2 - 1][j2], dp[i2][j2 - 1], s > 0 ? dp[i2 - 1][j2 - 1] + s : 0);
+      }
+    }
+    const pairs = [];
+    let i = m;
+    let j = n;
+    while (i > 0 && j > 0) {
+      const s = pairScore(D[i - 1], C[j - 1]);
+      if (s > 0 && dp[i][j] === dp[i - 1][j - 1] + s) {
+        pairs.push([D[i - 1], C[j - 1]]);
+        i--;
+        j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) i--;
+      else j--;
+    }
+    return pairs.reverse();
+  }
+  function matchByContent(detached, component) {
+    var _a, _b, _c;
+    const out = { ok: false, mode: "content", overrides: [], extras: [], reasons: [], stats: { matched: 0, hidden: 0, texts: 0, added: 0 } };
+    if (Math.abs(detached.opacity - component.opacity) > 1e-3) out.overrides.push({ path: [], op: "opacity", value: detached.opacity });
+    if (paintsDiffer(detached.fillsKey, component.fillsKey, detached.fillsVisual, component.fillsVisual) && detached.fills && detached.fillsKey !== "mixed") out.overrides.push({ path: [], op: "fills", value: detached.fills });
+    if (paintsDiffer(detached.strokesKey, component.strokesKey, detached.strokesVisual, component.strokesVisual) && detached.strokes && detached.strokesKey !== "mixed") out.overrides.push({ path: [], op: "strokes", value: detached.strokes });
+    const D = collectLeaves(detached);
+    const C = collectLeaves(component);
+    const pairs = align(D, C);
+    const usedD = /* @__PURE__ */ new Set();
+    const usedC = /* @__PURE__ */ new Set();
+    for (const [d, c] of pairs) {
+      usedD.add(d);
+      usedC.add(c);
+      out.stats.matched++;
+      if (d.kind !== c.kind) {
+        out.stats.added++;
+        out.reasons.push(`added:${d.node.name}`);
+        out.extras.push(d.path);
+        continue;
+      }
+      if (d.kind === "TEXT") {
+        if (((_a = d.node.text) != null ? _a : "") !== ((_b = c.node.text) != null ? _b : "")) {
+          out.overrides.push({ path: c.path, op: "text", value: (_c = d.node.text) != null ? _c : "" });
+          out.stats.texts++;
+        }
+      } else if (d.kind === "ICON" || d.kind === "INSTANCE") {
+        if (d.node.type === "INSTANCE" && c.node.type === "INSTANCE" && d.node.mainId !== void 0 && c.node.mainId !== void 0 && d.node.mainId !== c.node.mainId) {
+          if (d.node.mainId && !d.node.mainRemote) out.overrides.push({ path: c.path, op: "swap", componentId: d.node.mainId });
+          else if (d.node.mainKey) out.overrides.push({ path: c.path, op: "swap", componentKey: d.node.mainKey });
+        }
+      } else {
+        if (paintsDiffer(d.node.fillsKey, c.node.fillsKey, d.node.fillsVisual, c.node.fillsVisual) && d.node.fills && d.node.fillsKey !== "mixed") out.overrides.push({ path: c.path, op: "fills", value: d.node.fills });
+        if (paintsDiffer(d.node.strokesKey, c.node.strokesKey, d.node.strokesVisual, c.node.strokesVisual) && d.node.strokes && d.node.strokesKey !== "mixed") out.overrides.push({ path: c.path, op: "strokes", value: d.node.strokes });
+      }
+    }
+    for (const c of C) {
+      if (usedC.has(c)) continue;
+      out.overrides.push({ path: c.path, op: "visible", value: false });
+      out.stats.hidden++;
+    }
+    for (const d of D) {
+      if (usedD.has(d)) continue;
+      out.stats.added++;
+      out.reasons.push(`added:${d.node.name}`);
+      out.extras.push(d.path);
+    }
+    return out;
+  }
+  function matchBest(detached, component) {
+    const tree = matchTrees(detached, component);
+    tree.mode = "tree";
+    if (tree.ok) return tree;
+    const content = matchByContent(detached, component);
+    return forcedCost(content) < forcedCost(tree) ? content : tree;
   }
   function summarizeOverrides(result) {
     let texts = 0;
@@ -830,7 +974,7 @@ module.exports = {
         for (let p = parent; p && p.type !== "PAGE" && p.type !== "DOCUMENT"; p = p.parent) if (p.type === "INSTANCE") throw new FixError("inside-instance");
         const component = await resolveComponent(plan);
         const host = parent;
-        const live = matchTrees(await toTree(frame, 0, newBudget()), await toTree(component, 0, newBudget()));
+        const live = matchBest(await toTree(frame, 0, newBudget()), await toTree(component, 0, newBudget()));
         const useLive = live.ok || plan.forced === true;
         const overrides = useLive ? live.overrides : plan.overrides;
         const extraPaths = useLive ? live.extras : (_a = plan.extras) != null ? _a : [];
@@ -2516,7 +2660,8 @@ module.exports = {
   }
 
   // src/plugin/scan/component-index.ts
-  var MAX_COMPONENTS = 800;
+  var MAX_COMPONENTS = 2500;
+  var MAX_PER_FAMILY = 80;
   var MAX_INSTANCE_LOOKUPS = 1500;
   var INSTANCE_LOOKUP_BUDGET_MS = 1500;
   var PAGES_BUDGET_MS = 3e3;
@@ -2528,7 +2673,13 @@ module.exports = {
     var _a;
     if (ctx.componentPool.size >= MAX_COMPONENTS) return false;
     const set = ((_a = comp.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" ? comp.parent : null;
-    const members = set ? set.children.filter((c) => c.type === "COMPONENT") : [comp];
+    let members = set ? set.children.filter((c) => c.type === "COMPONENT") : [comp];
+    if (members.length > MAX_PER_FAMILY) {
+      const step = members.length / MAX_PER_FAMILY;
+      const sampled = /* @__PURE__ */ new Set([comp]);
+      for (let i = 0; sampled.size < MAX_PER_FAMILY && i < members.length; i = Math.ceil(i + step)) sampled.add(members[i]);
+      members = [...sampled];
+    }
     for (const c of members) {
       if (ctx.componentPool.has(c.id)) continue;
       if (ctx.componentPool.size >= MAX_COMPONENTS) return false;
@@ -2615,7 +2766,7 @@ module.exports = {
     return { ruleId: "components/reattach-instance", node: frame, currentValue: frame.name, fixSafety: "none", params: { confidence: "none", reason, detail, origin: (_b = (_a = frame.detachedInfo) == null ? void 0 : _a.type) != null ? _b : "local" } };
   }
   async function checkReattach(frame, ctx) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const info = frame.detachedInfo;
     if (!info) return;
     if (ancestors(frame, ctx).some((a) => a.type === "INSTANCE")) return [manualReattach(frame, "inside-instance")];
@@ -2631,7 +2782,7 @@ module.exports = {
     const matches = [];
     const all = [];
     for (const comp of candidates) {
-      const result = matchTrees(detachedTree, await toTree(comp, 0, newBudget()));
+      const result = matchBest(detachedTree, await toTree(comp, 0, newBudget()));
       all.push({ comp, result });
       if (result.ok) matches.push({ comp, result });
     }
@@ -2653,6 +2804,8 @@ module.exports = {
             component: label2,
             detail: reasonDetail(best2.result.reasons),
             extras: best2.result.extras.length,
+            hidden: best2.result.stats.hidden,
+            match: (_d = best2.result.mode) != null ? _d : "tree",
             total: best2.result.overrides.length,
             texts: sum2.texts,
             visibility: sum2.visibility,
@@ -2811,9 +2964,9 @@ module.exports = {
   ];
 
   // src/shared/lookalike.ts
-  var LOOKALIKE_MIN = 0.8;
+  var LOOKALIKE_MIN = 0.76;
   var LOOKALIKE_MARGIN = 0.04;
-  var LOOKALIKE_MAX_SIZE_DIFF = 0.25;
+  var LOOKALIKE_MAX_SIZE_DIFF = 0.35;
   function jaccard(a, b) {
     if (!a.length && !b.length) return 1;
     const A = new Set(a);
@@ -2843,30 +2996,38 @@ module.exports = {
     }
     return union2 ? inter / union2 : 1;
   }
-  function sizeDiff(a, b) {
-    const dx = Math.abs(a.w - b.w) / Math.max(1, b.w) * (b.hug[0] ? 0.4 : 1);
-    const dy = Math.abs(a.h - b.h) / Math.max(1, b.h) * (b.hug[1] ? 0.4 : 1);
-    return Math.max(dx, dy);
+  var textsSim = (a, b) => 1 - Math.abs(a.texts - b.texts) / Math.max(1, a.texts, b.texts);
+  function contentStrong(a, b) {
+    return a.texts >= 2 && b.texts >= 2 && jaccard(a.fonts, b.fonts) >= 0.6 && multiJaccard(a.leafKinds, b.leafKinds) >= 0.6 && textsSim(a, b) >= 0.75;
   }
+  function sizeDiff(a, b, soft = false) {
+    const dx = a.stretch[0] ? 0 : Math.abs(a.w - b.w) / Math.max(1, b.w) * (b.hug[0] ? 0.4 : 1);
+    const dy = a.stretch[1] ? 0 : Math.abs(a.h - b.h) / Math.max(1, b.h) * (b.hug[1] ? 0.4 : 1);
+    return soft ? Math.min(dx, dy) : Math.max(dx, dy);
+  }
+  var strokeWeight = (s) => s ? Number(s.split("@")[1]) || 0 : 0;
   function similarity(a, b) {
-    const size = 1 - Math.min(1, sizeDiff(a, b) * 2.5);
-    const radius = 1 - Math.min(1, Math.abs(a.radius - b.radius) / 8);
+    const strong = contentStrong(a, b);
+    const size = 1 - Math.min(1, sizeDiff(a, b, strong) * 2.5);
+    const radius = 1 - Math.min(1, Math.abs(a.radius - b.radius) / 16);
     const fill = a.fill === b.fill ? 1 : 0;
-    const stroke = a.stroke === b.stroke ? 1 : 0;
+    const stroke = a.stroke === b.stroke ? 1 : (a.stroke === null || b.stroke === null) && Math.max(strokeWeight(a.stroke), strokeWeight(b.stroke)) <= 1 ? 0.5 : 0;
     const padClose = a.pad.every((v, i) => Math.abs(v - b.pad[i]) <= 2) && Math.abs(a.gap - b.gap) <= 2;
-    const layout = a.layout === b.layout ? a.layout === "NONE" || padClose ? 1 : 0.6 : 0;
+    const layout = a.layout === b.layout ? a.layout === "NONE" || padClose ? 1 : 0.7 : a.layout !== "NONE" && b.layout !== "NONE" ? 0.4 : 0;
     const kinds = multiJaccard(a.kinds, b.kinds);
+    const leaves = multiJaccard(a.leafKinds, b.leafKinds);
     const colors = jaccard(a.colors, b.colors);
     const fonts = jaccard(a.fonts, b.fonts);
+    const texts = textsSim(a, b);
     const effects = a.effects === b.effects ? 1 : 0.5;
-    return 0.22 * size + 0.1 * radius + 0.18 * fill + 0.08 * stroke + 0.12 * layout + 0.1 * kinds + 0.1 * colors + 0.07 * fonts + 0.03 * effects;
+    return 0.12 * size + 0.08 * radius + 0.18 * fill + 0.05 * stroke + 0.05 * layout + 0.07 * kinds + 0.15 * leaves + 0.08 * colors + 0.12 * fonts + 0.07 * texts + 0.03 * effects;
   }
   function plausible(a, b) {
-    if (sizeDiff(a, b) > LOOKALIKE_MAX_SIZE_DIFF) return false;
+    if (sizeDiff(a, b, contentStrong(a, b)) > LOOKALIKE_MAX_SIZE_DIFF) return false;
     const surface = a.fill !== null && a.fill === b.fill || a.stroke !== null && a.stroke === b.stroke;
     if (!surface) return false;
-    const content = (multiJaccard(a.kinds, b.kinds) + jaccard(a.colors, b.colors) + jaccard(a.fonts, b.fonts)) / 3;
-    return content >= 0.5;
+    const content = (multiJaccard(a.leafKinds, b.leafKinds) + jaccard(a.fonts, b.fonts) + jaccard(a.colors, b.colors)) / 3;
+    return content >= 0.45;
   }
   var tokens = (s) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1));
   function nameOverlap(a, b) {
@@ -2894,8 +3055,8 @@ module.exports = {
   // src/plugin/rules/lookalike.ts
   var RULE_ID = "components/lookalike-frame";
   var MAX_FRAMES = 1500;
-  var MAX_SIG_NODES = 120;
-  var SIG_DEPTH = 3;
+  var MAX_SIG_NODES = 160;
+  var SIG_DEPTH = 6;
   var MAX_SIDE = 1200;
   var MIN_SIDE = 8;
   var BUDGET_MS = 4e3;
@@ -2912,6 +3073,7 @@ module.exports = {
     STAR: "SHAPE",
     POLYGON: "SHAPE"
   };
+  var SHAPES = /* @__PURE__ */ new Set(["VECTOR", "BOOLEAN_OPERATION", "LINE", "STAR", "POLYGON", "ELLIPSE", "RECTANGLE"]);
   function paintKey(paints) {
     if (paints === figma.mixed) return "mixed";
     const p = paints.find((x) => {
@@ -2922,16 +3084,41 @@ module.exports = {
     if (p.type === "SOLID") return rgbToHex(p.color).slice(0, 7).toLowerCase();
     return p.type === "IMAGE" ? "image" : "gradient";
   }
+  var hasImageFill = (n) => "fills" in n && n.fills !== figma.mixed && n.fills.some((p) => p.type === "IMAGE" && p.visible !== false);
+  function allShapes2(n, depth = 0, budget = { left: 60 }) {
+    if (depth > 4) return false;
+    let any = false;
+    for (const c of n.children) {
+      if (!c.visible) continue;
+      if (--budget.left < 0) return false;
+      if (SHAPES.has(c.type) && !hasImageFill(c)) {
+        any = true;
+        continue;
+      }
+      if ("children" in c && c.children.length && allShapes2(c, depth + 1, budget)) {
+        any = true;
+        continue;
+      }
+      return false;
+    }
+    return any;
+  }
   function signature(node) {
     const kids = node.children.filter((c) => c.visible);
     if (!kids.length) return null;
     const strokeColor = paintKey(node.strokes);
     const hugPrimary = node.layoutMode !== "NONE" && node.primaryAxisSizingMode === "AUTO";
     const hugCounter = node.layoutMode !== "NONE" && node.counterAxisSizingMode === "AUTO";
+    let stretch = [false, false];
+    try {
+      stretch = [node.layoutSizingHorizontal === "FILL", node.layoutSizingVertical === "FILL"];
+    } catch {
+    }
     const sig = {
       w: node.width,
       h: node.height,
       hug: node.layoutMode === "VERTICAL" ? [hugCounter, hugPrimary] : [hugPrimary, hugCounter],
+      stretch,
       radius: node.cornerRadius === figma.mixed ? node.topLeftRadius : node.cornerRadius,
       layout: node.layoutMode,
       pad: node.layoutMode === "NONE" ? [0, 0, 0, 0] : [node.paddingTop, node.paddingRight, node.paddingBottom, node.paddingLeft],
@@ -2943,27 +3130,62 @@ module.exports = {
         var _a;
         return (_a = KIND[c.type]) != null ? _a : "OTHER";
       }).sort(),
+      leafKinds: [],
+      texts: 0,
       fonts: [],
       colors: [],
       nodes: 0
     };
     const fonts = /* @__PURE__ */ new Set();
     const colors = /* @__PURE__ */ new Set();
+    const leaves = [];
     let count = 0;
+    const addColor = (n) => {
+      if (!("fills" in n)) return;
+      const k = paintKey(n.fills);
+      if (k && k.startsWith("#") && colors.size < 12) colors.add(k);
+    };
     const walk = (n, depth) => {
+      var _a, _b;
       if (++count > MAX_SIG_NODES) return false;
-      if (n.type === "TEXT" && n.fontName !== figma.mixed && n.fontSize !== figma.mixed) fonts.add(`${n.fontName.family}|${n.fontName.style}|${n.fontSize}`);
-      if ("fills" in n) {
-        const k = paintKey(n.fills);
-        if (k && k.startsWith("#") && colors.size < 12) colors.add(k);
+      if (n.type === "TEXT") {
+        if (n.fontName !== figma.mixed && n.fontSize !== figma.mixed) fonts.add(`${n.fontName.family}|${n.fontName.style}|${n.fontSize}`);
+        addColor(n);
+        leaves.push("TEXT");
+        sig.texts++;
+        return true;
       }
-      if ("children" in n && depth < SIG_DEPTH) {
-        for (const c of n.children) if (c.visible && !walk(c, depth + 1)) return false;
+      if (hasImageFill(n)) {
+        leaves.push("IMAGE");
+        return true;
+      }
+      if (SHAPES.has(n.type)) {
+        addColor(n);
+        leaves.push("SHAPE");
+        return true;
+      }
+      const children = "children" in n ? n.children : [];
+      if (children.length) {
+        if (allShapes2(n)) {
+          leaves.push("ICON");
+          return true;
+        }
+        addColor(n);
+        if (depth < SIG_DEPTH) {
+          for (const c of children) if (c.visible && !walk(c, depth + 1)) return false;
+        }
+        return true;
+      }
+      if (n.type === "INSTANCE") leaves.push("INSTANCE");
+      else if (paintKey((_a = n.fills) != null ? _a : []) || paintKey((_b = n.strokes) != null ? _b : [])) {
+        addColor(n);
+        leaves.push("BOX");
       }
       return true;
     };
     for (const c of kids) if (!walk(c, 1)) return null;
     sig.nodes = count;
+    sig.leafKinds = leaves.sort();
     sig.fonts = [...fonts].sort();
     sig.colors = [...colors].sort();
     return sig;
@@ -2992,7 +3214,7 @@ module.exports = {
         ctx.lookalikeFrames.push(frame);
       },
       finalize: async (ctx) => {
-        var _a, _b;
+        var _a, _b, _c;
         const frames = ctx.lookalikeFrames.filter((f) => !f.removed && (!f.detachedInfo || ctx.reattachMissingOrigin.has(f.id)));
         if (!frames.length) return;
         const index = await buildComponentIndex(ctx);
@@ -3001,6 +3223,10 @@ module.exports = {
         const t0 = Date.now();
         const candidates = [];
         for (let i = 0; i < comps.length; i++) {
+          if (Date.now() - t0 > BUDGET_MS / 2) {
+            ctx.warnings.push(`rule-partial:${RULE_ID}`);
+            break;
+          }
           const comp = comps[i];
           const sig = signature(comp);
           if (sig) candidates.push({ sig, family: familyOf(comp), item: comp });
@@ -3021,7 +3247,7 @@ module.exports = {
           if (!found) continue;
           const comp = found.item;
           const frameTree = await toTree(frame, 0, newBudget());
-          const result = matchTrees(frameTree, await toTree(comp, 0, newBudget()));
+          const result = matchBest(frameTree, await toTree(comp, 0, newBudget()));
           const label = variantLabel(comp);
           const score = Math.round(found.score * 100);
           if (result.extras.length > MAX_FORCED_EXTRAS) {
@@ -3032,7 +3258,7 @@ module.exports = {
           const alternatives = [];
           const alternativePlans = {};
           for (const alt of found.alternatives) {
-            const altResult = matchTrees(frameTree, await toTree(alt.item, 0, newBudget()));
+            const altResult = matchBest(frameTree, await toTree(alt.item, 0, newBudget()));
             if (altResult.extras.length > MAX_FORCED_EXTRAS) continue;
             const id = `comp:${alt.item.id}`;
             alternatives.push({ id, label: variantLabel(alt.item), value: `${Math.round(alt.score * 100)} %` });
@@ -3054,8 +3280,10 @@ module.exports = {
               visibility: sum.visibility,
               paints: sum.paints,
               detail: reasonDetail(result.reasons),
+              hidden: result.stats.hidden,
+              match: (_a = result.mode) != null ? _a : "tree",
               ambiguous: alternatives.length,
-              alt: (_b = (_a = alternatives[0]) == null ? void 0 : _a.label) != null ? _b : ""
+              alt: (_c = (_b = alternatives[0]) == null ? void 0 : _b.label) != null ? _c : ""
             },
             plan: reattachPlan(frame, comp, result, true),
             alternativePlans: alternatives.length ? alternativePlans : void 0
@@ -4976,7 +5204,9 @@ module.exports = {
   function postSelection() {
     const sel = figma.currentPage.selection;
     const key = selectionKey(sel);
-    post({ type: "selection", count: sel.length, ids: sel.slice(0, 50).map((n) => n.id), programmatic: key !== "" && key === programmaticSelectionKey });
+    const programmatic = key !== "" && key === programmaticSelectionKey;
+    if (!programmatic) programmaticSelectionKey = "";
+    post({ type: "selection", count: sel.length, ids: sel.slice(0, 50).map((n) => n.id), programmatic });
   }
   function planFor(issueId, alternativeId) {
     var _a;
